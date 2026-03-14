@@ -43,9 +43,9 @@ The workflow is:
 - **Risk assessment** --- every scenario is annotated with a risk level (high/medium/low) across four dimensions: impact scope, usage frequency, failure consequence, and detectability
 - **YAML test plans** --- machine-readable, version-controllable, human-reviewable test plan artifacts
 - **Interactive HTML reports** --- collapsible scenario trees, approve/reject checkboxes, risk-level dropdowns, links to test code, Example Mapping and Decision Table visualizations
-- **Test code generation** (`/vg generate`) --- produces test code (Python + pytest for MVP) with 1:1 mapping to plan scenarios
-- **Test execution** (`/vg run`) --- runs the generated tests and collects results
-- **Scenario coverage** (`/vg report`) --- combined metric: scenario coverage (weighted by risk) alongside traditional line coverage
+- **Test code generation** (`/vg generate`) --- AI-guided: the LLM produces test code (Python + pytest for MVP) following SKILL.md instructions, with 1:1 mapping to plan scenarios
+- **Test execution** (`/vg run`) --- AI-guided: the LLM runs the generated tests via your project's test runner and collects results
+- **Scenario coverage** (`/vg report`) --- AI-guided: the LLM generates a combined report of scenario coverage (weighted by risk) alongside traditional line coverage
 - **Quick status** (`/vg status`) --- at-a-glance coverage summary without generating a full report
 
 ## Quick Start
@@ -55,21 +55,22 @@ The workflow is:
 Valid Guard is a Claude Code skill. To install it in your project:
 
 ```bash
-# Clone the repository into your Claude Code skills directory
-git clone https://github.com/user/valid-guard.git .claude/skills/valid-guard
+# 1. Clone this repository
+git clone <this-repo-url> valid-guard-repo
+
+# 2. Copy the skill into your project's Claude Code skills directory
+mkdir -p your-project/.claude/skills
+cp -r valid-guard-repo/.claude/skills/valid-guard your-project/.claude/skills/valid-guard
+
+# 3. Verify installation
+ls your-project/.claude/skills/valid-guard/SKILL.md
 ```
 
-Or, if you are using [Skills MP](https://skillsmp.com) or another skills marketplace:
-
-```bash
-npx skills add valid-guard
-```
-
-After installation, restart Claude Code. The `/vg` commands will be available in your session.
+If the file exists, Valid Guard is installed. Restart Claude Code and the `/vg` commands will be available.
 
 ### Prerequisites
 
-- Claude Code v2.1.3 or later (skills support required)
+- **Claude Code v2.1.3 or later** (skills support required; older versions will silently ignore the skill)
 - Python 3.10+ and pytest (for MVP test execution)
 
 ## Usage
@@ -114,7 +115,7 @@ Opens the interactive HTML report where you can:
 /vg generate
 ```
 
-Produces pytest test files in your project's `tests/` directory, with each test function mapped to a plan scenario via `test_ref`.
+AI-guided: the LLM reads your YAML test plan and produces pytest test files in your project's `tests/` directory, with each test function mapped to a plan scenario via `test_ref`. The LLM does the code generation following SKILL.md instructions --- there is no standalone code generator.
 
 ### Run tests
 
@@ -122,7 +123,7 @@ Produces pytest test files in your project's `tests/` directory, with each test 
 /vg run
 ```
 
-Executes the generated tests and collects pass/fail results.
+AI-guided: the LLM invokes your project's test runner (e.g., `pytest`) and collects pass/fail results. This is a convenience command --- it runs the same tests you could run manually.
 
 ### Full coverage report
 
@@ -130,7 +131,7 @@ Executes the generated tests and collects pass/fail results.
 /vg report
 ```
 
-Generates a combined report showing:
+AI-guided: the LLM generates a combined report showing:
 - Scenario coverage (covered / total, weighted by risk)
 - Line-of-code coverage
 - Uncovered high-risk scenarios highlighted
@@ -302,16 +303,20 @@ project-root/
 
 ## Benchmark Results
 
-Valid Guard was evaluated on **30 eval cases** across 11 categories, comparing outputs **with skill** (SKILL.md loaded) vs **without skill** (bare LLM).
+Valid Guard was evaluated on **30 eval cases** across 11 categories. The benchmark measures whether loading SKILL.md causes the LLM to produce outputs that match Valid Guard's expected format and content rubrics.
 
-### Accuracy (30 evals, 11 categories)
+**Baseline**: The "without skill" column is a bare LLM with no instructions --- no SKILL.md, no prompt, no schema reference. This is not a comparison against an alternative tool or methodology; it measures what SKILL.md adds over a zero-context starting point.
+
+### Summary (30 evals, 11 categories)
 
 | Dimension | with_skill | without_skill | Delta | What it measures |
 |---|---|---|---|---|
-| **Content** (test design quality) | **100.0%** | **89.9%** | **+10.1%** | Domain knowledge, technique application, scenario completeness |
-| **Structural** (schema compliance) | **99.2%** | **15.0%** | **+84.2%** | Valid Guard YAML schema fields (risk_rationale, test_ref, metadata, etc.) |
+| **Content** (test design quality) | 100.0% | 89.9% | **+10.1%** | Domain knowledge, technique application, scenario completeness |
+| **Schema compliance** (format adherence) | 99.2% | 15.0% | **+84.2%** | Whether output includes Valid Guard YAML fields (risk_rationale, test_ref, metadata, etc.) |
 
-> The bare LLM already scores ~90% on test design content. The skill's primary value is **structural enforcement** --- ensuring every plan includes risk rationale (4 dimensions), technique rationale, state transitions, decision tables, example mapping, and full traceability metadata.
+> The +84.2% schema compliance delta is expected: the skill defines a custom YAML schema, so a bare LLM with no knowledge of that schema will naturally score low. This measures format adherence, not test design quality.
+>
+> The +10.1% content delta is the more meaningful number. The bare LLM already produces reasonable test design content (~90%); the skill adds structured technique application and risk annotation.
 
 #### Content Score by Category
 
@@ -329,13 +334,21 @@ Valid Guard was evaluated on **30 eval cases** across 11 categories, comparing o
 | Correctness | 100.0% | 98.2% | **+1.8%** |
 | Completeness | 100.0% | 100.0% | **+0.0%** |
 
-#### Structural Score by Category (plan-type evals only)
+> Note: 100.0% content scores across all categories suggest the rubrics may be too lenient. The rubrics use regex pattern matching, which can over-credit superficial keyword presence. Take per-category scores as directional, not precise.
 
-| Category | with_skill | without_skill | Structural Delta |
+#### Schema Compliance by Category (plan-type evals only)
+
+| Category | with_skill | without_skill | Delta |
 |---|---|---|---|
 | All plan-type evals (22) | 99.2% | 15.0% | **+84.2%** |
 
-> Without the skill, 90% of structural check failures come from missing schema fields (risk_rationale, technique_rationale, test_ref, status, priority, tags, example_mapping, metadata). The bare LLM produces good content but does not know the Valid Guard schema.
+### What This Benchmark Does NOT Measure
+
+- **Real-world test effectiveness**: Whether the generated test plans actually catch more bugs than alternatives
+- **Comparison to other tools**: The baseline is "no instructions at all," not a competing methodology like BDD or manual test planning
+- **Human expert agreement**: Scores are pattern-match-based, not validated against human test designers
+- **Test code correctness**: Only 2 of 30 evals test `/vg generate` output, and generated code was not executed
+- **Statistical significance**: Each eval was run once; LLM non-determinism means scores may vary by several percentage points
 
 ### Token Efficiency
 
@@ -343,34 +356,55 @@ Valid Guard was evaluated on **30 eval cases** across 11 categories, comparing o
 |---|---|---|---|
 | Avg tokens / eval | ~50,000 | ~23,000 | 2.1x |
 | Avg duration / eval | ~4 min | ~2 min | 2.1x |
-| Content accuracy | 100.0% | 89.9% | --- |
-| Structural accuracy | 99.2% | 15.0% | --- |
 
-**Analysis**: The skill uses **2.1x more tokens** than bare LLM, primarily for reading SKILL.md (~500 lines) and generating structured YAML output with all mandatory schema fields. The token overhead is structural --- it reflects the completeness of the output (risk rationale with 4 dimensions, technique rationale, state transition tables, decision tables, example mapping, metadata), not inefficiency.
-
-**Key insight**: The bare LLM already scores ~90% on content (test design quality), but only 15% on structural compliance. The skill's primary value is enforcing the Valid Guard schema --- ensuring traceability, risk assessment, and formal technique application in every test plan. The content delta (+10.1%) is modest; the structural delta (+84.2%) is where the skill earns its token investment.
+The skill uses **2.1x more tokens** than bare LLM, primarily for reading SKILL.md (~500 lines) and generating structured YAML with all mandatory schema fields. The overhead reflects output completeness (risk rationale, technique rationale, state transitions, decision tables, example mapping, metadata).
 
 ### Methodology
 
 - 30 eval cases: 28 from a 187-case eval library, 2 custom with real Python code fixtures
 - 11 categories: correctness, completeness, brownfield, codegen, adversarial, state_transition, domain_specific, tdd_best_practices, risk_assessment, concurrency, security
-- Grading: rubric-based pattern matching with weighted scoring (content checks + structural checks)
-- Content/structural score separation: content = test design quality, structural = Valid Guard YAML schema compliance
+- Grading: rubric-based regex pattern matching with weighted scoring
 - Each eval run as independent agent with or without SKILL.md context
-- Full results: [`evals/RESULTS.md`](evals/RESULTS.md)
-- Interactive report: [`evals/report.html`](evals/report.html)
-
-### Limitations and Caveats
-
-- **Single run**: Each eval was run once, not averaged over multiple runs. LLM outputs are non-deterministic, so scores may vary by a few percentage points across runs.
-- **Pattern-matching grading**: Scores are based on regex pattern matching against rubric criteria, not human expert judgment. This can both miss valid content (false negative) and over-credit superficial matches (false positive).
-- **Code generation coverage**: Only 2 of 30 evals test `/vg generate` output. Generated test code was not executed for correctness verification. Code generation quality is an area for future evaluation.
-- **Self-evaluated**: The benchmark was designed and graded by the same team that built the skill. Independent third-party evaluation is a goal for future releases.
+- Self-evaluated: designed and graded by the same team that built the skill
+- Full results: [`evals/RESULTS.md`](evals/RESULTS.md) | Interactive report: [`evals/report.html`](evals/report.html)
 
 ## Language Support
 
 - **MVP**: Python + pytest
 - **Architecture**: The test plan layer is language-agnostic. Code generation detects your project's language by checking for `pyproject.toml`, `package.json`, `go.mod`, etc.
+
+## How It Compares
+
+| Aspect | Valid Guard | Manual Planning (spreadsheets, Jira) | BDD / Gherkin | Property-Based Testing (Hypothesis) | No Planning (just write tests) |
+|---|---|---|---|---|---|
+| **Setup cost** | Low (copy skill, restart Claude) | High (templates, process) | Medium (tooling, step defs) | Medium (learning curve) | None |
+| **Scenario completeness** | Systematic (5 techniques applied) | Depends on tester expertise | Good if team is disciplined | Excellent for input spaces | Ad hoc, varies widely |
+| **Risk annotation** | Built-in (4 dimensions) | Manual, often skipped | Not built-in | Not applicable | None |
+| **Human review** | YAML plan before code | Spreadsheet / ticket review | Feature files are reviewable | Strategies are reviewable | Code review only |
+| **Works without AI** | No (requires Claude Code) | Yes | Yes | Yes | Yes |
+| **Executable output** | AI-guided test generation | Manual test writing | Executable via runner | Executable directly | Executable directly |
+| **Edge case discovery** | Good (BVA, pairwise) | Depends on tester | Weak (manual examples) | **Excellent** (random generation) | Poor |
+| **Regression detection** | Tracks scenario status | Manual tracking | Good (living docs) | **Excellent** (shrinking) | Depends on coverage |
+| **Team scalability** | Tied to Claude Code users | Any team | Any team | Developers only | Any developer |
+
+**Where alternatives are better**: Property-based testing finds edge cases humans and LLMs miss. BDD/Gherkin is a proven collaboration tool between technical and non-technical stakeholders. Manual planning works without any tooling dependency. "Just write tests" has zero overhead for experienced developers who already think systematically.
+
+**Where Valid Guard adds value**: It enforces structured test design thinking (technique selection, risk annotation, scenario traceability) at the point where AI is already generating code, rather than requiring a separate process.
+
+## Glossary
+
+| Term | Definition |
+|---|---|
+| **Scenario coverage** | The ratio of test-covered scenarios to total identified scenarios, optionally weighted by risk level. Complements line/branch coverage by measuring *what* is tested, not just *how much code* is executed. |
+| **Brownfield** | Analyzing existing code to derive test scenarios. Contrast with greenfield (starting from a description or PRD). |
+| **Greenfield** | Creating a test plan from scratch based on a feature description or requirements document, before code exists. |
+| **Example Mapping** | A technique for deriving test scenarios from rules: each rule produces concrete examples (happy path, edge cases, boundaries) that become test cases. |
+| **Risk dimensions** | Four axes used to assess each scenario: **impact scope** (what breaks), **usage frequency** (how often triggered), **failure consequence** (severity of failure), **detectability** (how quickly failures are noticed). |
+| **EP (Equivalence Partitioning)** | Dividing inputs into groups (partitions) that should behave the same way, then testing one representative from each group. |
+| **BVA (Boundary Value Analysis)** | Testing at the edges of equivalence partitions (min, max, just inside, just outside) where bugs cluster. |
+| **DT (Decision Table)** | Enumerating all combinations of conditions and their expected outcomes. Useful when multiple boolean conditions interact. |
+| **ST (State Transition)** | Modeling a system as states and transitions, then testing valid and invalid state changes (e.g., account lockout after N failures). |
+| **PW (Pairwise / Combinatorial)** | Testing all pairs of parameter values rather than all combinations, reducing test count while covering interaction effects. |
 
 ## Contributing
 

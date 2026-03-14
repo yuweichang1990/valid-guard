@@ -36,7 +36,7 @@ If `$ARGUMENTS` is empty or unrecognized, display a help summary listing all com
 
 ## Configuration
 
-Before executing any command, read the project configuration from `valid-guard/config.yaml` in the project root. If it does not exist, copy the default from `assets/default-config.yaml` in this skill's directory, then use these defaults:
+Before executing any command, read the project configuration from `valid-guard/config.yaml` in the project root. If it does not exist, copy the default from `assets/default-config.yaml` in this skill's directory. If `config.yaml` exists but is malformed or missing required fields, use defaults from `assets/default-config.yaml` for any missing or unparseable values and warn the user: "config.yaml is malformed/incomplete — using defaults for missing fields." Then use these defaults:
 
 - Language: `python`
 - Test framework: `pytest`
@@ -50,7 +50,7 @@ Detect the project language automatically by checking for `pyproject.toml`, `pac
 
 ### First-run Bootstrap
 
-On the first invocation, if `valid-guard/` does not exist in the project root, create the runtime directory structure:
+On the first invocation, if `valid-guard/` does not exist in the project root, create the runtime directory structure and then print the created structure to confirm initialization: "Valid Guard initialized at valid-guard/"
 ```
 valid-guard/
 ├── plans/           # Generated test plans (YAML)
@@ -196,7 +196,7 @@ scenarios:
             <condition>: <value>
           expected_actions:
             <action>: <value>
-    test_ref: "<tests/path/to/test.py::test_name>"  # Always include; use "" for greenfield plans, filled by /vg generate
+    test_ref: "<tests/path/to/test.py::test_name>"  # Always include; starts as "" in greenfield plans. /vg generate fills this with the actual test function path (e.g., "tests/test_auth.py::test_login_success").
     status: <uncovered|covered|failing|skipped>
     priority: <1-5>  # 1 = highest
     tags:
@@ -232,7 +232,7 @@ After writing the plan, print a summary table showing: total scenarios, risk dis
 ### Step 1 — Code Discovery
 
 1. Read the file or directory at `<path>`.
-2. If it is a directory, recursively discover all source files (respecting `.gitignore`). Limit depth to what fits in context.
+2. If it is a directory, recursively discover all source files (respecting `.gitignore`). If the codebase exceeds ~200 functions, prioritize by: 1) functions with no existing tests, 2) functions with complex branching (3+ branches), 3) public API functions. Summarize any skipped functions in the output and note them as TODO for future analysis.
 3. Identify: public functions/methods, classes, API endpoints, event handlers, state machines, configuration-driven behavior.
 
 ### Step 2 — Depth-3 Analysis
@@ -286,7 +286,7 @@ The report must include these sections:
 - **State Transition Diagram** — visual state machines with tested/untested color coding
 - **Scenario Detail Table** — sortable, filterable table of all scenarios with expandable details
 - **Interactive Controls** — approve/reject checkboxes, risk adjustment, notes, export decisions JSON
-- **Import Flow** — instructions for applying review decisions back to the plan
+- **Import Flow** — After the user edits scenarios in the HTML report and exports JSON, they can run `/vg review --apply <json-file>` to merge changes back into the YAML plan. This reads the exported JSON, matches scenarios by name/ID, and updates risk levels, statuses, and notes in the plan YAML accordingly.
 
 **For detailed HTML structure, quality requirements, and section specifications, read `references/html-report-spec.md`.**
 
