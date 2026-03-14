@@ -1,10 +1,10 @@
 $schema: "https://json-schema.org/draft/2020-12/schema"
-$id: "test-plan-schema-v1"  # Local identifier; no live URL
-title: "Valid Guard Test Plan"
+$id: "test-plan-schema-v2"  # Local identifier; no live URL
+title: "Valid Guard Test Plan (BDD-Enhanced)"
 description: >
-  Schema for Valid Guard test plan YAML files. Defines scenario-level test
-  coverage plans with risk assessment, testing technique selection, example
-  mapping, and decision table support.
+  Schema for Valid Guard test plan YAML files. The YAML plan is the
+  design-thinking layer (risk, techniques, coverage tracking). Executable
+  test details live in Gherkin .feature files produced by /vg generate.
 type: object
 
 required:
@@ -38,7 +38,7 @@ properties:
 
   source:
     type: object
-    description: "Origin of the test plan — PRD file, natural language input, or code analysis."
+    description: "Origin of the test plan."
     required:
       - type
     properties:
@@ -120,6 +120,9 @@ $defs:
   # ---- Scenario -----------------------------------------------------------
   scenario:
     type: object
+    description: >
+      Design-level scenario metadata. Executable Given/When/Then details
+      live in the Gherkin .feature file referenced by gherkin_ref.
     required:
       - name
       - risk
@@ -131,7 +134,7 @@ $defs:
 
       description:
         type: string
-        description: "Detailed explanation of what this scenario verifies."
+        description: "Brief explanation (optional — Gherkin carries the detail)."
 
       type:
         $ref: "#/$defs/scenario_type_enum"
@@ -141,7 +144,7 @@ $defs:
 
       risk_rationale:
         type: string
-        description: "Justification for the assigned risk level."
+        description: "Numeric risk scores plus justification."
 
       techniques:
         type: array
@@ -151,41 +154,19 @@ $defs:
         minItems: 1
         uniqueItems: true
 
-      technique_rationale:
-        type: string
-        description: "Why these specific techniques were chosen for this scenario."
-
-      preconditions:
-        type: array
-        description: "Conditions that must be true before the scenario runs."
-        items:
-          type: string
-
-      examples:
-        type: array
-        description: "Concrete input/expected-output pairs."
-        items:
-          $ref: "#/$defs/example"
-
       state_transition:
         $ref: "#/$defs/state_transition_def"
 
       decision_table:
         $ref: "#/$defs/decision_table_def"
 
-      test_ref:
+      gherkin_ref:
         type: string
-        description: "Path to test file and test name, e.g. tests/auth/test_login.py::test_successful_login"
+        description: "Path to .feature file and scenario name, e.g. features/auth/login.feature::Successful login"
         pattern: "^$|^.+::.+$"
 
       status:
         $ref: "#/$defs/status_enum"
-
-      priority:
-        type: integer
-        description: "Execution priority (1 = highest, 5 = lowest)."
-        minimum: 1
-        maximum: 5
 
       tags:
         type: array
@@ -196,40 +177,22 @@ $defs:
 
     additionalProperties: false
 
-  # ---- Example (input/expected) -------------------------------------------
-  example:
-    type: object
-    required:
-      - input
-      - expected
-    properties:
-      input:
-        description: "Input data for the example. Can be any type."
-      expected:
-        description: "Expected result. Can be any type."
-      description:
-        type: string
-        description: "Human-readable explanation of this example."
-    additionalProperties: false
-
   # ---- State Transition ---------------------------------------------------
   state_transition_def:
     type: object
-    description: "State transition model — only relevant when type is state_transition."
+    description: "State transition model — design artifact that Gherkin cannot fully express."
     required:
       - states
       - transitions
     properties:
       states:
         type: array
-        description: "All possible states."
         items:
           type: string
         minItems: 2
         uniqueItems: true
       transitions:
         type: array
-        description: "Valid transitions between states."
         items:
           type: object
           required:
@@ -243,21 +206,16 @@ $defs:
               type: string
             trigger:
               type: string
-              description: "Event or action that causes the transition."
             guard:
               type: string
-              description: "Condition that must hold for the transition to fire."
           additionalProperties: false
         minItems: 1
-      trigger:
-        type: string
-        description: "Primary trigger description for the overall state machine."
     additionalProperties: false
 
   # ---- Decision Table -----------------------------------------------------
   decision_table_def:
     type: object
-    description: "Decision table — only relevant when type involves combinatorial logic."
+    description: "Decision table — design artifact for combinatorial logic."
     required:
       - conditions
       - actions
@@ -265,19 +223,16 @@ $defs:
     properties:
       conditions:
         type: array
-        description: "List of condition names."
         items:
           type: string
         minItems: 1
       actions:
         type: array
-        description: "List of action/outcome names."
         items:
           type: string
         minItems: 1
       rules:
         type: array
-        description: "Each rule maps condition values to expected actions."
         items:
           type: object
           required:
@@ -288,11 +243,9 @@ $defs:
               type: string
             condition_values:
               type: object
-              description: "Map of condition name to value (true/false/specific value)."
               additionalProperties: true
             expected_actions:
               type: object
-              description: "Map of action name to expected outcome."
               additionalProperties: true
           additionalProperties: false
         minItems: 1
@@ -302,7 +255,7 @@ $defs:
   example_mapping:
     type: object
     description: >
-      Example Mapping structure: a story broken into rules, each with concrete
+      Example Mapping structure: story broken into rules with concrete
       examples. Derived from Matt Wynne's Example Mapping technique.
     required:
       - story
@@ -310,10 +263,8 @@ $defs:
     properties:
       story:
         type: string
-        description: "The user story being mapped."
       rules:
         type: array
-        description: "Business rules extracted from the story."
         items:
           type: object
           required:
@@ -339,23 +290,18 @@ $defs:
   # ---- Metadata -----------------------------------------------------------
   metadata:
     type: object
-    description: "Bookkeeping information about the test plan."
     properties:
       created_at:
         type: string
         format: date-time
-        description: "ISO-8601 timestamp of initial creation."
       updated_at:
         type: string
         format: date-time
-        description: "ISO-8601 timestamp of last update."
       created_by:
         type: string
-        description: "Who or what created the plan (e.g. valid-guard/v0.1, human)."
       language:
         type: string
-        description: "Primary programming language of the codebase."
-      test_framework:
+      bdd_framework:
         type: string
-        description: "Test framework used for generated tests (e.g. pytest, jest, go test)."
+        description: "BDD framework used (e.g. behave, cucumber-js, cucumber-jvm, cucumber)."
     additionalProperties: false

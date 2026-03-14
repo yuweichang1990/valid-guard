@@ -6,7 +6,7 @@ This benchmark evaluates two dimensions of value:
 
 1. **Content improvement** (with_skill vs without_skill): Does the skill cause the LLM to include more testing concepts (techniques, edge cases, risk analysis)? Measured by keyword and pattern matching against rubric criteria. A high content score means the output mentions relevant terms — it does not guarantee depth of analysis or practical usefulness.
 
-2. **Structured, human-readable output** (schema compliance): Does the skill reliably produce test plans in its own YAML schema (risk_rationale, technique_rationale, test_ref, status, priority, tags, example_mapping, metadata)? This is an internal quality metric — it confirms the skill produces reviewable, structured output that humans can inspect before code generation. It is NOT compared against bare LLM output (which has no knowledge of the schema).
+2. **Structured, human-readable output** (schema compliance): Does the skill reliably produce test plans in its own YAML schema (risk_rationale, techniques, gherkin_ref, status, tags, example_mapping, metadata)? This is an internal quality metric — it confirms the skill produces reviewable, structured output that humans can inspect before code generation. It is NOT compared against bare LLM output (which has no knowledge of the schema). Note: v0.1 baselines use `test_ref`; v0.2+ uses `gherkin_ref`.
 
 - **What this benchmark does NOT measure**:
   - Actual test code quality or correctness (generated code is not executed)
@@ -112,14 +112,14 @@ The +10.1% content improvement is modest — the bare LLM already knows most tes
 This structured format (99.2% schema compliance across 22 plan-type evals) enables workflows that unstructured LLM output cannot support:
 - **Pre-code review**: Teams inspect and approve test scenarios before any code is written
 - **Risk-based prioritization**: Scenarios are annotated with risk levels, enabling informed tradeoffs
-- **Traceability**: Each scenario links to its generated test via `test_ref`, maintaining plan-to-code mapping
+- **Traceability**: Each scenario links to its Gherkin scenario via `gherkin_ref`, maintaining plan-to-test mapping
 - **Version control**: YAML test plans are diffable, reviewable in PRs, and machine-parseable
 
 ## SKILL.md Refinements During Eval Development
 
 - Added **Advisory Mode** section for review/evaluation questions.
 - Added **Rule #10**: All schema fields mandatory.
-- Updated `test_ref` schema comment.
+- Renamed `test_ref` → `gherkin_ref` (v0.2).
 - Broadened grading patterns for p3-15 (login lockout), p3-27 (SQL injection), p3-29 (regression priority) to reduce false negatives.
 
 ## Methodology

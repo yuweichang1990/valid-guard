@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.2.0] - 2026-03-14
+
+### Changed — BDD-Enhanced Architecture (Route C)
+- **Architecture pivot**: Valid Guard is now a test design intelligence layer on top of the Cucumber/BDD ecosystem
+- YAML plan is the design-thinking layer (risk, techniques, coverage tracking); Gherkin `.feature` files carry executable Given/When/Then details
+- BDD framework changed from pytest-bdd to Cucumber for multi-language support (behave, cucumber-js, cucumber-jvm, cucumber, godog)
+- `/vg generate` now produces Gherkin `.feature` files with `@risk:` and `@technique:` tags, plus step definition stubs
+- `/vg run` delegates to the project's Cucumber-compatible runner instead of constructing pytest commands
+- `/vg report` focuses on coverage gap analysis — does not recreate Cucumber's pass/fail reporting
+
+### Simplified
+- YAML schema simplified: removed `priority`, `technique_rationale`, `preconditions`, `examples` (input/expected) from scenarios
+- Renamed `test_ref` → `gherkin_ref` (points to `.feature` file + scenario name)
+- Each scenario is now ~6 lines in YAML (name, type, risk, risk_rationale, techniques, gherkin_ref, status, tags)
+- `state_transition` and `decision_table` kept as design artifacts that Gherkin cannot express
+
+### Added
+- Gherkin `.feature` example files for all 3 example plans (user-auth, e-commerce, file-upload)
+- `questions` field at top level and in `example_mapping` for capturing ambiguities
+- `bdd_framework` field in metadata
+- `risk_rationale` numeric format: "Impact: X, Frequency: X, Consequence: X, Detectability: X. Average: X.XX → level."
+- SECURITY.md with vulnerability reporting instructions
+
+### Updated
+- All documentation (README, DESIGN, CLAUDE, CONTRIBUTING) aligned with BDD-enhanced architecture
+- Example YAML plans simplified from 200-500+ lines to ~100-130 lines each
+- HTML report spec focused on coverage gap analysis
+
 ## [0.1.0] - 2026-03-14
 
 ### Added

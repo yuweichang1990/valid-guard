@@ -33,9 +33,11 @@ This re-grades the 30 eval outputs in `evals/baseline/` (30 evals x 2 configs = 
 
 ## Code Conventions
 
-- **YAML plans**: Use `snake_case` for keys (e.g., `risk_level`, `test_ref`, `technique_rationale`). Use `kebab-case` for filenames (e.g., `user-auth.yaml`).
-- **Test files**: Use `snake_case` for Python test functions and filenames (e.g., `test_login_flow.py`).
+- **YAML plans**: Use `snake_case` for keys (e.g., `risk_level`, `gherkin_ref`, `risk_rationale`). Use `kebab-case` for filenames (e.g., `user-auth.yaml`).
+- **Gherkin files**: Use `kebab-case` filenames (e.g., `user-authentication.feature`). Tag scenarios with `@risk:<level>` and `@technique:<abbrev>` (e.g., `@risk:high @technique:ep`).
+- **Step definitions**: Follow the conventions of the target BDD framework (behave for Python, cucumber-js for JS, etc.).
 - **Risk levels**: Always use `high`, `medium`, or `low` (lowercase).
+- **Risk rationale**: Always include all 4 dimensions with numeric scores: `"Impact: X, Frequency: X, Consequence: X, Detectability: X. Average: X.XX → level."`
 - **Test techniques**: Reference by abbreviation: EP, BVA, DT, ST, PW, CE (Cause-Effect), EG (Error Guessing).
 - **Commit messages**: Use imperative mood (e.g., "Add eval case for boundary analysis").
 

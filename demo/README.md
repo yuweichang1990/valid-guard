@@ -7,8 +7,8 @@ registration feature: plan, review, and generate.
 
 | File | What it shows |
 |------|---------------|
-| `user-registration-plan.yaml` | The YAML test plan produced by `/vg plan` — 10 scenarios with risk scores, technique rationale, and example mapping. |
-| `generated-tests-example.py` | A realistic example of the pytest code that `/vg generate` produces from the plan above. |
+| `user-registration-plan.yaml` | The YAML test plan produced by `/vg plan` — 10 scenarios with risk scores, techniques, state machines, and example mapping. This is the **design layer**. |
+| `user-registration.feature` | The Gherkin feature file produced by `/vg generate` — executable Given/When/Then scenarios with `@risk:` and `@technique:` tags. This is the **executable layer**. |
 | `README.md` | This walkthrough. |
 
 ## Walkthrough
@@ -29,7 +29,8 @@ The included `user-registration-plan.yaml` is a reference copy containing:
 - **10 scenarios** — happy paths, error handling, boundaries, security, state transitions
 - **Risk scores** with 4-dimension rationale (Impact, Frequency, Consequence, Detectability)
 - **Example mapping** linking business rules to concrete test examples
-- **Technique rationale** explaining why each testing method was chosen
+- **State transition** and other design artifacts that Gherkin cannot express
+- **Questions** capturing ambiguities for human review
 
 ### Step 3 — Generate the Interactive Report
 
@@ -40,24 +41,35 @@ The included `user-registration-plan.yaml` is a reference copy containing:
 Produces a self-contained HTML report with scenario coverage dashboard,
 filterable table, example mapping cards, and approve/reject controls.
 
-### Step 4 — Generate Test Code
+### Step 4 — Generate Gherkin Feature Files
 
 ```
 /vg generate
 ```
 
-Produces a pytest file with one test function per scenario. The included
-`generated-tests-example.py` is what this step would output for the
-user-registration plan. Key properties of the generated code:
+Produces Gherkin `.feature` files with:
 
-- **1:1 scenario mapping** — every YAML scenario becomes a test function
-- **`pytest.mark.parametrize`** — scenarios with multiple examples use parametrize
-- **Arrange / Act / Assert** — consistent structure in every test
-- **Docstrings with `test_ref`** — traceability back to the plan
-- **TODO annotations** — clearly marks where real fixtures, clients, and assertions need to be wired up
+- **1:1 scenario mapping** — every YAML scenario becomes a Gherkin Scenario
+- **Risk and technique tags** — `@risk:high @technique:ep @technique:bva`
+- **Scenario Outlines** — boundary and combinatorial scenarios use Examples tables
+- **Step definition stubs** — behave (Python), cucumber-js (JS), etc.
 
-## What's Next
+The included `user-registration.feature` shows what this step outputs.
 
-- `/vg generate` — Generate test code from the plan
-- `/vg run` — Execute generated tests and capture results
-- `/vg report` — Produce a final coverage report with metrics
+### Step 5 — Run Tests
+
+```
+/vg run
+```
+
+Delegates to the project's Cucumber-compatible runner (behave, cucumber-js, etc.)
+and syncs results back to the YAML plan.
+
+### Step 6 — Coverage Gap Analysis
+
+```
+/vg report
+```
+
+Analyzes risk-weighted scenario coverage — the unique insight that Cucumber
+alone does not provide.

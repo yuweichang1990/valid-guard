@@ -54,7 +54,7 @@ window.VG_DATA = window.VG_DATA || {
           technique_rationale: "Single valid-class representative confirms the golden path.",
           preconditions: ["User account exists", "Account is not locked"],
           status: "covered",
-          test_ref: "tests/auth/test_login.py::test_successful_login",
+          gherkin_ref: "features/auth/login.feature::Successful login with valid credentials",
           priority: 1,
           tags: ["smoke", "critical-path"],
           examples: [{ input: { email: "user@test.com", password: "Valid123!" }, expected: { status: 200, token: "non-empty" } }]
@@ -67,7 +67,7 @@ window.VG_DATA = window.VG_DATA || {
           risk_rationale: "Incorrect rejection can lock out valid users or leak info.",
           techniques: ["equivalence_partitioning"],
           status: "covered",
-          test_ref: "tests/auth/test_login.py::test_wrong_password",
+          gherkin_ref: "features/auth/login.feature::Login fails with wrong password",
           priority: 1,
           tags: ["security"],
           examples: [{ input: { email: "user@test.com", password: "wrong" }, expected: { status: 401 } }]
@@ -79,7 +79,7 @@ window.VG_DATA = window.VG_DATA || {
           risk: "medium",
           techniques: ["equivalence_partitioning"],
           status: "covered",
-          test_ref: "tests/auth/test_login.py::test_nonexistent_email",
+          gherkin_ref: "features/auth/login.feature::Login with non-existent email",
           priority: 2,
           tags: ["security"],
           examples: [{ input: { email: "nobody@test.com", password: "any" }, expected: { status: 401 } }]
@@ -91,7 +91,7 @@ window.VG_DATA = window.VG_DATA || {
           risk: "medium",
           techniques: ["boundary_value"],
           status: "uncovered",
-          test_ref: null,
+          gherkin_ref: null,
           priority: 3,
           tags: ["validation"],
           examples: [{ input: { email: "user@test.com", password: "" }, expected: { status: 400 } }]
@@ -105,7 +105,7 @@ window.VG_DATA = window.VG_DATA || {
           techniques: ["state_transition", "boundary_value"],
           technique_rationale: "State transition covers the lockout lifecycle; boundary value tests the threshold.",
           status: "failing",
-          test_ref: "tests/auth/test_lockout.py::test_lockout_after_5_failures",
+          gherkin_ref: "features/auth/login.feature::Account lockout after 5 failed attempts",
           priority: 1,
           tags: ["security", "state-machine"],
           state_transition: {
@@ -130,7 +130,7 @@ window.VG_DATA = window.VG_DATA || {
           risk_rationale: "SQL injection can expose or destroy the entire user database.",
           techniques: ["error_guessing"],
           status: "uncovered",
-          test_ref: null,
+          gherkin_ref: null,
           priority: 1,
           tags: ["security", "injection"],
           examples: [{ input: { email: "' OR 1=1 --", password: "any" }, expected: { status: 400 } }]
@@ -178,7 +178,7 @@ window.VG_DATA = window.VG_DATA || {
           risk_rationale: "Core payment path — failure directly blocks revenue.",
           techniques: ["equivalence_partitioning"],
           status: "covered",
-          test_ref: "tests/payment/test_charge.py::test_visa",
+          gherkin_ref: "features/payment/charge.feature::Successful Visa payment",
           priority: 1,
           tags: ["smoke", "critical-path"],
           examples: [{ input: { card: "4111111111111111", amount: 50.00 }, expected: { status: "success" } }]
@@ -191,7 +191,7 @@ window.VG_DATA = window.VG_DATA || {
           risk_rationale: "Poor decline handling leads to customer abandonment.",
           techniques: ["equivalence_partitioning", "boundary_value"],
           status: "covered",
-          test_ref: "tests/payment/test_charge.py::test_insufficient",
+          gherkin_ref: "features/payment/charge.feature::Payment with insufficient funds",
           priority: 1,
           tags: ["payment", "error-handling"],
           examples: [{ input: { card: "4111111111111111", amount: 99999.00 }, expected: { status: "declined" } }]
@@ -203,7 +203,7 @@ window.VG_DATA = window.VG_DATA || {
           risk: "medium",
           techniques: ["boundary_value"],
           status: "uncovered",
-          test_ref: null,
+          gherkin_ref: null,
           priority: 2,
           tags: ["boundary", "payment"],
           examples: [{ input: { amount: "exact_balance" }, expected: { status: "success" } }]
@@ -217,7 +217,7 @@ window.VG_DATA = window.VG_DATA || {
           techniques: ["state_transition"],
           technique_rationale: "Refund lifecycle is a classic finite state machine.",
           status: "uncovered",
-          test_ref: null,
+          gherkin_ref: null,
           priority: 1,
           tags: ["state-machine", "payment"],
           state_transition: {
@@ -2028,9 +2028,9 @@ body {
       html += '</div>';
     }
     // Test ref
-    if (s.test_ref) {
+    if (s.gherkin_ref) {
       html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Test Ref:</div>';
-      html += '<div class="vg-scenario-detail-value"><span class="vg-scenario-test-link">' + esc(s.test_ref) + '</span></div></div>';
+      html += '<div class="vg-scenario-detail-value"><span class="vg-scenario-test-link">' + esc(s.gherkin_ref) + '</span></div></div>';
     } else {
       html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Test Ref:</div>';
       html += '<div class="vg-scenario-detail-value" style="color:var(--text-tertiary);font-style:italic">No test linked</div></div>';
@@ -2309,7 +2309,7 @@ body {
       risk: risk,
       techniques: techniques,
       status: "uncovered",
-      test_ref: ref || null,
+      gherkin_ref: ref || null,
       examples: [{ input: inputObj, expected: expectedObj }]
     };
 
@@ -2359,7 +2359,7 @@ body {
               approved: state.approved || false,
               priority: s.priority || null,
               tags: s.tags || null,
-              test_ref: s.test_ref,
+              gherkin_ref: s.gherkin_ref,
               examples: s.examples,
               state_transition: s.state_transition || null,
               decision_table: s.decision_table || null
@@ -2383,7 +2383,7 @@ body {
             scenario: s.name,
             type: s.type,
             risk: s.risk,
-            test_ref: s.test_ref
+            gherkin_ref: s.gherkin_ref
           });
         }
       });

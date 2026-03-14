@@ -13,6 +13,13 @@ language: python
 # java: junit5 | testng
 test_framework: pytest
 
+# BDD framework for Gherkin .feature file execution
+# python: behave
+# typescript/javascript: cucumber-js
+# java: cucumber-jvm
+# ruby: cucumber
+bdd_framework: cucumber
+
 # Risk weights used for weighted scenario coverage calculation
 risk_weights:
   high: 3

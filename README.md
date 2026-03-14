@@ -1,6 +1,6 @@
 # Valid Guard
 
-**Your LLM already knows testing theory. This skill makes it produce that knowledge in a format you can review, approve, and trace --- before any code is written.**
+**Your LLM already knows testing theory. This skill makes it apply that knowledge as BDD scenarios you can review, approve, and trace --- before any code is written.**
 
 ---
 
@@ -10,57 +10,61 @@ AI writes code fast --- but humans lose control.
 
 When an AI coding agent generates a feature, it typically throws in a handful of tests and calls it done. There is no structured plan a human can review, no risk-weighted coverage analysis, and no traceability from requirement to test. The result: humans have no visibility into what is actually being tested, edge cases slip through, and "100% line coverage" masks gaping scenario gaps.
 
-Current TDD-focused skills enforce a red-green-refactor *process*, but they do not address the *design* of the tests themselves. Writing tests first does not help if the tests are shallow --- and if no human reviewed the test design before code generation.
+BDD/Gherkin is the industry standard for expressing test scenarios in human-readable language. But writing good Gherkin is only part of the problem. Typical BDD workflows rely on the team to decide *which* scenarios to write, without systematic risk assessment, technique selection, or coverage gap analysis. Meanwhile, TDD-focused skills enforce a red-green-refactor *process* but do not address the *design* of the tests themselves.
 
 ## The Solution
 
-Valid Guard is a **Human-In-The-Loop (HITL) test design skill** for Claude Code. It creates a structured review checkpoint between "AI plans the tests" and "AI writes the code" --- keeping humans in control of what gets tested and why.
+Valid Guard is a **BDD-enhanced test design skill** for Claude Code. It adds risk assessment, technique selection, and scenario coverage metrics **on top of** the BDD/Gherkin ecosystem --- keeping humans in control of what gets tested and why.
 
-The skill applies established testing techniques --- equivalence partitioning, boundary value analysis, decision tables, state transition testing, and pairwise combinatorics --- to produce a **human-readable YAML test plan** that you review and approve before any test code is generated.
+The skill applies established testing techniques --- equivalence partitioning, boundary value analysis, decision tables, state transition testing, and pairwise combinatorics --- to produce a **YAML test plan** that you review and approve. Once approved, the plan drives Gherkin `.feature` files and step definitions that execute via Cucumber.
 
 ```
   AI generates feature code
-         │
-         ▼
-  ┌─────────────────────────┐
-  │  /vg plan or /vg analyze │  ← AI applies testing theory
-  └──────────┬──────────────┘
-             ▼
-  ┌─────────────────────────┐
-  │  YAML Test Plan          │  ← Structured, reviewable artifact
-  │  • Risk-annotated        │
-  │  • Technique-justified   │
-  │  • Scenario-traceable    │
-  └──────────┬──────────────┘
-             ▼
-  ┌─────────────────────────┐
-  │  /vg review              │  ← HUMAN reviews, approves, adjusts
-  │  (Interactive HTML)      │     ← This is the HITL checkpoint
-  └──────────┬──────────────┘
-             ▼
-  ┌─────────────────────────┐
-  │  /vg generate            │  ← AI writes test code from approved plan
-  └──────────┬──────────────┘
-             ▼
-  ┌─────────────────────────┐
-  │  /vg run + /vg report    │  ← Execute and measure coverage
-  └─────────────────────────┘
+         |
+         v
+  +-----------------------------+
+  |  /vg plan or /vg analyze    |  <- AI applies testing theory
+  +-------------+---------------+
+                v
+  +-----------------------------+
+  |  YAML Test Plan             |  <- Structured, reviewable artifact
+  |  * Risk-annotated           |     (risk, techniques, coverage)
+  |  * Technique-justified      |
+  |  * Scenario-traceable       |
+  +-------------+---------------+
+                v
+  +-----------------------------+
+  |  /vg review                 |  <- HUMAN reviews, approves, adjusts
+  |  (Interactive HTML)         |     <- This is the HITL checkpoint
+  +-------------+---------------+
+                v
+  +-----------------------------+
+  |  /vg generate               |  <- AI writes Gherkin .feature files
+  |  Gherkin .feature files     |     and step definitions
+  +-------------+---------------+
+                v
+  +-----------------------------+
+  |  /vg run + /vg report       |  <- Cucumber execution and coverage
+  +-----------------------------+
 ```
 
-**Without Valid Guard**: AI decides what to test → writes code → human sees tests only at code review (too late to influence design).
+**Without Valid Guard**: AI decides what to test -> writes code -> human sees tests only at code review (too late to influence design).
 
-**With Valid Guard**: AI proposes what to test → **human reviews and approves the plan** → AI writes code that maps 1:1 to the approved plan.
+**With Valid Guard**: AI proposes what to test -> **human reviews and approves the plan** -> AI writes Gherkin scenarios and step definitions that map 1:1 to the approved plan.
 
 ## Key Differentiators
 
-| Aspect | Typical TDD Skill | Valid Guard |
-|---|---|---|
-| Focus | Process (red-green-refactor) | Test *design* (scenario completeness) |
-| Coverage metric | Line/branch coverage | **Scenario coverage** weighted by risk |
-| Test planning | None --- jumps straight to code | YAML test plan with risk levels and technique tags |
-| Human review | Code review only | Interactive HTML report *before* code generation |
-| Testing theory | Not applied | Equivalence partitioning, boundary value, decision tables, state transition, pairwise |
-| Entry points | Greenfield only | Greenfield (`/vg plan`) **and** brownfield (`/vg analyze`) |
+| Aspect | Typical BDD (Cucumber/Gherkin) | Typical TDD Skill | Valid Guard |
+|---|---|---|---|
+| Focus | Scenario expression (Given/When/Then) | Process (red-green-refactor) | Test *design* (scenario completeness) |
+| Scenario selection | Team decides ad hoc | Not addressed | Systematic (5 techniques applied) |
+| Risk assessment | Not built-in | Not built-in | **Risk weighting** across 4 dimensions |
+| Technique selection | Manual, implicit | Not applied | **Auto-selected** per scenario (EP, BVA, DT, ST, PW) |
+| Coverage metric | Scenario count (unweighted) | Line/branch coverage | **Scenario coverage** weighted by risk |
+| Test planning | Feature files are the plan | None --- jumps straight to code | YAML plan with risk levels and technique tags |
+| Human review | Feature files are reviewable | Code review only | Interactive HTML report *before* code generation |
+| Output format | .feature files | Test code | YAML plan -> .feature files -> step definitions -> Cucumber |
+| Entry points | Greenfield only | Greenfield only | Greenfield (`/vg plan`) **and** brownfield (`/vg analyze`) |
 
 ## Features
 
@@ -69,9 +73,9 @@ The skill applies established testing techniques --- equivalence partitioning, b
 - **Test technique auto-selection** --- AI picks the right technique(s) per scenario based on heuristics (ranges -> boundary value, multiple conditions -> decision table, lifecycle -> state transition, etc.)
 - **Risk assessment** --- every scenario is annotated with a risk level (high/medium/low) across four dimensions: impact scope, usage frequency, failure consequence, and detectability
 - **YAML test plans** --- machine-readable, version-controllable, human-reviewable test plan artifacts
-- **Interactive HTML reports** --- collapsible scenario trees, approve/reject checkboxes, risk-level dropdowns, links to test code, Example Mapping and Decision Table visualizations
-- **Test code generation** (`/vg generate`) --- AI-guided: the LLM produces test code (Python + pytest for MVP) following SKILL.md instructions, with 1:1 mapping to plan scenarios
-- **Test execution** (`/vg run`) --- AI-guided: the LLM runs the generated tests via your project's test runner and collects results
+- **Gherkin output** (`/vg generate`) --- AI produces `.feature` files and Cucumber step definitions from the approved YAML plan, with 1:1 mapping between plan scenarios and Gherkin scenarios via `gherkin_ref`
+- **Interactive HTML reports** --- collapsible scenario trees, approve/reject checkboxes, risk-level dropdowns, links to .feature files, Example Mapping and Decision Table visualizations
+- **Test execution** (`/vg run`) --- AI-guided: the LLM runs the generated tests via Cucumber and collects results
 - **Scenario coverage** (`/vg report`) --- AI-guided: the LLM generates a combined report of scenario coverage (weighted by risk) alongside traditional line coverage
 - **Quick status** (`/vg status`) --- at-a-glance coverage summary without generating a full report
 
@@ -98,7 +102,8 @@ If the file exists, Valid Guard is installed. Restart Claude Code and type `/vg 
 ### Prerequisites
 
 - **Claude Code** with skills support (the skill is auto-discovered from `.claude/skills/`)
-- Python 3.10+ and pytest (for MVP test execution)
+- Python 3.10+ and pytest (for test execution)
+- A Cucumber-compatible BDD framework: `behave` (Python), `cucumber-js` (JavaScript), `cucumber-jvm` (Java), etc.
 
 ## Usage
 
@@ -134,15 +139,15 @@ Opens the interactive HTML report where you can:
 - Approve or reject individual scenarios
 - Adjust risk levels
 - Add missing scenarios
-- Link scenarios to existing test code
+- Link scenarios to Gherkin .feature files
 
-### Generate test code
+### Generate Gherkin scenarios and step definitions
 
 ```
 /vg generate
 ```
 
-AI-guided: the LLM reads your YAML test plan and produces pytest test files in your project's `tests/` directory, with each test function mapped to a plan scenario via `test_ref`. The LLM does the code generation following SKILL.md instructions --- there is no standalone code generator.
+AI-guided: the LLM reads your YAML test plan and produces Gherkin `.feature` files in your project's `features/` directory and Cucumber step definitions in `tests/`, with each scenario mapped to a plan scenario via `gherkin_ref`. The LLM does the code generation following SKILL.md instructions --- there is no standalone code generator.
 
 ### Run tests
 
@@ -150,7 +155,7 @@ AI-guided: the LLM reads your YAML test plan and produces pytest test files in y
 /vg run
 ```
 
-AI-guided: the LLM invokes your project's test runner (e.g., `pytest`) and collects pass/fail results. This is a convenience command --- it runs the same tests you could run manually.
+AI-guided: the LLM invokes Cucumber and collects pass/fail results. This is a convenience command --- it runs the same tests you could run manually.
 
 ### Full coverage report
 
@@ -196,10 +201,10 @@ flowchart TD
         T5["Pairwise / Combinatorial"]
     end
 
-    subgraph "Output & Review"
+    subgraph "BDD Output & Execution"
         H["Interactive HTML Report"]
-        I["/vg generate → Test Code"]
-        J["/vg run → Execution"]
+        I["/vg generate → .feature files + step defs"]
+        J["/vg run → Cucumber execution"]
         K["/vg report → Coverage"]
     end
 
@@ -222,28 +227,73 @@ flowchart TD
 Test plans are stored in `valid-guard/plans/` as YAML files. Each plan follows this structure:
 
 ```yaml
-feature: User Authentication
+feature: "User Authentication"
 risk_level: high
 scenarios:
   - name: "Successful login with valid credentials"
     type: happy_path
     risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.50 -> high."
     techniques: [equivalence_partitioning]
-    examples:
-      - input: { email: "valid@test.com", password: "Valid123!" }
-        expected: { status: 200, token: "non-empty" }
-    test_ref: "tests/auth/test_login.py::test_successful_login"
+    gherkin_ref: "features/auth/user-authentication.feature::Successful login with valid credentials"
     status: covered
+    tags: [smoke, critical-path]
 
-  - name: "Login fails after 5 consecutive bad passwords"
-    type: edge_case
+  - name: "Account lockout after failed login attempts"
+    type: state_transition
     risk: high
-    techniques: [boundary_value, state_transition]
-    examples:
-      - input: { email: "user@test.com", attempts: 5 }
-        expected: { status: 423, locked: true }
-    test_ref: ""
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high."
+    techniques: [state_transition, boundary_value]
+    gherkin_ref: "features/auth/user-authentication.feature::Account lockout after failed login attempts"
+    status: covered
+    tags: [security, state-machine, brute-force]
+
+  - name: "Refresh token reuse detection (rotation)"
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.50 -> high."
+    techniques: [error_guessing, state_transition]
+    gherkin_ref: ""
     status: uncovered
+    tags: [security, tokens, critical-path]
+
+metadata:
+  created_at: "2026-03-14T10:00:00Z"
+  updated_at: "2026-03-14T10:00:00Z"
+  created_by: "valid-guard/v0.2"
+  language: "python"
+  bdd_framework: "cucumber"
+```
+
+The corresponding Gherkin `.feature` file generated from this plan:
+
+```gherkin
+@feature:user-authentication @risk:high
+Feature: User Authentication
+  Authentication system supporting email/password login, account lockout
+  after failed attempts, and session management with refresh tokens.
+
+  @risk:high @technique:ep @smoke @critical-path
+  Scenario: Successful login with valid credentials
+    Given a registered active user with email "alice@example.com"
+    And the stored password is "Str0ng!Pass#42"
+    When the user logs in with email "alice@example.com" and password "Str0ng!Pass#42"
+    Then the response status should be 200
+    And the response should include a "Bearer" access token
+    And the response should include a refresh token
+
+  @risk:high @technique:st @technique:bva @security @state-machine @brute-force
+  Scenario Outline: Account lockout after failed login attempts
+    Given an active user account
+    And <previous_failures> consecutive failed login attempts
+    When the user attempts to log in with a <credential> password
+    Then the account state should be "<expected_state>"
+
+    Examples: Lockout boundaries
+      | previous_failures | credential | expected_state |
+      | 4                 | wrong      | locked         |
+      | 4                 | correct    | active         |
+      | 2                 | wrong      | active         |
 ```
 
 ### Fields
@@ -255,10 +305,12 @@ scenarios:
 | `scenarios[].name` | Human-readable scenario description |
 | `scenarios[].type` | `happy_path`, `edge_case`, `error_handling`, `boundary`, `security`, `state_transition`, `combinatorial`, `performance` |
 | `scenarios[].risk` | Scenario-level risk |
+| `scenarios[].risk_rationale` | Risk assessment across 4 dimensions (impact, frequency, consequence, detectability) |
 | `scenarios[].techniques` | Testing techniques applied |
-| `scenarios[].examples` | Concrete input/expected pairs |
-| `scenarios[].test_ref` | Link to generated test function (`""` if uncovered, e.g. `tests/auth/test_login.py::test_successful_login`) |
+| `scenarios[].gherkin_ref` | Link to generated Gherkin scenario (`""` if uncovered, e.g. `features/auth/user-authentication.feature::Successful login with valid credentials`) |
 | `scenarios[].status` | `uncovered`, `covered`, `failing`, `skipped` |
+| `scenarios[].tags` | Labels for filtering and grouping (e.g. `smoke`, `security`, `critical-path`) |
+| `metadata.bdd_framework` | BDD framework used for execution (e.g. `Cucumber`) |
 
 ## Scenario Coverage Metric
 
@@ -266,13 +318,13 @@ Valid Guard introduces **scenario coverage** as a first-class metric:
 
 ```
 Feature PRD
-  └── Epic / User Story
-       └── Scenario (via Example Mapping)
-            ├── Rule 1
-            │    ├── Example 1.1 (happy path)  → [risk: high]   → test_xxx ✓
-            │    ├── Example 1.2 (edge case)   → [risk: medium] → test_yyy ✓
-            │    └── Example 1.3 (boundary)    → [risk: high]   → ✗ uncovered
-            └── Rule 2 ...
+  +-- Epic / User Story
+       +-- Scenario (via Example Mapping)
+            +-- Rule 1
+            |    +-- Example 1.1 (happy path)  -> [risk: high]   -> test_xxx (pass)
+            |    +-- Example 1.2 (edge case)   -> [risk: medium] -> test_yyy (pass)
+            |    +-- Example 1.3 (boundary)    -> [risk: high]   -> uncovered
+            +-- Rule 2 ...
 ```
 
 - **Scenario coverage** = covered scenarios / total scenarios
@@ -288,7 +340,7 @@ The HTML report provides a visual, interactive view of the test plan:
 - Risk level dropdowns for adjustment
 - Example Mapping visualization
 - Decision Table visualization
-- Links to generated test code
+- Links to generated .feature files and step definitions
 - Export to JSON for AI round-trip updates
 
 For a complete end-to-end example, see the [demo/](demo/) directory which includes a sample YAML test plan for a user registration feature.
@@ -310,30 +362,37 @@ Every scenario is assessed across four dimensions:
 
 ```
 valid-guard/                       # This repo
-├── .claude/skills/valid-guard/    # The skill itself
-│   ├── SKILL.md                   #   Core skill definition (LLM instructions)
-│   ├── assets/                    #   Report template, default config
-│   ├── references/                #   Techniques guide, schema, anti-patterns
-│   └── examples/                  #   3 example YAML test plans
-├── evals/                         # Eval suite (30 cases, grading, reports)
-├── demo/                          # End-to-end demo with sample YAML plan
-├── .github/                       # Issue templates, PR template, CI workflow
-├── DESIGN.md                      # Design decisions document
-├── CONTRIBUTING.md                # Contributor guide
-├── CHANGELOG.md                   # Release history
-└── README.md                      # This file
++-- .claude/skills/valid-guard/    # The skill itself
+|   +-- SKILL.md                   #   Core skill definition (LLM instructions)
+|   +-- assets/                    #   Report template, default config
+|   +-- references/                #   Techniques guide, schema, anti-patterns
+|   +-- examples/                  #   3 example YAML plans + .feature files
+|       +-- user-authentication.yaml
+|       +-- user-authentication.feature
+|       +-- e-commerce-checkout.yaml
+|       +-- e-commerce-checkout.feature
+|       +-- file-upload-api.yaml
+|       +-- file-upload-api.feature
++-- evals/                         # Eval suite (30 cases, grading, reports)
++-- demo/                          # End-to-end demo with sample YAML plan
++-- .github/                       # Issue templates, PR template, CI workflow
++-- DESIGN.md                      # Design decisions document
++-- CONTRIBUTING.md                # Contributor guide
++-- CHANGELOG.md                   # Release history
++-- README.md                      # This file
 ```
 
 ### Your project (created at runtime by `/vg` commands)
 
 ```
 your-project/
-├── .claude/skills/valid-guard/    # Copied from this repo during installation
-├── valid-guard/
-│   ├── plans/                     # YAML test plans (version-controlled)
-│   ├── reports/                   # Interactive HTML reports (gitignored)
-│   └── config.yaml                # Valid Guard configuration
-└── tests/                         # Generated test code
++-- .claude/skills/valid-guard/    # Copied from this repo during installation
++-- valid-guard/
+|   +-- plans/                     # YAML test plans (version-controlled)
+|   +-- reports/                   # Interactive HTML reports (gitignored)
+|   +-- config.yaml                # Valid Guard configuration
++-- features/                      # Generated Gherkin .feature files
++-- tests/                         # Generated step definitions and test code
 ```
 
 ## Benchmark Results
@@ -368,10 +427,11 @@ Valid Guard was evaluated on **30 eval cases** across 11 categories, measuring t
 
 The skill's primary value is not just what it knows, but **how it presents it**. Every test plan includes:
 - **Risk rationale** across 4 dimensions (impact, frequency, consequence, detectability)
-- **Technique rationale** explaining why each testing technique was selected
+- **Technique tags** indicating why each testing technique was selected
 - **Example mapping** with concrete input/expected pairs
 - **Decision tables** for multi-condition scenarios
-- **Status tracking** and **priority** for workflow integration
+- **Gherkin output** with `.feature` files ready for Cucumber execution
+- **Status tracking** for workflow integration
 
 This structured format makes test plans **reviewable by humans before code is generated** --- a capability bare LLM output does not provide in any consistent format.
 
@@ -396,7 +456,7 @@ This structured format makes test plans **reviewable by humans before code is ge
 | Avg tokens / eval | ~50,000 | ~23,000 | 2.1x |
 | Avg duration / eval | ~4 min | ~2 min | 2.1x |
 
-The skill uses **2.1x more tokens** than bare LLM, primarily for reading SKILL.md (~500 lines) and generating structured YAML with all mandatory schema fields. The overhead reflects output completeness (risk rationale, technique rationale, state transitions, decision tables, example mapping, metadata).
+The skill uses **2.1x more tokens** than bare LLM, primarily for reading SKILL.md (~500 lines) and generating structured YAML with all mandatory schema fields. The overhead reflects output completeness (risk rationale, technique tags, state transitions, decision tables, example mapping, metadata).
 
 ### Methodology
 
@@ -409,26 +469,28 @@ The skill uses **2.1x more tokens** than bare LLM, primarily for reading SKILL.m
 
 ## Language Support
 
-- **MVP**: Python + pytest
-- **Architecture**: The test plan layer is language-agnostic. Code generation detects your project's language by checking for `pyproject.toml`, `package.json`, `go.mod`, etc.
+- **Gherkin .feature files**: Language-agnostic. The same `.feature` file works with any Cucumber implementation.
+- **Step definitions**: Generated for your project's language. Currently supported: Python (behave). Architecture supports any language via `language` + `bdd_framework` config.
+- **Language detection**: Checks for `pyproject.toml`, `package.json`, `go.mod`, etc.
 
 ## How It Compares
 
-| Aspect | Valid Guard | Manual Planning (spreadsheets, Jira) | BDD / Gherkin | Property-Based Testing (Hypothesis) | No Planning (just write tests) |
+| Aspect | Valid Guard | Manual Planning (spreadsheets, Jira) | BDD / Gherkin (standalone) | Property-Based Testing (Hypothesis) | No Planning (just write tests) |
 |---|---|---|---|---|---|
 | **Setup cost** | Low (copy skill, restart Claude) | High (templates, process) | Medium (tooling, step defs) | Medium (learning curve) | None |
 | **Scenario completeness** | Systematic (5 techniques applied) | Depends on tester expertise | Good if team is disciplined | Excellent for input spaces | Ad hoc, varies widely |
 | **Risk annotation** | Built-in (4 dimensions) | Manual, often skipped | Not built-in | Not applicable | None |
-| **Human review** | YAML plan before code | Spreadsheet / ticket review | Feature files are reviewable | Strategies are reviewable | Code review only |
+| **Technique selection** | Auto-selected per scenario | Manual, implicit | Manual, implicit | N/A (property strategies) | None |
+| **Human review** | YAML plan + HTML report before code | Spreadsheet / ticket review | Feature files are reviewable | Strategies are reviewable | Code review only |
 | **Works without AI** | No (requires Claude Code) | Yes | Yes | Yes | Yes |
-| **Executable output** | AI-guided test generation | Manual test writing | Executable via runner | Executable directly | Executable directly |
+| **Executable output** | .feature files + step defs via Cucumber | Manual test writing | Executable via runner | Executable directly | Executable directly |
 | **Edge case discovery** | Good (BVA, pairwise) | Depends on tester | Weak (manual examples) | **Excellent** (random generation) | Poor |
 | **Regression detection** | Tracks scenario status | Manual tracking | Good (living docs) | **Excellent** (shrinking) | Depends on coverage |
 | **Team scalability** | Tied to Claude Code users | Any team | Any team | Developers only | Any developer |
 
-**Where alternatives are better**: Property-based testing finds edge cases humans and LLMs miss. BDD/Gherkin is a proven collaboration tool between technical and non-technical stakeholders. Manual planning works without any tooling dependency. "Just write tests" has zero overhead for experienced developers who already think systematically.
+**Where alternatives are better**: Property-based testing finds edge cases humans and LLMs miss. Standalone BDD/Gherkin is a proven collaboration tool between technical and non-technical stakeholders. Manual planning works without any tooling dependency. "Just write tests" has zero overhead for experienced developers who already think systematically.
 
-**Where Valid Guard adds value**: It enforces structured test design thinking (technique selection, risk annotation, scenario traceability) at the point where AI is already generating code, rather than requiring a separate process.
+**Where Valid Guard enhances BDD**: Valid Guard does not replace BDD --- it enhances it. Standalone BDD relies on the team to decide which scenarios to write. Valid Guard adds the *design layer* that BDD lacks: systematic technique selection, risk-weighted coverage analysis, and a structured YAML plan that drives Gherkin output. The result is BDD with the rigor of formal test design.
 
 ## Glossary
 
@@ -444,6 +506,9 @@ The skill uses **2.1x more tokens** than bare LLM, primarily for reading SKILL.m
 | **DT (Decision Table)** | Enumerating all combinations of conditions and their expected outcomes. Useful when multiple boolean conditions interact. |
 | **ST (State Transition)** | Modeling a system as states and transitions, then testing valid and invalid state changes (e.g., account lockout after N failures). |
 | **PW (Pairwise / Combinatorial)** | Testing all pairs of parameter values rather than all combinations, reducing test count while covering interaction effects. |
+| **BDD (Behavior-Driven Development)** | A development approach where expected behavior is specified as Given/When/Then scenarios in Gherkin syntax, bridging communication between stakeholders and developers. |
+| **Gherkin** | A structured natural language format (Given/When/Then) for writing executable specifications, stored in `.feature` files. |
+| **Cucumber** | A BDD framework family that executes Gherkin `.feature` files by mapping steps to functions (step definitions). Implementations: `behave` (Python), `cucumber-js` (JS/TS), `cucumber-jvm` (Java), `cucumber` (Ruby), `godog` (Go). |
 
 ## Contributing
 
