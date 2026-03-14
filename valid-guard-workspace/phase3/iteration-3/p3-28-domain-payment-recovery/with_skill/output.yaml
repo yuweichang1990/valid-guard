@@ -1,0 +1,1897 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Payment Failure Recovery Flow"
+
+feature_description: >
+  Handles payment failure scenarios in an e-commerce application. When a payment
+  fails, the system must identify the failure type (insufficient funds, declined
+  card, network timeout, 3D Secure authentication failure, fraud check rejection),
+  display appropriate user-visible messages, execute the correct backend action
+  (rollback, retry with exponential backoff, flag for manual review), and
+  transition the order to the correct state. The system must guarantee no double
+  charges occur during retry logic.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # S1 — Insufficient Funds Failure
+  # ==========================================================================
+  - name: "Insufficient funds — prompt user to use different payment method"
+    description: >
+      When the payment gateway returns an insufficient_funds decline code, the
+      system must display a user-friendly message suggesting the user try a
+      different card or payment method. The order should transition to
+      payment_failed state, no charge should be captured, and the cart must be
+      preserved for retry.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — core payment flow, directly affects revenue.
+      Frequency: 3 — common failure type encountered by many users.
+      Consequence: 3 — poor handling leads to cart abandonment and lost revenue.
+      Detectability: 2 — user sees a message but may not understand the issue.
+      Average: 2.75 → high.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning categorizes the insufficient_funds response as a
+      distinct class of decline codes. State transition verifies the order moves
+      to payment_failed correctly. Error guessing anticipates edge cases like
+      repeated insufficient funds with the same card.
+    preconditions:
+      - "Customer has an active cart with valid items"
+      - "Customer has submitted payment with a card that has insufficient funds"
+      - "Payment gateway is reachable"
+    examples:
+      - input:
+          payment_method: "credit_card"
+          card_last_four: "4242"
+          decline_code: "insufficient_funds"
+          order_total: 150.00
+        expected:
+          user_message: "Your card does not have sufficient funds. Please try a different card or payment method."
+          order_state: "payment_failed"
+          charge_captured: false
+          cart_preserved: true
+          backend_action: "rollback"
+        description: "Insufficient funds on credit card — user prompted to switch payment method."
+      - input:
+          payment_method: "debit_card"
+          card_last_four: "1234"
+          decline_code: "insufficient_funds"
+          order_total: 500.00
+        expected:
+          user_message: "Your card does not have sufficient funds. Please try a different card or payment method."
+          order_state: "payment_failed"
+          charge_captured: false
+          cart_preserved: true
+          alternative_methods_shown: true
+        description: "Insufficient funds on debit card — alternative payment methods displayed."
+      - input:
+          payment_method: "credit_card"
+          decline_code: "insufficient_funds"
+          retry_with_same_card: true
+        expected:
+          user_message: "Your card does not have sufficient funds. Please try a different card or payment method."
+          order_state: "payment_failed"
+          charge_captured: false
+          same_card_warning: true
+        description: "User retries with same card after insufficient funds — additional warning shown."
+    state_transition:
+      states:
+        - "payment_processing"
+        - "payment_failed"
+        - "awaiting_new_payment"
+      transitions:
+        - from: "payment_processing"
+          to: "payment_failed"
+          trigger: "gateway_returns_insufficient_funds"
+          guard: "decline_code == insufficient_funds"
+        - from: "payment_failed"
+          to: "awaiting_new_payment"
+          trigger: "user_prompted_for_alternative"
+          guard: "cart_is_preserved"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - insufficient-funds
+      - error-handling
+      - user-messaging
+
+  - name: "Insufficient funds — no partial charge retained"
+    description: >
+      Verifies that when insufficient funds is returned, no authorization hold
+      or partial charge is left on the customer's card. The system must ensure
+      a clean rollback of any pending authorization.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — financial integrity, customer trust.
+      Frequency: 3 — occurs every time insufficient funds is triggered.
+      Consequence: 3 — phantom holds frustrate customers and may block their available balance.
+      Detectability: 3 — customer may not notice a hold until checking their statement.
+      Average: 3.0 → high.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates the gateway leaving a pending authorization.
+      State transition confirms the charge lifecycle (authorize → void) completes.
+    preconditions:
+      - "Payment gateway supports authorization voiding"
+      - "Payment was in authorization phase when decline occurred"
+    examples:
+      - input:
+          decline_code: "insufficient_funds"
+          authorization_status: "pending"
+        expected:
+          authorization_voided: true
+          charge_captured: false
+          hold_amount: 0.00
+        description: "Pending authorization is voided on insufficient funds."
+      - input:
+          decline_code: "insufficient_funds"
+          authorization_status: "not_created"
+        expected:
+          authorization_voided: false
+          charge_captured: false
+          hold_amount: 0.00
+        description: "No authorization was created — nothing to void."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - rollback
+      - authorization
+      - no-double-charge
+
+  # ==========================================================================
+  # S2 — Declined Card
+  # ==========================================================================
+  - name: "Declined card — show specific decline reason when available"
+    description: >
+      When a card is declined, the system checks whether the gateway provides
+      a specific decline reason. If available, the decline reason is shown to
+      the user along with a suggestion to contact their bank. If the reason is
+      generic, a general decline message is shown.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — payment flow, direct revenue impact.
+      Frequency: 2 — less common than insufficient funds but significant volume.
+      Consequence: 3 — vague messages increase support contacts and abandonment.
+      Detectability: 2 — user sees message but actionability depends on specificity.
+      Average: 2.5 → high.
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning groups decline codes into categories (specific
+      reason available, generic reason, no reason). Decision table maps decline
+      codes to user messages and backend actions. Error guessing covers rare
+      decline codes.
+    preconditions:
+      - "Customer has submitted payment with a card"
+      - "Payment gateway returns a decline response"
+    examples:
+      - input:
+          decline_code: "card_expired"
+          decline_reason_available: true
+          decline_reason: "Your card has expired"
+        expected:
+          user_message: "Your card has expired. Please update your card details or contact your bank."
+          order_state: "payment_failed"
+          suggest_contact_bank: true
+          backend_action: "rollback"
+        description: "Specific decline reason — card expired — shown to user."
+      - input:
+          decline_code: "do_not_honor"
+          decline_reason_available: true
+          decline_reason: "Card issuer declined the transaction"
+        expected:
+          user_message: "Your card was declined by the issuing bank. Please contact your bank for details or try another payment method."
+          order_state: "payment_failed"
+          suggest_contact_bank: true
+          backend_action: "rollback"
+        description: "Do-not-honor code — user told to contact bank."
+      - input:
+          decline_code: "generic_decline"
+          decline_reason_available: false
+        expected:
+          user_message: "Your payment could not be processed. Please try a different payment method or contact your bank."
+          order_state: "payment_failed"
+          suggest_contact_bank: true
+          backend_action: "rollback"
+        description: "Generic decline with no specific reason — fallback message."
+      - input:
+          decline_code: "lost_card"
+          decline_reason_available: true
+          decline_reason: "Card reported lost"
+        expected:
+          user_message: "Your card was declined. Please contact your bank for assistance or try another payment method."
+          order_state: "payment_failed"
+          suggest_contact_bank: true
+          backend_action: "rollback"
+          sensitive_reason_hidden: true
+        description: "Sensitive decline reason (lost card) — generic message to avoid revealing bank details."
+    decision_table:
+      conditions:
+        - "decline_reason_available"
+        - "decline_code_category"
+        - "reason_is_sensitive"
+      actions:
+        - "show_specific_reason"
+        - "show_generic_message"
+        - "suggest_contact_bank"
+        - "backend_action"
+      rules:
+        - description: "Specific non-sensitive reason available"
+          condition_values:
+            decline_reason_available: true
+            decline_code_category: "non_sensitive"
+            reason_is_sensitive: false
+          expected_actions:
+            show_specific_reason: true
+            show_generic_message: false
+            suggest_contact_bank: true
+            backend_action: "rollback"
+        - description: "Specific but sensitive reason available (e.g., lost/stolen)"
+          condition_values:
+            decline_reason_available: true
+            decline_code_category: "sensitive"
+            reason_is_sensitive: true
+          expected_actions:
+            show_specific_reason: false
+            show_generic_message: true
+            suggest_contact_bank: true
+            backend_action: "rollback"
+        - description: "No specific reason available"
+          condition_values:
+            decline_reason_available: false
+            decline_code_category: "unknown"
+            reason_is_sensitive: false
+          expected_actions:
+            show_specific_reason: false
+            show_generic_message: true
+            suggest_contact_bank: true
+            backend_action: "rollback"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - declined-card
+      - user-messaging
+      - decision-table
+
+  - name: "Declined card — order state rollback and cart preservation"
+    description: >
+      After a card decline, the order must transition to payment_failed state,
+      any pending authorization must be voided, and the customer's cart must
+      remain intact so they can retry with a different method.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 — payment state integrity.
+      Frequency: 2 — every card decline triggers this.
+      Consequence: 3 — incorrect state leaves order in limbo.
+      Detectability: 2 — user may notice stuck order but not root cause.
+      Average: 2.5 → high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition validates the order lifecycle on decline. Error guessing
+      covers states where concurrent operations could leave inconsistencies.
+    preconditions:
+      - "Order is in payment_processing state"
+      - "Payment gateway returns a decline"
+    examples:
+      - input:
+          current_state: "payment_processing"
+          event: "card_declined"
+        expected:
+          new_state: "payment_failed"
+          authorization_voided: true
+          cart_items_preserved: true
+          inventory_hold_maintained: true
+        description: "Order transitions from processing to failed, cart preserved."
+      - input:
+          current_state: "payment_failed"
+          event: "user_submits_new_payment"
+        expected:
+          new_state: "payment_processing"
+          new_authorization_created: true
+        description: "User retries from failed state — re-enters processing."
+    state_transition:
+      states:
+        - "payment_processing"
+        - "payment_failed"
+        - "awaiting_new_payment"
+        - "confirmed"
+      transitions:
+        - from: "payment_processing"
+          to: "payment_failed"
+          trigger: "card_declined"
+          guard: "decline response received from gateway"
+        - from: "payment_failed"
+          to: "awaiting_new_payment"
+          trigger: "user_views_decline_message"
+        - from: "awaiting_new_payment"
+          to: "payment_processing"
+          trigger: "user_submits_new_payment"
+          guard: "new payment method provided"
+        - from: "payment_processing"
+          to: "confirmed"
+          trigger: "payment_captured"
+          guard: "new payment method succeeds"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - declined-card
+      - state-machine
+      - rollback
+
+  # ==========================================================================
+  # S3 — Network Timeout to Payment Gateway
+  # ==========================================================================
+  - name: "Network timeout — retry with exponential backoff up to 3 retries"
+    description: >
+      When the payment gateway does not respond within the timeout window, the
+      system must retry the request using exponential backoff. Maximum 3 retries
+      are allowed. Each retry must use an idempotency key to prevent double
+      charges. After 3 failed retries, the order transitions to a timeout
+      failure state.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — payment processing, direct financial risk.
+      Frequency: 2 — network issues occur periodically.
+      Consequence: 3 — double charges or lost payments are severe.
+      Detectability: 3 — timeout may leave charge status ambiguous.
+      Average: 2.75 → high.
+    techniques:
+      - boundary_value
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the retry count limits (0, 1, 2, 3, 4 attempts).
+      State transition tracks order state across retries. Error guessing
+      anticipates idempotency key failures and partial gateway responses.
+    preconditions:
+      - "Order is in payment_processing state"
+      - "Payment gateway is experiencing network issues"
+      - "Idempotency key is generated for the payment request"
+    examples:
+      - input:
+          gateway_response: "timeout"
+          retry_attempt: 1
+          backoff_delay_ms: 1000
+          idempotency_key: "idem-abc-001"
+        expected:
+          action: "retry"
+          next_retry_delay_ms: 2000
+          order_state: "payment_processing"
+          charge_duplicated: false
+        description: "First timeout — retry after 1s, next delay doubles to 2s."
+      - input:
+          gateway_response: "timeout"
+          retry_attempt: 2
+          backoff_delay_ms: 2000
+          idempotency_key: "idem-abc-001"
+        expected:
+          action: "retry"
+          next_retry_delay_ms: 4000
+          order_state: "payment_processing"
+          charge_duplicated: false
+        description: "Second timeout — retry after 2s, next delay doubles to 4s."
+      - input:
+          gateway_response: "timeout"
+          retry_attempt: 3
+          backoff_delay_ms: 4000
+          idempotency_key: "idem-abc-001"
+        expected:
+          action: "abort"
+          order_state: "payment_timeout"
+          user_message: "We were unable to process your payment due to a temporary issue. Please try again shortly."
+          charge_duplicated: false
+          cart_preserved: true
+        description: "Third timeout — max retries exhausted, abort and notify user."
+      - input:
+          gateway_response: "timeout"
+          retry_attempt: 1
+          gateway_response_on_retry: "success"
+          idempotency_key: "idem-abc-001"
+        expected:
+          action: "retry_succeeded"
+          order_state: "confirmed"
+          charge_captured: true
+          charge_duplicated: false
+        description: "First retry succeeds — order confirmed, no double charge."
+    state_transition:
+      states:
+        - "payment_processing"
+        - "retry_pending"
+        - "payment_timeout"
+        - "confirmed"
+      transitions:
+        - from: "payment_processing"
+          to: "retry_pending"
+          trigger: "gateway_timeout"
+          guard: "retry_count < 3"
+        - from: "retry_pending"
+          to: "payment_processing"
+          trigger: "backoff_delay_elapsed"
+        - from: "payment_processing"
+          to: "payment_timeout"
+          trigger: "gateway_timeout"
+          guard: "retry_count >= 3"
+        - from: "payment_processing"
+          to: "confirmed"
+          trigger: "payment_captured"
+          guard: "gateway responds successfully"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - network-timeout
+      - retry
+      - exponential-backoff
+      - idempotency
+
+  - name: "Network timeout — exponential backoff delay calculation"
+    description: >
+      Verifies that the backoff delays follow the exponential pattern correctly:
+      base_delay * 2^(attempt-1). Tests boundary values around the retry count
+      and ensures delay does not exceed a maximum cap.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — retry timing affects user experience but not data integrity.
+      Frequency: 2 — only during timeout scenarios.
+      Consequence: 2 — wrong delay is degraded experience, not data loss.
+      Detectability: 1 — delays are observable in logs and UX.
+      Average: 1.75 → medium.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      Boundary value tests the retry count boundaries (0, 1, 2, 3, beyond 3).
+      Equivalence partitioning validates delay classes (within limit, at cap).
+    preconditions:
+      - "Base delay is configured at 1000ms"
+      - "Maximum delay cap is configured at 10000ms"
+    examples:
+      - input:
+          retry_attempt: 1
+          base_delay_ms: 1000
+        expected:
+          delay_ms: 1000
+        description: "First retry — base delay of 1000ms."
+      - input:
+          retry_attempt: 2
+          base_delay_ms: 1000
+        expected:
+          delay_ms: 2000
+        description: "Second retry — 1000 * 2^1 = 2000ms."
+      - input:
+          retry_attempt: 3
+          base_delay_ms: 1000
+        expected:
+          delay_ms: 4000
+        description: "Third retry — 1000 * 2^2 = 4000ms."
+      - input:
+          retry_attempt: 4
+          base_delay_ms: 1000
+        expected:
+          retry_allowed: false
+          action: "abort"
+        description: "Fourth attempt — exceeds max retries, no delay calculated."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - payment
+      - retry
+      - exponential-backoff
+      - boundary
+
+  - name: "Network timeout — idempotency key prevents double charges during retries"
+    description: >
+      Each payment attempt for the same order uses the same idempotency key.
+      If the gateway actually processed a previous timed-out request, the retry
+      with the same idempotency key must return the original result rather than
+      creating a new charge. This is the primary defense against double charges.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 — financial integrity, double charge is a direct monetary loss.
+      Frequency: 2 — occurs whenever retries are needed.
+      Consequence: 3 — double charges require manual refunds and erode trust.
+      Detectability: 3 — customer may not notice immediately; silent double charge.
+      Average: 2.75 → high.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the known race condition where a timed-out request
+      was actually processed. Equivalence partitioning separates idempotent vs
+      non-idempotent gateway responses. Cause-effect maps the relationship
+      between timeout, retry, and idempotency key to the charge outcome.
+    preconditions:
+      - "Payment request includes an idempotency key"
+      - "Gateway supports idempotency keys"
+    examples:
+      - input:
+          original_request_status: "timed_out_but_processed"
+          retry_idempotency_key: "idem-xyz-001"
+          same_key_as_original: true
+        expected:
+          charges_created: 1
+          retry_response: "original_charge_returned"
+          double_charge: false
+        description: "Gateway processed original despite timeout — retry returns original charge."
+      - input:
+          original_request_status: "timed_out_not_processed"
+          retry_idempotency_key: "idem-xyz-001"
+          same_key_as_original: true
+        expected:
+          charges_created: 1
+          retry_response: "new_charge_created"
+          double_charge: false
+        description: "Original was not processed — retry creates the charge, no duplication."
+      - input:
+          original_request_status: "timed_out_but_processed"
+          retry_idempotency_key: "idem-xyz-002"
+          same_key_as_original: false
+        expected:
+          charges_created: 2
+          double_charge: true
+        description: "DEFECT SCENARIO — different idempotency key on retry causes double charge."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - idempotency
+      - no-double-charge
+      - security
+      - critical-path
+
+  - name: "Network timeout — gateway processes request after client timeout"
+    description: >
+      The gateway was slow but did process the payment after the client-side
+      timeout. When the system retries, it must detect the already-processed
+      payment and avoid charging again. This covers the split-brain scenario
+      where both the original and retry could succeed.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — financial integrity, double charge risk.
+      Frequency: 2 — happens when gateway is slow but not down.
+      Consequence: 3 — double charge.
+      Detectability: 3 — silent failure, customer discovers later.
+      Average: 2.75 → high.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets the known race condition. State transition models
+      the payment lifecycle when response arrives after timeout.
+    preconditions:
+      - "Gateway response time exceeds client timeout threshold"
+      - "Gateway actually processes the payment successfully"
+    examples:
+      - input:
+          client_timeout_ms: 30000
+          gateway_actual_processing_ms: 35000
+          payment_processed_by_gateway: true
+          retry_triggered: true
+          idempotency_key: "idem-late-001"
+        expected:
+          total_charges: 1
+          order_state: "confirmed"
+          reconciliation_log_entry: true
+        description: "Late gateway success + retry — idempotency prevents double charge."
+      - input:
+          client_timeout_ms: 30000
+          gateway_actual_processing_ms: 35000
+          payment_processed_by_gateway: true
+          retry_triggered: true
+          idempotency_key_missing: true
+        expected:
+          total_charges: 2
+          double_charge_detected: true
+          automatic_refund_triggered: true
+        description: "DEFECT SCENARIO — missing idempotency key leads to double charge; system should auto-refund."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - race-condition
+      - no-double-charge
+      - edge-case
+
+  # ==========================================================================
+  # S4 — 3D Secure Authentication Failure
+  # ==========================================================================
+  - name: "3D Secure authentication failure — allow re-authentication"
+    description: >
+      When 3D Secure (3DS) authentication fails (user enters wrong OTP,
+      authentication times out, or bank rejects authentication), the system
+      must allow the user to re-authenticate without needing to re-enter all
+      payment details. The order stays in a pending state and no charge is
+      captured.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — payment flow, 3DS is mandatory for many card transactions in EU/SCA.
+      Frequency: 3 — very common with SCA-compliant transactions.
+      Consequence: 3 — failure to re-auth means lost sale.
+      Detectability: 2 — user knows auth failed but may not understand next steps.
+      Average: 2.75 → high.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning separates 3DS failure reasons (wrong OTP, timeout,
+      bank rejection). State transition models the auth-retry lifecycle. Error
+      guessing anticipates session expiry during re-auth.
+    preconditions:
+      - "Payment method requires 3D Secure authentication"
+      - "3DS challenge has been presented to the user"
+    examples:
+      - input:
+          threeds_result: "authentication_failed"
+          failure_reason: "incorrect_otp"
+          auth_attempts: 1
+        expected:
+          user_message: "Authentication failed. Please try again with the correct verification code."
+          allow_re_authentication: true
+          order_state: "awaiting_authentication"
+          charge_captured: false
+          payment_details_preserved: true
+        description: "Wrong OTP entered — user can retry authentication."
+      - input:
+          threeds_result: "authentication_failed"
+          failure_reason: "timeout"
+          auth_attempts: 1
+        expected:
+          user_message: "Authentication timed out. Please try again."
+          allow_re_authentication: true
+          order_state: "awaiting_authentication"
+          charge_captured: false
+        description: "3DS challenge timed out — user can retry."
+      - input:
+          threeds_result: "authentication_failed"
+          failure_reason: "issuer_rejected"
+          auth_attempts: 1
+        expected:
+          user_message: "Your bank could not verify your identity. Please contact your bank or try a different payment method."
+          allow_re_authentication: true
+          order_state: "awaiting_authentication"
+          charge_captured: false
+          suggest_alternative_method: true
+        description: "Bank rejected 3DS — suggest contacting bank or using another method."
+      - input:
+          threeds_result: "authentication_success"
+          auth_attempts: 2
+        expected:
+          order_state: "payment_processing"
+          charge_initiated: true
+        description: "Second authentication attempt succeeds — proceed to payment processing."
+    state_transition:
+      states:
+        - "payment_processing"
+        - "threeds_challenge_presented"
+        - "awaiting_authentication"
+        - "authentication_failed"
+        - "confirmed"
+      transitions:
+        - from: "payment_processing"
+          to: "threeds_challenge_presented"
+          trigger: "gateway_requires_3ds"
+          guard: "card requires SCA"
+        - from: "threeds_challenge_presented"
+          to: "authentication_failed"
+          trigger: "user_fails_3ds_challenge"
+        - from: "authentication_failed"
+          to: "awaiting_authentication"
+          trigger: "system_allows_re_auth"
+          guard: "max auth attempts not exceeded"
+        - from: "awaiting_authentication"
+          to: "threeds_challenge_presented"
+          trigger: "user_initiates_re_auth"
+        - from: "threeds_challenge_presented"
+          to: "payment_processing"
+          trigger: "user_passes_3ds_challenge"
+        - from: "payment_processing"
+          to: "confirmed"
+          trigger: "payment_captured"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - 3d-secure
+      - authentication
+      - sca
+      - error-handling
+
+  - name: "3D Secure — maximum re-authentication attempts"
+    description: >
+      After a configurable number of failed 3DS authentication attempts (e.g., 3),
+      the system should stop allowing re-authentication and suggest the user try
+      a different payment method entirely.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — user experience, not data integrity.
+      Frequency: 2 — uncommon to fail 3 times but not rare.
+      Consequence: 2 — user is locked out of this payment method only.
+      Detectability: 1 — clearly visible to user.
+      Average: 1.75 → medium.
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value tests the max attempt threshold (1, 2, 3, 4). State
+      transition covers the terminal transition when max is reached.
+    preconditions:
+      - "Maximum 3DS attempts configured to 3"
+    examples:
+      - input:
+          auth_attempts: 2
+          threeds_result: "authentication_failed"
+        expected:
+          allow_re_authentication: true
+          remaining_attempts: 1
+        description: "Second failure — one more attempt allowed."
+      - input:
+          auth_attempts: 3
+          threeds_result: "authentication_failed"
+        expected:
+          allow_re_authentication: false
+          user_message: "Maximum authentication attempts reached. Please try a different payment method."
+          order_state: "payment_failed"
+        description: "Third failure — max reached, no more re-auth allowed."
+      - input:
+          auth_attempts: 1
+          threeds_result: "authentication_failed"
+        expected:
+          allow_re_authentication: true
+          remaining_attempts: 2
+        description: "First failure — two more attempts allowed."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - payment
+      - 3d-secure
+      - boundary
+      - max-attempts
+
+  # ==========================================================================
+  # S5 — Fraud Check Rejection
+  # ==========================================================================
+  - name: "Fraud check rejection — flag order for manual review"
+    description: >
+      When the fraud detection system rejects a payment, the order is flagged
+      for manual review by the operations team. The user must NOT be informed
+      that fraud detection was the reason for the failure; instead, a generic
+      processing error message is shown. The order transitions to a
+      manual_review state internally.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 — security and fraud prevention, compliance.
+      Frequency: 2 — fraud checks trigger on suspicious orders.
+      Consequence: 3 — revealing fraud detection logic to attacker enables evasion.
+      Detectability: 3 — by design, the fraud rejection is hidden from the user.
+      Average: 2.75 → high.
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning separates fraud rejection types. Decision table
+      maps fraud signals to backend actions. Error guessing anticipates
+      information leakage in error responses.
+    preconditions:
+      - "Fraud detection service is active"
+      - "Order has been flagged by fraud detection"
+    examples:
+      - input:
+          fraud_check_result: "rejected"
+          fraud_reason: "velocity_check_failed"
+          order_id: "ORD-12345"
+        expected:
+          user_message: "We are unable to process your payment at this time. Please try again later or contact support."
+          order_state: "manual_review"
+          fraud_flag_internal: true
+          fraud_reason_exposed_to_user: false
+          manual_review_queue_entry: true
+          backend_action: "flag_for_review"
+        description: "Fraud velocity check fails — generic message shown, order flagged internally."
+      - input:
+          fraud_check_result: "rejected"
+          fraud_reason: "high_risk_score"
+          risk_score: 95
+          order_id: "ORD-12346"
+        expected:
+          user_message: "We are unable to process your payment at this time. Please try again later or contact support."
+          order_state: "manual_review"
+          fraud_flag_internal: true
+          fraud_reason_exposed_to_user: false
+          risk_score_logged: true
+        description: "High fraud risk score — same generic message, risk score logged for review."
+      - input:
+          fraud_check_result: "rejected"
+          fraud_reason: "address_mismatch"
+          order_id: "ORD-12347"
+        expected:
+          user_message: "We are unable to process your payment at this time. Please try again later or contact support."
+          order_state: "manual_review"
+          fraud_flag_internal: true
+          fraud_reason_exposed_to_user: false
+        description: "Address mismatch fraud check — generic message, no hint about AVS failure."
+    decision_table:
+      conditions:
+        - "fraud_check_result"
+        - "fraud_reason_category"
+      actions:
+        - "user_message_type"
+        - "internal_flag"
+        - "order_state"
+        - "reveal_fraud_reason"
+      rules:
+        - description: "Velocity check failure"
+          condition_values:
+            fraud_check_result: "rejected"
+            fraud_reason_category: "velocity"
+          expected_actions:
+            user_message_type: "generic_processing_error"
+            internal_flag: true
+            order_state: "manual_review"
+            reveal_fraud_reason: false
+        - description: "High risk score"
+          condition_values:
+            fraud_check_result: "rejected"
+            fraud_reason_category: "risk_score"
+          expected_actions:
+            user_message_type: "generic_processing_error"
+            internal_flag: true
+            order_state: "manual_review"
+            reveal_fraud_reason: false
+        - description: "Address mismatch"
+          condition_values:
+            fraud_check_result: "rejected"
+            fraud_reason_category: "avs_mismatch"
+          expected_actions:
+            user_message_type: "generic_processing_error"
+            internal_flag: true
+            order_state: "manual_review"
+            reveal_fraud_reason: false
+        - description: "Fraud check passed"
+          condition_values:
+            fraud_check_result: "passed"
+            fraud_reason_category: "none"
+          expected_actions:
+            user_message_type: "none"
+            internal_flag: false
+            order_state: "payment_processing"
+            reveal_fraud_reason: false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - fraud
+      - security
+      - manual-review
+      - information-leakage
+
+  - name: "Fraud check rejection — no fraud detection information leakage"
+    description: >
+      Verifies that no API response, error message, HTTP header, or log
+      accessible to the user reveals that fraud detection was the reason
+      for payment failure. This includes checking response body, status
+      codes, timing patterns, and error code specificity.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 — security, fraud evasion enablement.
+      Frequency: 2 — every fraud rejection interaction.
+      Consequence: 3 — leaking fraud signals helps attackers adapt.
+      Detectability: 3 — information leakage is often subtle and hard to spot.
+      Average: 2.75 → high.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets common information leakage vectors: distinct error
+      codes, different response times, verbose error messages. Equivalence
+      partitioning ensures all fraud rejection types produce identical external
+      behavior.
+    preconditions:
+      - "Payment has been rejected by fraud detection"
+    examples:
+      - input:
+          fraud_rejection: true
+          response_check: "error_code"
+        expected:
+          error_code_same_as_generic_decline: true
+          no_fraud_specific_code: true
+        description: "Error code for fraud rejection is indistinguishable from generic decline."
+      - input:
+          fraud_rejection: true
+          response_check: "response_time"
+        expected:
+          response_time_within_normal_range: true
+          no_timing_side_channel: true
+        description: "Response time for fraud rejection is consistent with normal declines — no timing oracle."
+      - input:
+          fraud_rejection: true
+          response_check: "http_headers"
+        expected:
+          no_fraud_related_headers: true
+          no_x_fraud_header: true
+        description: "No HTTP headers reveal fraud detection involvement."
+      - input:
+          fraud_rejection: true
+          response_check: "error_message_text"
+        expected:
+          message_identical_to_generic: true
+          no_fraud_keywords: true
+        description: "Error message text contains no fraud-related keywords."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - fraud
+      - security
+      - information-leakage
+      - timing-attack
+
+  # ==========================================================================
+  # S6 — Order State Transition (Cross-Cutting)
+  # ==========================================================================
+  - name: "Order state transitions across all payment failure types"
+    description: >
+      Comprehensive state transition testing for the order lifecycle covering
+      all five failure types and their respective state outcomes. Validates
+      that each failure type transitions the order to the correct state and
+      that invalid transitions are rejected.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 — order integrity across all failure types.
+      Frequency: 3 — every payment failure triggers a state transition.
+      Consequence: 3 — invalid states cause data corruption and stuck orders.
+      Detectability: 2 — some invalid states are caught by monitoring, others are silent.
+      Average: 2.75 → high.
+    techniques:
+      - state_transition
+      - decision_table
+    technique_rationale: >
+      State transition provides 0-switch and 1-switch coverage of the order
+      state machine. Decision table maps failure type to expected state.
+    preconditions:
+      - "Order exists in the system"
+    examples:
+      - input:
+          current_state: "payment_processing"
+          failure_type: "insufficient_funds"
+        expected:
+          new_state: "payment_failed"
+          can_retry: true
+        description: "Insufficient funds → payment_failed (retryable)."
+      - input:
+          current_state: "payment_processing"
+          failure_type: "declined_card"
+        expected:
+          new_state: "payment_failed"
+          can_retry: true
+        description: "Declined card → payment_failed (retryable)."
+      - input:
+          current_state: "payment_processing"
+          failure_type: "network_timeout"
+          retry_count: 0
+        expected:
+          new_state: "retry_pending"
+          can_retry: true
+        description: "Network timeout (first) → retry_pending."
+      - input:
+          current_state: "payment_processing"
+          failure_type: "network_timeout"
+          retry_count: 3
+        expected:
+          new_state: "payment_timeout"
+          can_retry: false
+        description: "Network timeout (max retries) → payment_timeout."
+      - input:
+          current_state: "payment_processing"
+          failure_type: "threeds_auth_failure"
+        expected:
+          new_state: "awaiting_authentication"
+          can_retry: true
+        description: "3DS failure → awaiting_authentication (re-auth allowed)."
+      - input:
+          current_state: "payment_processing"
+          failure_type: "fraud_rejection"
+        expected:
+          new_state: "manual_review"
+          can_retry: false
+        description: "Fraud rejection → manual_review (not retryable by user)."
+      - input:
+          current_state: "confirmed"
+          failure_type: "insufficient_funds"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Invalid transition — cannot fail payment on an already confirmed order."
+    state_transition:
+      states:
+        - "cart"
+        - "pending_payment"
+        - "payment_processing"
+        - "payment_failed"
+        - "retry_pending"
+        - "payment_timeout"
+        - "awaiting_authentication"
+        - "manual_review"
+        - "confirmed"
+        - "cancelled"
+      transitions:
+        - from: "cart"
+          to: "pending_payment"
+          trigger: "checkout_initiated"
+        - from: "pending_payment"
+          to: "payment_processing"
+          trigger: "payment_submitted"
+        - from: "payment_processing"
+          to: "payment_failed"
+          trigger: "insufficient_funds_or_card_declined"
+        - from: "payment_processing"
+          to: "retry_pending"
+          trigger: "network_timeout"
+          guard: "retry_count < 3"
+        - from: "retry_pending"
+          to: "payment_processing"
+          trigger: "backoff_elapsed"
+        - from: "payment_processing"
+          to: "payment_timeout"
+          trigger: "network_timeout"
+          guard: "retry_count >= 3"
+        - from: "payment_processing"
+          to: "awaiting_authentication"
+          trigger: "threeds_auth_failure"
+        - from: "awaiting_authentication"
+          to: "payment_processing"
+          trigger: "user_re_authenticates"
+        - from: "payment_processing"
+          to: "manual_review"
+          trigger: "fraud_check_rejected"
+        - from: "payment_failed"
+          to: "payment_processing"
+          trigger: "user_retries_payment"
+        - from: "payment_processing"
+          to: "confirmed"
+          trigger: "payment_captured"
+        - from: "payment_timeout"
+          to: "cancelled"
+          trigger: "timeout_expiry"
+          guard: "no pending charges found"
+    decision_table:
+      conditions:
+        - "failure_type"
+        - "retry_count"
+      actions:
+        - "target_state"
+        - "user_can_retry"
+        - "backend_action"
+      rules:
+        - description: "Insufficient funds failure"
+          condition_values:
+            failure_type: "insufficient_funds"
+            retry_count: "any"
+          expected_actions:
+            target_state: "payment_failed"
+            user_can_retry: true
+            backend_action: "rollback"
+        - description: "Declined card failure"
+          condition_values:
+            failure_type: "declined_card"
+            retry_count: "any"
+          expected_actions:
+            target_state: "payment_failed"
+            user_can_retry: true
+            backend_action: "rollback"
+        - description: "Network timeout — retries remaining"
+          condition_values:
+            failure_type: "network_timeout"
+            retry_count: "<3"
+          expected_actions:
+            target_state: "retry_pending"
+            user_can_retry: false
+            backend_action: "retry_with_backoff"
+        - description: "Network timeout — max retries exhausted"
+          condition_values:
+            failure_type: "network_timeout"
+            retry_count: ">=3"
+          expected_actions:
+            target_state: "payment_timeout"
+            user_can_retry: false
+            backend_action: "rollback"
+        - description: "3DS authentication failure"
+          condition_values:
+            failure_type: "threeds_auth_failure"
+            retry_count: "any"
+          expected_actions:
+            target_state: "awaiting_authentication"
+            user_can_retry: true
+            backend_action: "hold_for_re_auth"
+        - description: "Fraud check rejection"
+          condition_values:
+            failure_type: "fraud_rejection"
+            retry_count: "any"
+          expected_actions:
+            target_state: "manual_review"
+            user_can_retry: false
+            backend_action: "flag_for_review"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - state-machine
+      - critical-path
+      - cross-cutting
+
+  # ==========================================================================
+  # S7 — No Double Charges (Cross-Cutting)
+  # ==========================================================================
+  - name: "No double charges during payment retries"
+    description: >
+      Across all retry scenarios (network timeout retries, user-initiated
+      retries after decline, 3DS re-authentication), the system must guarantee
+      that at most one charge is captured for a given order. This includes
+      concurrent retry attempts and race conditions.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 — financial integrity, direct monetary loss.
+      Frequency: 3 — retries happen across multiple failure types.
+      Consequence: 3 — double charges require refunds, erode trust, may violate regulations.
+      Detectability: 3 — double charges are often silent until customer reviews statement.
+      Average: 3.0 → high.
+    techniques:
+      - error_guessing
+      - cause_effect
+      - state_transition
+    technique_rationale: >
+      Error guessing targets known concurrency and race conditions in payment
+      processing. Cause-effect maps the relationship between concurrent requests
+      and charge outcomes. State transition validates that only one path leads
+      to charge capture.
+    preconditions:
+      - "Idempotency key system is in place"
+      - "Payment gateway supports idempotent requests"
+    examples:
+      - input:
+          scenario: "concurrent_retry"
+          retry_request_1: "in_flight"
+          retry_request_2: "in_flight"
+          idempotency_key: "idem-concurrent-001"
+        expected:
+          total_charges: 1
+          second_request_result: "idempotent_response"
+          double_charge: false
+        description: "Two concurrent retry requests — only one charge via idempotency."
+      - input:
+          scenario: "user_rapid_click"
+          click_count: 3
+          debounce_active: true
+          idempotency_key: "idem-click-001"
+        expected:
+          payment_requests_sent: 1
+          total_charges: 1
+          double_charge: false
+        description: "User clicks pay multiple times rapidly — client debounce prevents duplicates."
+      - input:
+          scenario: "3ds_re_auth_then_original_succeeds"
+          original_auth_delayed: true
+          re_auth_succeeds: true
+          idempotency_key: "idem-3ds-001"
+        expected:
+          total_charges: 1
+          double_charge: false
+        description: "3DS re-auth succeeds while delayed original also completes — only one charge."
+      - input:
+          scenario: "network_retry_original_late_success"
+          timeout_retry_succeeds: true
+          original_request_late_success: true
+          idempotency_key: "idem-late-001"
+        expected:
+          total_charges: 1
+          reconciliation_entry_created: true
+          double_charge: false
+        description: "Retry succeeds and original late-arrives — idempotency prevents double charge."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - no-double-charge
+      - idempotency
+      - concurrency
+      - critical-path
+
+  - name: "No double charges — client-side debounce on payment submission"
+    description: >
+      The payment submission UI must debounce rapid repeated clicks on the pay
+      button to prevent multiple payment requests from being sent. Even if
+      debounce fails, the server-side idempotency key must prevent double
+      charges.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — financial integrity.
+      Frequency: 3 — impatient users commonly double-click.
+      Consequence: 3 — double charge.
+      Detectability: 2 — user may or may not notice the double charge.
+      Average: 2.75 → high.
+    techniques:
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Error guessing targets the common user behavior of rapid clicking.
+      Boundary value tests the debounce timing threshold.
+    preconditions:
+      - "Payment form is displayed to user"
+      - "Pay button is enabled"
+    examples:
+      - input:
+          clicks: 1
+          time_between_clicks_ms: 0
+        expected:
+          requests_sent: 1
+          button_disabled_after_first_click: true
+        description: "Single click — normal flow."
+      - input:
+          clicks: 5
+          time_between_clicks_ms: 50
+        expected:
+          requests_sent: 1
+          button_disabled_after_first_click: true
+          total_charges: 1
+        description: "Five rapid clicks within 250ms — only one request sent."
+      - input:
+          clicks: 2
+          time_between_clicks_ms: 100
+          debounce_fails: true
+        expected:
+          requests_sent: 2
+          total_charges: 1
+          idempotency_key_prevents_duplicate: true
+        description: "Debounce fails, two requests sent — server-side idempotency prevents double charge."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - no-double-charge
+      - ui
+      - debounce
+      - edge-case
+
+  # ==========================================================================
+  # S8 — User-Visible Messages (Cross-Cutting)
+  # ==========================================================================
+  - name: "User-visible messages are correct for each failure type"
+    description: >
+      Validates that each payment failure type produces the correct user-facing
+      message. Messages must be clear, actionable, and must NOT reveal internal
+      system details, especially for fraud rejections.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — user experience and security (fraud info leakage).
+      Frequency: 3 — every payment failure produces a message.
+      Consequence: 2 — wrong message is confusing but not financial loss (except fraud leakage).
+      Detectability: 1 — messages are immediately visible to users.
+      Average: 2.25 → medium. Elevated to high due to fraud information leakage risk.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table maps each failure type to its expected message. Equivalence
+      partitioning ensures all failure categories are covered.
+    preconditions:
+      - "Payment has failed for a known reason"
+    examples:
+      - input:
+          failure_type: "insufficient_funds"
+        expected:
+          user_message: "Your card does not have sufficient funds. Please try a different card or payment method."
+          contains_internal_details: false
+        description: "Insufficient funds message — actionable, suggests alternative."
+      - input:
+          failure_type: "declined_card"
+          decline_reason_available: true
+          decline_reason: "card_expired"
+        expected:
+          user_message: "Your card has expired. Please update your card details or contact your bank."
+          contains_internal_details: false
+        description: "Declined card with specific reason — reason shown."
+      - input:
+          failure_type: "network_timeout"
+          retries_exhausted: true
+        expected:
+          user_message: "We were unable to process your payment due to a temporary issue. Please try again shortly."
+          contains_internal_details: false
+        description: "Network timeout — generic temporary issue message."
+      - input:
+          failure_type: "threeds_auth_failure"
+          failure_reason: "incorrect_otp"
+        expected:
+          user_message: "Authentication failed. Please try again with the correct verification code."
+          contains_internal_details: false
+        description: "3DS failure — prompt to retry authentication."
+      - input:
+          failure_type: "fraud_rejection"
+        expected:
+          user_message: "We are unable to process your payment at this time. Please try again later or contact support."
+          contains_internal_details: false
+          contains_fraud_keywords: false
+        description: "Fraud rejection — generic message, no fraud-related language."
+    decision_table:
+      conditions:
+        - "failure_type"
+        - "specific_reason_available"
+      actions:
+        - "message_template"
+        - "suggest_alternative_method"
+        - "suggest_contact_bank"
+        - "reveal_internal_details"
+      rules:
+        - description: "Insufficient funds"
+          condition_values:
+            failure_type: "insufficient_funds"
+            specific_reason_available: true
+          expected_actions:
+            message_template: "insufficient_funds_template"
+            suggest_alternative_method: true
+            suggest_contact_bank: false
+            reveal_internal_details: false
+        - description: "Declined card with reason"
+          condition_values:
+            failure_type: "declined_card"
+            specific_reason_available: true
+          expected_actions:
+            message_template: "declined_with_reason_template"
+            suggest_alternative_method: true
+            suggest_contact_bank: true
+            reveal_internal_details: false
+        - description: "Declined card without reason"
+          condition_values:
+            failure_type: "declined_card"
+            specific_reason_available: false
+          expected_actions:
+            message_template: "generic_decline_template"
+            suggest_alternative_method: true
+            suggest_contact_bank: true
+            reveal_internal_details: false
+        - description: "Network timeout"
+          condition_values:
+            failure_type: "network_timeout"
+            specific_reason_available: false
+          expected_actions:
+            message_template: "temporary_issue_template"
+            suggest_alternative_method: false
+            suggest_contact_bank: false
+            reveal_internal_details: false
+        - description: "3DS authentication failure"
+          condition_values:
+            failure_type: "threeds_auth_failure"
+            specific_reason_available: true
+          expected_actions:
+            message_template: "auth_failure_template"
+            suggest_alternative_method: false
+            suggest_contact_bank: false
+            reveal_internal_details: false
+        - description: "Fraud rejection"
+          condition_values:
+            failure_type: "fraud_rejection"
+            specific_reason_available: false
+          expected_actions:
+            message_template: "generic_processing_error_template"
+            suggest_alternative_method: false
+            suggest_contact_bank: false
+            reveal_internal_details: false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - user-messaging
+      - decision-table
+      - cross-cutting
+
+  # ==========================================================================
+  # S9 — Backend Actions Per Failure Type
+  # ==========================================================================
+  - name: "Backend actions are correct for each failure type"
+    description: >
+      Each failure type triggers a specific backend action: rollback for
+      insufficient funds and declined card, retry with exponential backoff
+      for network timeout, hold for re-auth for 3DS failure, and flag for
+      manual review for fraud rejection. Verifies correct action dispatching.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — incorrect backend actions can cause financial loss or missed fraud.
+      Frequency: 3 — every payment failure triggers a backend action.
+      Consequence: 3 — wrong action (e.g., retry instead of flag for fraud) is severe.
+      Detectability: 2 — backend actions are not visible to user, rely on monitoring.
+      Average: 2.75 → high.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table maps failure types to backend actions exhaustively.
+      Equivalence partitioning ensures each failure category maps to exactly
+      one action.
+    preconditions:
+      - "Payment failure has been classified"
+    examples:
+      - input:
+          failure_type: "insufficient_funds"
+        expected:
+          backend_action: "rollback"
+          authorization_voided: true
+          retry_initiated: false
+          fraud_flag: false
+        description: "Insufficient funds — rollback, void authorization."
+      - input:
+          failure_type: "declined_card"
+        expected:
+          backend_action: "rollback"
+          authorization_voided: true
+          retry_initiated: false
+          fraud_flag: false
+        description: "Declined card — rollback, void authorization."
+      - input:
+          failure_type: "network_timeout"
+          retry_count: 0
+        expected:
+          backend_action: "retry"
+          retry_with_backoff: true
+          idempotency_key_reused: true
+          rollback: false
+        description: "Network timeout (first) — retry with backoff, reuse idempotency key."
+      - input:
+          failure_type: "network_timeout"
+          retry_count: 3
+        expected:
+          backend_action: "rollback"
+          retry_with_backoff: false
+          pending_charge_check: true
+        description: "Network timeout (max retries) — rollback, check for pending charges."
+      - input:
+          failure_type: "threeds_auth_failure"
+        expected:
+          backend_action: "hold_for_re_auth"
+          payment_intent_preserved: true
+          new_3ds_challenge_prepared: true
+        description: "3DS failure — hold payment intent for re-authentication."
+      - input:
+          failure_type: "fraud_rejection"
+        expected:
+          backend_action: "flag_for_review"
+          manual_review_entry_created: true
+          notification_sent_to_ops: true
+          user_not_informed_of_fraud: true
+        description: "Fraud rejection — flag for manual review, notify ops, hide reason from user."
+    decision_table:
+      conditions:
+        - "failure_type"
+        - "retry_count_for_timeout"
+      actions:
+        - "backend_action"
+        - "void_authorization"
+        - "retry"
+        - "flag_for_review"
+        - "preserve_payment_intent"
+      rules:
+        - description: "Insufficient funds"
+          condition_values:
+            failure_type: "insufficient_funds"
+            retry_count_for_timeout: "n/a"
+          expected_actions:
+            backend_action: "rollback"
+            void_authorization: true
+            retry: false
+            flag_for_review: false
+            preserve_payment_intent: false
+        - description: "Declined card"
+          condition_values:
+            failure_type: "declined_card"
+            retry_count_for_timeout: "n/a"
+          expected_actions:
+            backend_action: "rollback"
+            void_authorization: true
+            retry: false
+            flag_for_review: false
+            preserve_payment_intent: false
+        - description: "Network timeout — retries remaining"
+          condition_values:
+            failure_type: "network_timeout"
+            retry_count_for_timeout: "<3"
+          expected_actions:
+            backend_action: "retry"
+            void_authorization: false
+            retry: true
+            flag_for_review: false
+            preserve_payment_intent: true
+        - description: "Network timeout — max retries"
+          condition_values:
+            failure_type: "network_timeout"
+            retry_count_for_timeout: ">=3"
+          expected_actions:
+            backend_action: "rollback"
+            void_authorization: true
+            retry: false
+            flag_for_review: false
+            preserve_payment_intent: false
+        - description: "3DS authentication failure"
+          condition_values:
+            failure_type: "threeds_auth_failure"
+            retry_count_for_timeout: "n/a"
+          expected_actions:
+            backend_action: "hold_for_re_auth"
+            void_authorization: false
+            retry: false
+            flag_for_review: false
+            preserve_payment_intent: true
+        - description: "Fraud rejection"
+          condition_values:
+            failure_type: "fraud_rejection"
+            retry_count_for_timeout: "n/a"
+          expected_actions:
+            backend_action: "flag_for_review"
+            void_authorization: true
+            retry: false
+            flag_for_review: true
+            preserve_payment_intent: false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - backend-actions
+      - decision-table
+      - cross-cutting
+
+  # ==========================================================================
+  # S10 — Error Handling Edge Cases
+  # ==========================================================================
+  - name: "Payment gateway returns unknown error code"
+    description: >
+      The payment gateway returns an error code not in the known set of failure
+      types. The system must handle this gracefully with a generic error
+      message, log the unknown code for investigation, and transition the
+      order to a safe state.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — unknown errors need handling but are not a core flow.
+      Frequency: 1 — rare, only when gateway sends unexpected codes.
+      Consequence: 2 — unhandled error could crash or leave order in limbo.
+      Detectability: 2 — user sees an error, ops may miss in logs.
+      Average: 1.75 → medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning treats unknown codes as a distinct invalid class.
+      Error guessing anticipates gateway API changes introducing new codes.
+    preconditions:
+      - "Payment gateway is reachable"
+      - "Gateway returns a code not in the known mapping"
+    examples:
+      - input:
+          gateway_error_code: "UNKNOWN_XYZ_999"
+          gateway_error_message: "Unrecognized internal error"
+        expected:
+          user_message: "We encountered an unexpected issue processing your payment. Please try again or contact support."
+          order_state: "payment_failed"
+          unknown_error_logged: true
+          alert_triggered: true
+        description: "Unknown error code — generic message, logged and alerted."
+      - input:
+          gateway_error_code: null
+          gateway_error_message: null
+        expected:
+          user_message: "We encountered an unexpected issue processing your payment. Please try again or contact support."
+          order_state: "payment_failed"
+          null_response_logged: true
+        description: "Null error code from gateway — handled gracefully."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - payment
+      - error-handling
+      - unknown-errors
+      - defensive-coding
+
+  - name: "Multiple failure types in sequence for the same order"
+    description: >
+      A single order experiences multiple failure types in sequence (e.g.,
+      network timeout on first attempt, then insufficient funds on retry with
+      new card). The system must handle the state transitions correctly and
+      maintain accurate audit trail.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — edge case in order lifecycle.
+      Frequency: 1 — uncommon to have multiple distinct failure types.
+      Consequence: 2 — state confusion could leave order stuck.
+      Detectability: 2 — visible if order gets stuck, but root cause is hard to trace.
+      Average: 1.75 → medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition validates multi-hop paths through the state machine.
+      Error guessing anticipates state corruption from sequential failures.
+    preconditions:
+      - "Order has already experienced at least one payment failure"
+    examples:
+      - input:
+          failure_sequence:
+            - type: "network_timeout"
+              retry_count: 3
+            - type: "insufficient_funds"
+              payment_method: "card_A"
+            - type: "declined_card"
+              payment_method: "card_B"
+        expected:
+          final_state: "payment_failed"
+          total_charges: 0
+          audit_trail_entries: 3
+          cart_preserved: true
+        description: "Three sequential failures with different types — no charge, full audit trail."
+      - input:
+          failure_sequence:
+            - type: "threeds_auth_failure"
+              auth_attempts: 2
+            - type: "network_timeout"
+              retry_count: 1
+              retry_succeeds: true
+        expected:
+          final_state: "confirmed"
+          total_charges: 1
+          audit_trail_entries: 2
+        description: "3DS failure followed by timeout retry that succeeds — order eventually confirmed."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - payment
+      - edge-case
+      - sequential-failures
+      - state-machine
+
+  - name: "Inventory hold expiration during payment failure recovery"
+    description: >
+      While the user is recovering from a payment failure (choosing a new card,
+      re-authenticating 3DS), the inventory hold on their items may expire.
+      The system must check inventory availability before re-attempting payment.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — user experience, potential overselling.
+      Frequency: 2 — depends on hold duration and recovery time.
+      Consequence: 2 — overselling requires cancellation and refund.
+      Detectability: 1 — user would see out-of-stock error on retry.
+      Average: 1.75 → medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition covers the hold lifecycle. Error guessing anticipates
+      the race condition between hold expiry and payment retry.
+    preconditions:
+      - "Order has an inventory hold on items"
+      - "Payment has failed and user is recovering"
+    examples:
+      - input:
+          hold_duration_minutes: 15
+          recovery_time_minutes: 10
+          items_still_available: true
+        expected:
+          hold_valid: true
+          retry_allowed: true
+        description: "Recovery within hold window — items still reserved."
+      - input:
+          hold_duration_minutes: 15
+          recovery_time_minutes: 20
+          items_still_available: true
+        expected:
+          hold_expired: true
+          re_reservation_attempted: true
+          retry_allowed: true
+        description: "Recovery after hold expiry — items re-reserved if available."
+      - input:
+          hold_duration_minutes: 15
+          recovery_time_minutes: 20
+          items_still_available: false
+        expected:
+          hold_expired: true
+          re_reservation_failed: true
+          user_message: "Some items in your cart are no longer available."
+          retry_allowed: false
+        description: "Recovery after hold expiry, items sold out — user informed."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - payment
+      - inventory
+      - edge-case
+      - hold-expiration
+
+  - name: "Concurrent payment submissions for the same order"
+    description: >
+      Two payment requests arrive simultaneously for the same order (e.g.,
+      user opens checkout in two tabs). The system must ensure only one payment
+      is processed and the other is rejected with an appropriate error.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — double charge risk, financial integrity.
+      Frequency: 2 — uncommon but reproducible by determined users.
+      Consequence: 3 — double charge.
+      Detectability: 3 — user may not notice until bank statement.
+      Average: 2.75 → high.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets the concurrency race condition. State transition
+      ensures mutual exclusion at the payment_processing state.
+    preconditions:
+      - "Order is in pending_payment state"
+      - "Two concurrent payment requests arrive"
+    examples:
+      - input:
+          concurrent_requests: 2
+          order_id: "ORD-CONCURRENT-001"
+          request_1_arrives_first: true
+        expected:
+          request_1_result: "payment_processing"
+          request_2_result: "error"
+          request_2_error: "PAYMENT_ALREADY_IN_PROGRESS"
+          total_charges: 1
+        description: "Second concurrent request rejected — only first processed."
+      - input:
+          concurrent_requests: 2
+          order_id: "ORD-CONCURRENT-002"
+          requests_arrive_simultaneously: true
+        expected:
+          exactly_one_succeeds: true
+          total_charges: 1
+          loser_receives_error: true
+        description: "Truly simultaneous requests — exactly one wins, other gets error."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - concurrency
+      - no-double-charge
+      - race-condition
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As an e-commerce customer, when my payment fails during checkout, I want
+    the system to handle the failure gracefully, show me a clear message
+    explaining what went wrong, and allow me to recover (retry, use a
+    different method, or re-authenticate) so that I can complete my purchase
+    without being double-charged.
+  rules:
+    - rule_name: "Insufficient funds triggers rollback and prompts for alternative payment"
+      examples:
+        - "Credit card with insufficient funds → user sees 'insufficient funds' message, prompted to use different card"
+        - "Debit card with insufficient funds → same message, alternative payment methods shown"
+        - "User retries with same insufficient-funds card → additional warning displayed"
+        - "No partial authorization hold left on card after insufficient funds decline"
+
+    - rule_name: "Declined card shows specific reason when available and suggests contacting bank"
+      examples:
+        - "Card expired → 'Your card has expired' message shown, suggest updating card or contacting bank"
+        - "Do-not-honor decline → generic decline message, suggest contacting bank"
+        - "No specific reason from gateway → fallback generic decline message"
+        - "Sensitive reason (lost/stolen card) → generic message, sensitive details hidden"
+        - "Order state transitions to payment_failed, cart preserved for retry"
+
+    - rule_name: "Network timeout triggers exponential backoff retry up to 3 times"
+      examples:
+        - "First timeout → retry after 1000ms delay"
+        - "Second timeout → retry after 2000ms delay"
+        - "Third timeout → retry after 4000ms delay, then abort if still failing"
+        - "Retry succeeds on second attempt → order confirmed, no double charge"
+        - "Gateway processes original after client timeout → idempotency key prevents double charge"
+        - "Missing idempotency key on retry → double charge risk, auto-refund triggered"
+
+    - rule_name: "3D Secure failure allows re-authentication"
+      examples:
+        - "Wrong OTP entered → allow re-authentication, payment details preserved"
+        - "3DS challenge times out → allow re-authentication"
+        - "Bank rejects authentication → suggest contacting bank or alternative method"
+        - "Second authentication attempt succeeds → proceed to payment processing"
+        - "Max authentication attempts (3) reached → suggest different payment method"
+
+    - rule_name: "Fraud check rejection flags order for manual review without revealing fraud detection"
+      examples:
+        - "Velocity check failure → generic message, order flagged internally for ops review"
+        - "High risk score → same generic message, risk score logged"
+        - "Address mismatch → same generic message, no hint about AVS"
+        - "Error code indistinguishable from generic decline (no information leakage)"
+        - "Response timing consistent with normal declines (no timing oracle)"
+        - "No HTTP headers reveal fraud detection involvement"
+
+    - rule_name: "No double charges occur during any retry or recovery scenario"
+      examples:
+        - "Concurrent retry requests use same idempotency key → only one charge"
+        - "User clicks pay button multiple times rapidly → client debounce + server idempotency"
+        - "3DS re-auth while delayed original succeeds → only one charge"
+        - "Network retry succeeds while original late-arrives → only one charge"
+        - "Two browser tabs submit payment for same order → only one processed"
+
+    - rule_name: "Each failure type transitions the order to the correct state"
+      examples:
+        - "Insufficient funds → payment_failed (retryable)"
+        - "Declined card → payment_failed (retryable)"
+        - "Network timeout (retries remaining) → retry_pending"
+        - "Network timeout (max retries) → payment_timeout"
+        - "3DS failure → awaiting_authentication"
+        - "Fraud rejection → manual_review"
+        - "Invalid state transition (e.g., fail on confirmed order) → rejected"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

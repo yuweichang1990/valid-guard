@@ -1,0 +1,1149 @@
+fmea_analysis:
+  title: "Insurance Claims Processing System - Failure Mode and Effects Analysis"
+  system: "Insurance Claims Processing Platform"
+  date: "2026-03-14"
+  methodology: "FMEA (Failure Mode and Effects Analysis)"
+  rating_scales:
+    severity:
+      description: "Impact of the failure on the end user, business, or regulatory compliance"
+      scale:
+        1: "No noticeable effect"
+        2: "Very minor impact, cosmetic only"
+        3: "Minor impact, slight inconvenience"
+        4: "Low impact, workaround available"
+        5: "Moderate impact, degraded functionality"
+        6: "Significant impact, partial loss of function"
+        7: "High impact, major function affected"
+        8: "Very high impact, system partially inoperable"
+        9: "Critical impact, regulatory or financial exposure"
+        10: "Catastrophic, total system failure or legal liability"
+    occurrence:
+      description: "Likelihood the failure mode will occur"
+      scale:
+        1: "Nearly impossible (< 1 in 1,000,000)"
+        2: "Remote (1 in 100,000)"
+        3: "Very low (1 in 10,000)"
+        4: "Low (1 in 1,000)"
+        5: "Moderate (1 in 200)"
+        6: "Moderately high (1 in 50)"
+        7: "High (1 in 20)"
+        8: "Very high (1 in 10)"
+        9: "Extremely high (1 in 5)"
+        10: "Almost certain (> 1 in 2)"
+    detection:
+      description: "Ability of current controls to detect the failure before it reaches the user"
+      scale:
+        1: "Almost certain detection before release"
+        2: "Very high detection probability"
+        3: "High detection probability"
+        4: "Moderately high detection"
+        5: "Moderate detection"
+        6: "Low detection probability"
+        7: "Very low detection probability"
+        8: "Remote detection probability"
+        9: "Very remote detection probability"
+        10: "No detection mechanism exists"
+
+  components:
+
+    # =========================================================================
+    # COMPONENT 1: CLAIM CALCULATION ENGINE
+    # =========================================================================
+    - component_id: "C1"
+      component_name: "Claim Calculation Engine"
+      description: "Computes payout amounts based on policy type, deductible, coverage limits, and depreciation"
+      failure_modes:
+
+        - id: "C1-FM01"
+          failure_mode: "Incorrect deductible subtraction"
+          cause: "Logic error in deductible application order or double-deduction bug"
+          effect: "Claimant receives incorrect payout amount — overpayment causes financial loss to insurer, underpayment causes regulatory complaints"
+          severity: 9
+          occurrence: 5
+          detection: 4
+          rpn: 180
+          recommended_controls:
+            - "Unit tests for every policy type with known deductible scenarios"
+            - "Property-based testing: payout + deductible <= claim amount"
+            - "Golden-file regression tests against actuarial reference outputs"
+
+        - id: "C1-FM02"
+          failure_mode: "Coverage limit not enforced"
+          cause: "Missing or incorrect boundary check when claim exceeds policy coverage cap"
+          effect: "Payouts exceed contractual limits, direct financial loss to insurer"
+          severity: 10
+          occurrence: 4
+          detection: 3
+          rpn: 120
+          recommended_controls:
+            - "Boundary value tests at exactly coverage limit, limit minus one cent, limit plus one cent"
+            - "Integration test asserting payout <= coverage_limit for all policy types"
+            - "Automated audit report comparing approved payouts against policy caps"
+
+        - id: "C1-FM03"
+          failure_mode: "Depreciation calculated incorrectly"
+          cause: "Wrong depreciation schedule applied, rounding errors, or stale depreciation tables"
+          effect: "Incorrect actual cash value computation leading to over- or under-payment"
+          severity: 8
+          occurrence: 6
+          detection: 5
+          rpn: 240
+          recommended_controls:
+            - "Parameterized tests across asset categories with known depreciation curves"
+            - "Cross-validation against independent depreciation calculator"
+            - "Rounding consistency tests (half-up vs. bankers rounding)"
+
+        - id: "C1-FM04"
+          failure_mode: "Wrong policy type mapping"
+          cause: "Enum mismatch or data migration error causes homeowner policy to be processed as auto policy"
+          effect: "Entirely wrong calculation logic applied, producing nonsensical payout"
+          severity: 10
+          occurrence: 3
+          detection: 4
+          rpn: 120
+          recommended_controls:
+            - "Contract tests between policy service and calculation engine"
+            - "Exhaustive enum mapping tests for all policy types"
+            - "Smoke tests on each policy type after every deployment"
+
+        - id: "C1-FM05"
+          failure_mode: "Floating-point precision errors in currency calculations"
+          cause: "Using IEEE 754 floating-point instead of fixed-point or decimal types for monetary values"
+          effect: "Accumulated rounding errors produce incorrect totals, audit discrepancies"
+          severity: 7
+          occurrence: 7
+          detection: 6
+          rpn: 294
+          recommended_controls:
+            - "Static analysis rule enforcing decimal/BigDecimal types for all monetary fields"
+            - "Unit tests with known-problematic floating-point values (e.g., 0.1 + 0.2)"
+            - "End-to-end calculation tests verifying cent-level accuracy"
+
+        - id: "C1-FM06"
+          failure_mode: "Calculation engine timeout on complex claims"
+          cause: "Recursive sub-claim aggregation or large itemized lists cause excessive computation time"
+          effect: "Claim processing stalls, user receives timeout error, SLA breach"
+          severity: 6
+          occurrence: 5
+          detection: 3
+          rpn: 90
+          recommended_controls:
+            - "Performance tests with maximum-size itemized claims"
+            - "Circuit breaker with configurable timeout threshold"
+            - "Load testing under concurrent claim submission"
+
+        - id: "C1-FM07"
+          failure_mode: "Negative or zero payout computed for valid claim"
+          cause: "Edge case where depreciation exceeds replacement cost or sign error in formula"
+          effect: "Valid claim denied or shows zero payout, customer complaint and potential lawsuit"
+          severity: 9
+          occurrence: 4
+          detection: 3
+          rpn: 108
+          recommended_controls:
+            - "Invariant assertion: payout >= 0 for all approved claims"
+            - "Test cases with fully depreciated assets"
+            - "Business rule validation layer before final payout output"
+
+    # =========================================================================
+    # COMPONENT 2: DOCUMENT UPLOAD SERVICE
+    # =========================================================================
+    - component_id: "C2"
+      component_name: "Document Upload Service"
+      description: "Accepts photos, PDFs, and medical records as claim evidence"
+      failure_modes:
+
+        - id: "C2-FM01"
+          failure_mode: "Malicious file upload (malware or script injection)"
+          cause: "Insufficient file validation allows executable or script-embedded files"
+          effect: "Server compromise, data breach, HIPAA violation for medical records"
+          severity: 10
+          occurrence: 6
+          detection: 5
+          rpn: 300
+          recommended_controls:
+            - "Antivirus scanning on every uploaded file before storage"
+            - "Strict allowlist-based MIME type and magic-byte validation"
+            - "Penetration tests with OWASP file upload attack payloads"
+            - "Content-Disposition headers forcing download, never inline execution"
+
+        - id: "C2-FM02"
+          failure_mode: "Upload of oversized file causes service crash"
+          cause: "Missing or misconfigured file size limit, memory exhaustion on large file buffering"
+          effect: "Service outage, other users unable to upload documents"
+          severity: 7
+          occurrence: 5
+          detection: 2
+          rpn: 70
+          recommended_controls:
+            - "Enforce maximum file size at reverse proxy and application layer"
+            - "Streaming upload with chunked processing"
+            - "Test with files at 0 bytes, 1 byte, max limit, and max limit + 1 byte"
+
+        - id: "C2-FM03"
+          failure_mode: "Medical records stored without encryption"
+          cause: "Encryption-at-rest not enabled on storage bucket, or key rotation failure"
+          effect: "HIPAA/PHI compliance violation, regulatory fines, reputational damage"
+          severity: 10
+          occurrence: 3
+          detection: 4
+          rpn: 120
+          recommended_controls:
+            - "Infrastructure-as-code tests asserting encryption-at-rest on all storage"
+            - "Compliance scan detecting unencrypted PHI in storage"
+            - "Key rotation integration test"
+
+        - id: "C2-FM04"
+          failure_mode: "Document associated with wrong claim"
+          cause: "Race condition in concurrent uploads or incorrect claim ID binding"
+          effect: "Evidence attached to wrong claim, incorrect adjudication, privacy violation"
+          severity: 9
+          occurrence: 4
+          detection: 6
+          rpn: 216
+          recommended_controls:
+            - "Concurrency tests simulating simultaneous uploads to different claims"
+            - "Idempotency key validation on upload requests"
+            - "Audit trail linking upload timestamp, user, and claim ID"
+
+        - id: "C2-FM05"
+          failure_mode: "Unsupported file format silently accepted but unreadable"
+          cause: "File extension check passes but content is corrupt or format is not actually supported"
+          effect: "Adjuster cannot view evidence, claim processing delayed"
+          severity: 5
+          occurrence: 6
+          detection: 5
+          rpn: 150
+          recommended_controls:
+            - "Content-based format validation (not just extension check)"
+            - "Preview generation test for each supported format"
+            - "Negative tests with renamed extensions (e.g., .exe renamed to .pdf)"
+
+        - id: "C2-FM06"
+          failure_mode: "Upload service loses file after accepting it"
+          cause: "Storage write failure after HTTP 200 returned, eventual consistency issue"
+          effect: "Claimant believes upload succeeded but evidence is missing"
+          severity: 8
+          occurrence: 3
+          detection: 7
+          rpn: 168
+          recommended_controls:
+            - "Write-then-verify pattern: read-back after write before confirming"
+            - "Chaos engineering test: simulate storage failures during upload"
+            - "Background consistency checker comparing upload log to storage inventory"
+
+        - id: "C2-FM07"
+          failure_mode: "Personally identifiable information exposed in file metadata"
+          cause: "EXIF data in photos or PDF metadata not stripped before storage/display"
+          effect: "PII leakage, privacy regulation violation"
+          severity: 8
+          occurrence: 7
+          detection: 7
+          rpn: 392
+          recommended_controls:
+            - "Automated metadata stripping on all uploaded files"
+            - "Test that EXIF GPS coordinates, author fields are removed post-upload"
+            - "Privacy audit scanning stored files for residual metadata"
+
+    # =========================================================================
+    # COMPONENT 3: FRAUD DETECTION ALGORITHM
+    # =========================================================================
+    - component_id: "C3"
+      component_name: "Fraud Detection Algorithm"
+      description: "Flags suspicious patterns including duplicate claims, known fraud rings, and inflated amounts"
+      failure_modes:
+
+        - id: "C3-FM01"
+          failure_mode: "False negative — fraudulent claim not flagged"
+          cause: "Detection rules too narrow, new fraud pattern not in training data, threshold too high"
+          effect: "Fraudulent payout approved, direct financial loss"
+          severity: 9
+          occurrence: 7
+          detection: 8
+          rpn: 504
+          recommended_controls:
+            - "Red team exercises with synthetic fraud scenarios"
+            - "Recall metric monitoring on labeled fraud dataset"
+            - "Regular model retraining with latest confirmed fraud cases"
+            - "Manual review sampling of approved high-value claims"
+
+        - id: "C3-FM02"
+          failure_mode: "False positive — legitimate claim flagged as fraud"
+          cause: "Overly aggressive rules, bias in training data, legitimate pattern resembles fraud"
+          effect: "Claim processing delayed, customer dissatisfaction, potential discrimination complaints"
+          severity: 7
+          occurrence: 6
+          detection: 4
+          rpn: 168
+          recommended_controls:
+            - "Precision metric monitoring with acceptable false-positive rate threshold"
+            - "Bias audit across demographic groups"
+            - "Test suite with known-legitimate edge cases (e.g., multiple valid claims after natural disaster)"
+
+        - id: "C3-FM03"
+          failure_mode: "Duplicate claim detection fails on cross-channel submissions"
+          cause: "Deduplication logic only checks within single channel (web vs. phone vs. agent)"
+          effect: "Same claim paid twice, financial loss"
+          severity: 9
+          occurrence: 5
+          detection: 6
+          rpn: 270
+          recommended_controls:
+            - "Cross-channel deduplication integration tests"
+            - "Fuzzy matching tests on name/address/date variations"
+            - "Daily batch report of potential duplicate payouts"
+
+        - id: "C3-FM04"
+          failure_mode: "Fraud ring detection misses colluding parties"
+          cause: "Graph analysis limited to direct connections, misses indirect links"
+          effect: "Organized fraud ring operates undetected, large cumulative losses"
+          severity: 10
+          occurrence: 5
+          detection: 8
+          rpn: 400
+          recommended_controls:
+            - "Graph traversal tests with multi-hop fraud ring topologies"
+            - "Social network analysis covering 2nd and 3rd degree connections"
+            - "Periodic retrospective analysis of paid claims for ring patterns"
+
+        - id: "C3-FM05"
+          failure_mode: "Inflated amount detection threshold is static and outdated"
+          cause: "Hardcoded threshold not updated for inflation or regional cost differences"
+          effect: "Moderately inflated claims pass detection, systematic overpayment"
+          severity: 7
+          occurrence: 7
+          detection: 6
+          rpn: 294
+          recommended_controls:
+            - "Dynamic threshold tests using current market data feeds"
+            - "Configuration-driven threshold with automated staleness alerts"
+            - "A/B comparison of static vs. dynamic threshold detection rates"
+
+        - id: "C3-FM06"
+          failure_mode: "Algorithm crashes on malformed input data"
+          cause: "Null fields, unexpected data types, or missing policy records in input"
+          effect: "Fraud check bypassed entirely, claim processed without screening"
+          severity: 10
+          occurrence: 4
+          detection: 3
+          rpn: 120
+          recommended_controls:
+            - "Fuzz testing with malformed and null-filled claim payloads"
+            - "Fail-closed design: claim held if fraud check errors out"
+            - "Circuit breaker with alert when fraud service is unreachable"
+
+        - id: "C3-FM07"
+          failure_mode: "Model drift degrades detection accuracy over time"
+          cause: "Fraud patterns evolve but model is not retrained, feature distributions shift"
+          effect: "Gradually increasing false negatives, undetected fraud losses grow"
+          severity: 8
+          occurrence: 6
+          detection: 7
+          rpn: 336
+          recommended_controls:
+            - "Automated drift detection monitoring on input feature distributions"
+            - "Monthly accuracy benchmark against holdout fraud dataset"
+            - "Canary deployment comparing old and new model scores in parallel"
+
+    # =========================================================================
+    # COMPONENT 4: CLAIMS DASHBOARD
+    # =========================================================================
+    - component_id: "C4"
+      component_name: "Claims Dashboard"
+      description: "Shows claim status, filters by date/type/status"
+      failure_modes:
+
+        - id: "C4-FM01"
+          failure_mode: "Dashboard displays another user's claims (authorization bypass)"
+          cause: "Broken access control, missing tenant isolation, IDOR vulnerability"
+          effect: "Privacy breach, regulatory violation, loss of customer trust"
+          severity: 10
+          occurrence: 4
+          detection: 4
+          rpn: 160
+          recommended_controls:
+            - "Authorization tests: user A must never see user B's claims"
+            - "Penetration testing for IDOR on claim ID parameters"
+            - "Row-level security enforcement tests at database layer"
+
+        - id: "C4-FM02"
+          failure_mode: "Incorrect claim status displayed"
+          cause: "Stale cache, event processing lag, or status enum mapping error"
+          effect: "Customer sees wrong status, calls support, loses trust in system"
+          severity: 6
+          occurrence: 5
+          detection: 4
+          rpn: 120
+          recommended_controls:
+            - "End-to-end test: update claim status and verify dashboard reflects change"
+            - "Cache invalidation tests on status transitions"
+            - "Event ordering tests for rapid status changes"
+
+        - id: "C4-FM03"
+          failure_mode: "Filter returns incorrect or incomplete results"
+          cause: "SQL query bug, index missing, off-by-one in date range filter"
+          effect: "User cannot find their claims, assumes they are missing"
+          severity: 5
+          occurrence: 6
+          detection: 3
+          rpn: 90
+          recommended_controls:
+            - "Parameterized filter tests for all combinations of date/type/status"
+            - "Boundary tests on date filters (start of day, end of day, timezone edges)"
+            - "Empty result set and single result edge case tests"
+
+        - id: "C4-FM04"
+          failure_mode: "Dashboard fails to load under high traffic"
+          cause: "Unoptimized queries, no pagination, excessive DOM rendering"
+          effect: "Dashboard unusable during peak hours (e.g., after major weather event)"
+          severity: 7
+          occurrence: 5
+          detection: 3
+          rpn: 105
+          recommended_controls:
+            - "Load testing simulating post-disaster claim surge (10x normal volume)"
+            - "Pagination enforcement test for users with many claims"
+            - "Database query performance benchmarks with large datasets"
+
+        - id: "C4-FM05"
+          failure_mode: "Cross-site scripting (XSS) via claim description or notes"
+          cause: "User-supplied text rendered without output encoding"
+          effect: "Session hijacking, data theft, malicious actions on behalf of user"
+          severity: 9
+          occurrence: 5
+          detection: 4
+          rpn: 180
+          recommended_controls:
+            - "XSS payload injection tests in all user-input rendered fields"
+            - "Content Security Policy header validation"
+            - "Automated DAST scanning of all dashboard endpoints"
+
+        - id: "C4-FM06"
+          failure_mode: "Claim amounts displayed in wrong currency or format"
+          cause: "Locale handling error, missing currency conversion, format string bug"
+          effect: "Customer misinterprets payout amount, disputes or compliance issue"
+          severity: 7
+          occurrence: 4
+          detection: 3
+          rpn: 84
+          recommended_controls:
+            - "Locale-specific rendering tests for all supported currencies"
+            - "Snapshot tests for amount formatting across locales"
+            - "Test with extreme values (very large amounts, fractional cents)"
+
+        - id: "C4-FM07"
+          failure_mode: "Session timeout not enforced, stale session remains active"
+          cause: "Missing or misconfigured session expiry, token not invalidated"
+          effect: "Unauthorized access to claims data from shared or public device"
+          severity: 8
+          occurrence: 4
+          detection: 5
+          rpn: 160
+          recommended_controls:
+            - "Session expiry tests verifying automatic logout after inactivity"
+            - "Token invalidation test after explicit logout"
+            - "Concurrent session limit enforcement test"
+
+    # =========================================================================
+    # COMPONENT 5: NOTIFICATION SERVICE
+    # =========================================================================
+    - component_id: "C5"
+      component_name: "Notification Service"
+      description: "Sends email/SMS updates on claim status changes"
+      failure_modes:
+
+        - id: "C5-FM01"
+          failure_mode: "Notification sent to wrong recipient"
+          cause: "Recipient lookup error, data join on wrong key, contact info mismatch"
+          effect: "Privacy breach — claim details disclosed to unauthorized person"
+          severity: 10
+          occurrence: 3
+          detection: 6
+          rpn: 180
+          recommended_controls:
+            - "Integration test verifying recipient address matches claim owner"
+            - "Pre-send validation comparing notification target to policy holder record"
+            - "Audit log test confirming every notification logs recipient identity"
+
+        - id: "C5-FM02"
+          failure_mode: "Notification not sent after status change"
+          cause: "Message queue failure, event consumer crash, dead letter queue not monitored"
+          effect: "Customer unaware of claim decision, delayed response, increased support calls"
+          severity: 6
+          occurrence: 5
+          detection: 5
+          rpn: 150
+          recommended_controls:
+            - "End-to-end test: trigger status change and verify notification delivery"
+            - "Dead letter queue monitoring with alerting"
+            - "Chaos test: kill consumer mid-processing and verify retry"
+
+        - id: "C5-FM03"
+          failure_mode: "Duplicate notifications sent for same event"
+          cause: "At-least-once delivery without idempotency, retry storm after timeout"
+          effect: "Customer confusion, perceived system unreliability, potential spam complaints"
+          severity: 4
+          occurrence: 7
+          detection: 5
+          rpn: 140
+          recommended_controls:
+            - "Idempotency key tests verifying same event ID produces single notification"
+            - "Deduplication window tests under retry conditions"
+            - "Rate limiting tests preventing burst of identical messages"
+
+        - id: "C5-FM04"
+          failure_mode: "Notification contains incorrect claim details"
+          cause: "Template rendering bug, stale data in event payload, variable substitution error"
+          effect: "Customer receives misleading information about their claim"
+          severity: 7
+          occurrence: 5
+          detection: 4
+          rpn: 140
+          recommended_controls:
+            - "Template rendering tests for each notification type with known data"
+            - "Snapshot tests comparing rendered output to approved reference"
+            - "Variable substitution tests with special characters and edge-case values"
+
+        - id: "C5-FM05"
+          failure_mode: "SMS/email provider outage causes total notification failure"
+          cause: "Single provider dependency, no failover, provider API breaking change"
+          effect: "All notifications silently fail, customers uninformed for extended period"
+          severity: 8
+          occurrence: 4
+          detection: 4
+          rpn: 128
+          recommended_controls:
+            - "Failover integration test: simulate primary provider failure, verify secondary takes over"
+            - "Health check monitoring on provider API endpoints"
+            - "Contract tests against provider API specification"
+
+        - id: "C5-FM06"
+          failure_mode: "Notification sent outside customer's preferred channel or opt-out violated"
+          cause: "Preference lookup failure, opt-out flag not checked before send"
+          effect: "Regulatory violation (CAN-SPAM, TCPA), fines, customer complaints"
+          severity: 8
+          occurrence: 4
+          detection: 5
+          rpn: 160
+          recommended_controls:
+            - "Opt-out enforcement tests: opted-out user must receive zero notifications"
+            - "Channel preference tests: SMS-only user must not receive email"
+            - "Compliance regression suite for CAN-SPAM and TCPA requirements"
+
+        - id: "C5-FM07"
+          failure_mode: "Notification delivery latency exceeds SLA"
+          cause: "Queue backlog, throttling by provider, inefficient batching"
+          effect: "Customer receives stale updates, time-sensitive decisions delayed"
+          severity: 5
+          occurrence: 6
+          detection: 4
+          rpn: 120
+          recommended_controls:
+            - "Latency benchmark tests under normal and peak load"
+            - "SLA monitoring with alerting on p95 delivery time"
+            - "Queue depth monitoring with auto-scaling triggers"
+
+  # ===========================================================================
+  # RPN SUMMARY AND TEST PRIORITY
+  # ===========================================================================
+  rpn_summary:
+    description: "All failure modes ranked by Risk Priority Number (RPN = Severity x Occurrence x Detection). Higher RPN indicates higher risk and should be tested first."
+    ranked_failure_modes:
+      - rank: 1
+        id: "C3-FM01"
+        component: "Fraud Detection Algorithm"
+        failure_mode: "False negative — fraudulent claim not flagged"
+        rpn: 504
+        severity: 9
+        occurrence: 7
+        detection: 8
+
+      - rank: 2
+        id: "C3-FM04"
+        component: "Fraud Detection Algorithm"
+        failure_mode: "Fraud ring detection misses colluding parties"
+        rpn: 400
+        severity: 10
+        occurrence: 5
+        detection: 8
+
+      - rank: 3
+        id: "C2-FM07"
+        component: "Document Upload Service"
+        failure_mode: "Personally identifiable information exposed in file metadata"
+        rpn: 392
+        severity: 8
+        occurrence: 7
+        detection: 7
+
+      - rank: 4
+        id: "C3-FM07"
+        component: "Fraud Detection Algorithm"
+        failure_mode: "Model drift degrades detection accuracy over time"
+        rpn: 336
+        severity: 8
+        occurrence: 6
+        detection: 7
+
+      - rank: 5
+        id: "C2-FM01"
+        component: "Document Upload Service"
+        failure_mode: "Malicious file upload (malware or script injection)"
+        rpn: 300
+        severity: 10
+        occurrence: 6
+        detection: 5
+
+      - rank: 6
+        id: "C1-FM05"
+        component: "Claim Calculation Engine"
+        failure_mode: "Floating-point precision errors in currency calculations"
+        rpn: 294
+        severity: 7
+        occurrence: 7
+        detection: 6
+
+      - rank: 7
+        id: "C3-FM05"
+        component: "Fraud Detection Algorithm"
+        failure_mode: "Inflated amount detection threshold is static and outdated"
+        rpn: 294
+        severity: 7
+        occurrence: 7
+        detection: 6
+
+      - rank: 8
+        id: "C3-FM03"
+        component: "Fraud Detection Algorithm"
+        failure_mode: "Duplicate claim detection fails on cross-channel submissions"
+        rpn: 270
+        severity: 9
+        occurrence: 5
+        detection: 6
+
+      - rank: 9
+        id: "C1-FM03"
+        component: "Claim Calculation Engine"
+        failure_mode: "Depreciation calculated incorrectly"
+        rpn: 240
+        severity: 8
+        occurrence: 6
+        detection: 5
+
+      - rank: 10
+        id: "C2-FM04"
+        component: "Document Upload Service"
+        failure_mode: "Document associated with wrong claim"
+        rpn: 216
+        severity: 9
+        occurrence: 4
+        detection: 6
+
+      - rank: 11
+        id: "C1-FM01"
+        component: "Claim Calculation Engine"
+        failure_mode: "Incorrect deductible subtraction"
+        rpn: 180
+        severity: 9
+        occurrence: 5
+        detection: 4
+
+      - rank: 12
+        id: "C4-FM05"
+        component: "Claims Dashboard"
+        failure_mode: "Cross-site scripting (XSS) via claim description or notes"
+        rpn: 180
+        severity: 9
+        occurrence: 5
+        detection: 4
+
+      - rank: 13
+        id: "C5-FM01"
+        component: "Notification Service"
+        failure_mode: "Notification sent to wrong recipient"
+        rpn: 180
+        severity: 10
+        occurrence: 3
+        detection: 6
+
+      - rank: 14
+        id: "C2-FM06"
+        component: "Document Upload Service"
+        failure_mode: "Upload service loses file after accepting it"
+        rpn: 168
+        severity: 8
+        occurrence: 3
+        detection: 7
+
+      - rank: 15
+        id: "C3-FM02"
+        component: "Fraud Detection Algorithm"
+        failure_mode: "False positive — legitimate claim flagged as fraud"
+        rpn: 168
+        severity: 7
+        occurrence: 6
+        detection: 4
+
+      - rank: 16
+        id: "C4-FM01"
+        component: "Claims Dashboard"
+        failure_mode: "Dashboard displays another user's claims (authorization bypass)"
+        rpn: 160
+        severity: 10
+        occurrence: 4
+        detection: 4
+
+      - rank: 17
+        id: "C4-FM07"
+        component: "Claims Dashboard"
+        failure_mode: "Session timeout not enforced, stale session remains active"
+        rpn: 160
+        severity: 8
+        occurrence: 4
+        detection: 5
+
+      - rank: 18
+        id: "C5-FM06"
+        component: "Notification Service"
+        failure_mode: "Notification sent outside customer's preferred channel or opt-out violated"
+        rpn: 160
+        severity: 8
+        occurrence: 4
+        detection: 5
+
+      - rank: 19
+        id: "C2-FM05"
+        component: "Document Upload Service"
+        failure_mode: "Unsupported file format silently accepted but unreadable"
+        rpn: 150
+        severity: 5
+        occurrence: 6
+        detection: 5
+
+      - rank: 20
+        id: "C5-FM02"
+        component: "Notification Service"
+        failure_mode: "Notification not sent after status change"
+        rpn: 150
+        severity: 6
+        occurrence: 5
+        detection: 5
+
+      - rank: 21
+        id: "C5-FM03"
+        component: "Notification Service"
+        failure_mode: "Duplicate notifications sent for same event"
+        rpn: 140
+        severity: 4
+        occurrence: 7
+        detection: 5
+
+      - rank: 22
+        id: "C5-FM04"
+        component: "Notification Service"
+        failure_mode: "Notification contains incorrect claim details"
+        rpn: 140
+        severity: 7
+        occurrence: 5
+        detection: 4
+
+      - rank: 23
+        id: "C5-FM05"
+        component: "Notification Service"
+        failure_mode: "SMS/email provider outage causes total notification failure"
+        rpn: 128
+        severity: 8
+        occurrence: 4
+        detection: 4
+
+      - rank: 24
+        id: "C1-FM02"
+        component: "Claim Calculation Engine"
+        failure_mode: "Coverage limit not enforced"
+        rpn: 120
+        severity: 10
+        occurrence: 4
+        detection: 3
+
+      - rank: 25
+        id: "C1-FM04"
+        component: "Claim Calculation Engine"
+        failure_mode: "Wrong policy type mapping"
+        rpn: 120
+        severity: 10
+        occurrence: 3
+        detection: 4
+
+      - rank: 26
+        id: "C2-FM03"
+        component: "Document Upload Service"
+        failure_mode: "Medical records stored without encryption"
+        rpn: 120
+        severity: 10
+        occurrence: 3
+        detection: 4
+
+      - rank: 27
+        id: "C3-FM06"
+        component: "Fraud Detection Algorithm"
+        failure_mode: "Algorithm crashes on malformed input data"
+        rpn: 120
+        severity: 10
+        occurrence: 4
+        detection: 3
+
+      - rank: 28
+        id: "C4-FM02"
+        component: "Claims Dashboard"
+        failure_mode: "Incorrect claim status displayed"
+        rpn: 120
+        severity: 6
+        occurrence: 5
+        detection: 4
+
+      - rank: 29
+        id: "C5-FM07"
+        component: "Notification Service"
+        failure_mode: "Notification delivery latency exceeds SLA"
+        rpn: 120
+        severity: 5
+        occurrence: 6
+        detection: 4
+
+      - rank: 30
+        id: "C1-FM07"
+        component: "Claim Calculation Engine"
+        failure_mode: "Negative or zero payout computed for valid claim"
+        rpn: 108
+        severity: 9
+        occurrence: 4
+        detection: 3
+
+      - rank: 31
+        id: "C4-FM04"
+        component: "Claims Dashboard"
+        failure_mode: "Dashboard fails to load under high traffic"
+        rpn: 105
+        severity: 7
+        occurrence: 5
+        detection: 3
+
+      - rank: 32
+        id: "C1-FM06"
+        component: "Claim Calculation Engine"
+        failure_mode: "Calculation engine timeout on complex claims"
+        rpn: 90
+        severity: 6
+        occurrence: 5
+        detection: 3
+
+      - rank: 33
+        id: "C4-FM03"
+        component: "Claims Dashboard"
+        failure_mode: "Filter returns incorrect or incomplete results"
+        rpn: 90
+        severity: 5
+        occurrence: 6
+        detection: 3
+
+      - rank: 34
+        id: "C4-FM06"
+        component: "Claims Dashboard"
+        failure_mode: "Claim amounts displayed in wrong currency or format"
+        rpn: 84
+        severity: 7
+        occurrence: 4
+        detection: 3
+
+      - rank: 35
+        id: "C2-FM02"
+        component: "Document Upload Service"
+        failure_mode: "Upload of oversized file causes service crash"
+        rpn: 70
+        severity: 7
+        occurrence: 5
+        detection: 2
+
+  # ===========================================================================
+  # TEST PRIORITY ORDER
+  # ===========================================================================
+  test_priority_order:
+    description: >
+      Recommended test execution priority based on RPN ranking, adjusted for
+      severity-weighted risk. Failure modes with severity 9-10 are elevated
+      even if their RPN is moderate, because the consequences are catastrophic
+      or involve regulatory exposure.
+
+    priority_tiers:
+
+      - tier: "P0 — Critical (test immediately, block release)"
+        rationale: "RPN >= 270 or severity = 10 regardless of RPN. These represent catastrophic financial, legal, or security risks."
+        test_items:
+          - id: "C3-FM01"
+            rpn: 504
+            test_focus: "Fraud false negative detection — red team with synthetic fraud scenarios, recall benchmarking"
+          - id: "C3-FM04"
+            rpn: 400
+            test_focus: "Fraud ring graph traversal — multi-hop collusion detection, retrospective analysis"
+          - id: "C2-FM07"
+            rpn: 392
+            test_focus: "PII metadata stripping — EXIF/PDF metadata removal validation on all file types"
+          - id: "C3-FM07"
+            rpn: 336
+            test_focus: "Model drift monitoring — feature distribution shift detection, accuracy benchmarking"
+          - id: "C2-FM01"
+            rpn: 300
+            test_focus: "Malicious upload prevention — OWASP file upload attacks, MIME validation, antivirus integration"
+          - id: "C3-FM03"
+            rpn: 270
+            test_focus: "Cross-channel duplicate detection — fuzzy matching across web/phone/agent channels"
+          - id: "C1-FM02"
+            rpn: 120
+            test_focus: "Coverage limit enforcement — boundary value analysis at policy cap thresholds"
+          - id: "C1-FM04"
+            rpn: 120
+            test_focus: "Policy type mapping — exhaustive enum contract tests"
+          - id: "C2-FM03"
+            rpn: 120
+            test_focus: "Medical records encryption at rest — infrastructure compliance scan"
+          - id: "C3-FM06"
+            rpn: 120
+            test_focus: "Fraud algorithm crash resilience — fuzz testing, fail-closed verification"
+          - id: "C4-FM01"
+            rpn: 160
+            test_focus: "Authorization bypass / IDOR — multi-tenant isolation, penetration testing"
+          - id: "C5-FM01"
+            rpn: 180
+            test_focus: "Wrong recipient notification — recipient-to-policyholder validation"
+
+      - tier: "P1 — High (test in current sprint, gate for release)"
+        rationale: "RPN 140-294 with severity 7-9. Significant financial, privacy, or operational risk."
+        test_items:
+          - id: "C1-FM05"
+            rpn: 294
+            test_focus: "Floating-point currency precision — decimal type enforcement, cent-level accuracy"
+          - id: "C3-FM05"
+            rpn: 294
+            test_focus: "Dynamic fraud threshold validation — market-data-driven threshold tests"
+          - id: "C1-FM03"
+            rpn: 240
+            test_focus: "Depreciation calculation accuracy — parameterized tests across asset categories"
+          - id: "C2-FM04"
+            rpn: 216
+            test_focus: "Document-claim binding under concurrency — race condition and idempotency tests"
+          - id: "C1-FM01"
+            rpn: 180
+            test_focus: "Deductible subtraction correctness — per-policy-type golden-file regression"
+          - id: "C4-FM05"
+            rpn: 180
+            test_focus: "XSS prevention — injection payload tests in all rendered fields, CSP validation"
+          - id: "C2-FM06"
+            rpn: 168
+            test_focus: "Upload durability — write-then-verify, chaos engineering on storage failures"
+          - id: "C3-FM02"
+            rpn: 168
+            test_focus: "Fraud false positive rate — precision monitoring, demographic bias audit"
+          - id: "C4-FM07"
+            rpn: 160
+            test_focus: "Session management — timeout enforcement, token invalidation after logout"
+          - id: "C5-FM06"
+            rpn: 160
+            test_focus: "Opt-out and channel preference enforcement — CAN-SPAM/TCPA compliance suite"
+          - id: "C2-FM05"
+            rpn: 150
+            test_focus: "File format content validation — magic-byte verification, renamed extension tests"
+          - id: "C5-FM02"
+            rpn: 150
+            test_focus: "Notification delivery guarantee — end-to-end status change to delivery verification"
+          - id: "C5-FM03"
+            rpn: 140
+            test_focus: "Notification deduplication — idempotency key and rate limiting tests"
+          - id: "C5-FM04"
+            rpn: 140
+            test_focus: "Notification content accuracy — template rendering snapshot tests"
+
+      - tier: "P2 — Medium (test within release cycle)"
+        rationale: "RPN 84-128. Operational or usability impact, but lower probability or better detectability."
+        test_items:
+          - id: "C5-FM05"
+            rpn: 128
+            test_focus: "Provider failover — simulate primary outage, verify secondary provider activation"
+          - id: "C4-FM02"
+            rpn: 120
+            test_focus: "Status display accuracy — cache invalidation and event ordering tests"
+          - id: "C5-FM07"
+            rpn: 120
+            test_focus: "Notification latency — SLA benchmarking under normal and peak load"
+          - id: "C1-FM07"
+            rpn: 108
+            test_focus: "Zero/negative payout guard — invariant assertions, fully-depreciated asset cases"
+          - id: "C4-FM04"
+            rpn: 105
+            test_focus: "Dashboard load performance — surge traffic simulation, pagination enforcement"
+          - id: "C1-FM06"
+            rpn: 90
+            test_focus: "Calculation timeout — performance tests with maximum-size claims, circuit breaker"
+          - id: "C4-FM03"
+            rpn: 90
+            test_focus: "Filter correctness — parameterized filter combinations, date boundary tests"
+          - id: "C4-FM06"
+            rpn: 84
+            test_focus: "Currency formatting — locale-specific rendering, extreme value display"
+
+      - tier: "P3 — Low (include in regression suite)"
+        rationale: "RPN <= 70. Low combined risk, but should still be covered in automated regression."
+        test_items:
+          - id: "C2-FM02"
+            rpn: 70
+            test_focus: "Oversized file handling — size limit enforcement at proxy and application layers"
+
+  # ===========================================================================
+  # COMPONENT RISK SUMMARY
+  # ===========================================================================
+  component_risk_summary:
+    description: "Aggregate risk per component based on total and average RPN across all identified failure modes"
+    components:
+      - component: "Fraud Detection Algorithm"
+        component_id: "C3"
+        failure_mode_count: 7
+        total_rpn: 2092
+        average_rpn: 298.9
+        max_rpn: 504
+        risk_level: "CRITICAL"
+        assessment: >
+          Highest aggregate and average RPN of all components. Fraud detection failures
+          have severe financial consequences and are inherently difficult to detect because
+          missed fraud is only discovered after payout. Model drift and evolving fraud
+          patterns make this a continuously high-risk area requiring ongoing investment
+          in testing, monitoring, and retraining.
+
+      - component: "Document Upload Service"
+        component_id: "C2"
+        failure_mode_count: 7
+        total_rpn: 1416
+        average_rpn: 202.3
+        max_rpn: 392
+        risk_level: "HIGH"
+        assessment: >
+          Second highest risk driven by security concerns (malicious uploads, PII leakage)
+          and compliance requirements (HIPAA encryption). The combination of external input
+          handling and sensitive data storage creates a large attack surface that demands
+          thorough security and privacy testing.
+
+      - component: "Claim Calculation Engine"
+        component_id: "C1"
+        failure_mode_count: 7
+        total_rpn: 1212
+        average_rpn: 173.1
+        max_rpn: 294
+        risk_level: "HIGH"
+        assessment: >
+          Core financial calculation component where errors directly translate to monetary
+          loss or regulatory exposure. While individual failure modes are somewhat more
+          detectable than fraud issues, the severity of incorrect payouts (both over and
+          under) makes this a high-priority testing area. Precision, boundary, and
+          regression testing are essential.
+
+      - component: "Claims Dashboard"
+        component_id: "C4"
+        failure_mode_count: 7
+        total_rpn: 899
+        average_rpn: 128.4
+        max_rpn: 180
+        risk_level: "MEDIUM"
+        assessment: >
+          Primary risk vectors are authorization bypass (IDOR) and XSS, both of which
+          carry high severity. Functional display errors are less critical but affect
+          user trust. Security-focused testing should be prioritized over UI accuracy
+          testing for this component.
+
+      - component: "Notification Service"
+        component_id: "C5"
+        failure_mode_count: 7
+        total_rpn: 1018
+        average_rpn: 145.4
+        max_rpn: 180
+        risk_level: "MEDIUM"
+        assessment: >
+          The most critical failure mode is sending notifications to the wrong recipient
+          (privacy breach). Other failure modes primarily affect operational quality rather
+          than causing direct financial or legal harm. Compliance testing for opt-out
+          enforcement and channel preferences is important due to regulatory requirements.
+
+  # ===========================================================================
+  # RECOMMENDED TEST STRATEGY
+  # ===========================================================================
+  recommended_test_strategy:
+    execution_order:
+      - step: 1
+        description: "Security and compliance test suite"
+        covers:
+          - "C2-FM01 (malicious uploads)"
+          - "C2-FM03 (encryption at rest)"
+          - "C2-FM07 (PII metadata)"
+          - "C4-FM01 (authorization bypass)"
+          - "C4-FM05 (XSS)"
+          - "C5-FM01 (wrong recipient)"
+        rationale: "Security and compliance failures have the highest potential impact and often carry regulatory penalties"
+
+      - step: 2
+        description: "Fraud detection validation suite"
+        covers:
+          - "C3-FM01 (false negatives)"
+          - "C3-FM03 (cross-channel duplicates)"
+          - "C3-FM04 (fraud rings)"
+          - "C3-FM05 (static thresholds)"
+          - "C3-FM06 (crash on bad input)"
+          - "C3-FM07 (model drift)"
+        rationale: "Fraud detection has the highest aggregate RPN and failures are hardest to detect post-deployment"
+
+      - step: 3
+        description: "Financial calculation accuracy suite"
+        covers:
+          - "C1-FM01 (deductible)"
+          - "C1-FM02 (coverage limit)"
+          - "C1-FM03 (depreciation)"
+          - "C1-FM04 (policy mapping)"
+          - "C1-FM05 (precision)"
+          - "C1-FM07 (zero payout)"
+        rationale: "Direct monetary impact; calculation errors cause financial loss or customer disputes"
+
+      - step: 4
+        description: "Data integrity and reliability suite"
+        covers:
+          - "C2-FM04 (wrong claim association)"
+          - "C2-FM06 (file loss)"
+          - "C5-FM02 (missed notifications)"
+          - "C5-FM03 (duplicates)"
+          - "C5-FM04 (wrong content)"
+        rationale: "Data integrity failures erode trust and cause operational overhead"
+
+      - step: 5
+        description: "Performance and resilience suite"
+        covers:
+          - "C1-FM06 (calculation timeout)"
+          - "C4-FM04 (dashboard load)"
+          - "C5-FM05 (provider outage)"
+          - "C5-FM07 (notification latency)"
+        rationale: "Performance failures degrade user experience but are typically less severe than correctness failures"
+
+      - step: 6
+        description: "UI and usability validation suite"
+        covers:
+          - "C4-FM02 (status display)"
+          - "C4-FM03 (filter accuracy)"
+          - "C4-FM06 (currency format)"
+          - "C4-FM07 (session timeout)"
+          - "C2-FM02 (oversized file)"
+          - "C2-FM05 (unsupported format)"
+          - "C3-FM02 (false positives)"
+          - "C5-FM06 (opt-out compliance)"
+        rationale: "Functional correctness and usability issues that affect daily operations"
+
+    continuous_monitoring:
+      - "Fraud model accuracy metrics (precision, recall, F1) tracked weekly"
+      - "Calculation audit comparing approved payouts to policy limits daily"
+      - "File storage encryption compliance scan daily"
+      - "Notification delivery success rate and latency p95 real-time"
+      - "Dashboard error rate and response time percentiles real-time"
+      - "Dead letter queue depth alerting with 15-minute check interval"

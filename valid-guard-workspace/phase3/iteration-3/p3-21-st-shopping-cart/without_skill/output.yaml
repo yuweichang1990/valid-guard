@@ -1,0 +1,1313 @@
+test_plan:
+  title: "E-Commerce Shopping Cart State Machine Test Plan"
+  description: >
+    Comprehensive test plan for an e-commerce shopping cart modeled as a finite
+    state machine. Covers all valid state transitions with guard conditions,
+    invalid transition attempts, guard validation, and edge cases.
+  version: "1.0"
+  created: "2026-03-14"
+
+  state_machine:
+    name: "ShoppingCartStateMachine"
+    initial_state: "empty_cart"
+
+    states:
+      - id: "empty_cart"
+        description: "Cart contains no items. Initial state and reset state."
+      - id: "items_added"
+        description: "Cart contains one or more items. User is browsing or modifying the cart."
+      - id: "checkout_in_progress"
+        description: "User has initiated checkout and is reviewing the order or entering payment details."
+      - id: "payment_processing"
+        description: "Payment has been submitted and is being processed by the payment gateway."
+      - id: "order_confirmed"
+        description: "Payment succeeded and the order is finalized. Terminal state."
+
+    events:
+      - id: "add_product"
+        description: "User adds a product to the cart."
+      - id: "update_quantity"
+        description: "User changes the quantity of an item already in the cart."
+      - id: "remove_item"
+        description: "User removes a single item from the cart."
+      - id: "remove_all_items"
+        description: "User removes all items from the cart (clear cart)."
+      - id: "click_checkout"
+        description: "User clicks the checkout button to begin the checkout process."
+      - id: "submit_payment"
+        description: "User submits payment information to complete the order."
+      - id: "payment_success"
+        description: "Payment gateway returns a successful payment result."
+      - id: "payment_failure"
+        description: "Payment gateway returns a failed payment result."
+
+    guards:
+      - id: "G1_cart_not_empty"
+        description: "Cart must contain at least one item before checkout can proceed."
+        applies_to_event: "click_checkout"
+      - id: "G2_all_items_in_stock"
+        description: "Every item in the cart must have sufficient stock to fulfill the requested quantity."
+        applies_to_event: "click_checkout"
+      - id: "G3_payment_matches_total"
+        description: "The payment amount submitted must exactly match the current cart total."
+        applies_to_event: "submit_payment"
+
+    transition_table:
+      - id: "T01"
+        from: "empty_cart"
+        event: "add_product"
+        guards: []
+        to: "items_added"
+        description: "Adding the first product moves the cart from empty to items_added."
+
+      - id: "T02"
+        from: "items_added"
+        event: "add_product"
+        guards: []
+        to: "items_added"
+        description: "Adding another product keeps the cart in items_added (self-transition)."
+
+      - id: "T03"
+        from: "items_added"
+        event: "update_quantity"
+        guards: []
+        to: "items_added"
+        description: "Changing an item quantity keeps the cart in items_added."
+
+      - id: "T04"
+        from: "items_added"
+        event: "remove_item"
+        guards: []
+        to: "items_added"
+        description: "Removing one item when other items remain keeps the cart in items_added."
+
+      - id: "T05"
+        from: "items_added"
+        event: "remove_item"
+        guards:
+          - "last_item_removed"
+        to: "empty_cart"
+        description: "Removing the last remaining item returns the cart to empty_cart."
+
+      - id: "T06"
+        from: "items_added"
+        event: "remove_all_items"
+        guards: []
+        to: "empty_cart"
+        description: "Clearing all items returns the cart to empty_cart."
+
+      - id: "T07"
+        from: "items_added"
+        event: "click_checkout"
+        guards:
+          - "G1_cart_not_empty"
+          - "G2_all_items_in_stock"
+        to: "checkout_in_progress"
+        description: "Proceeding to checkout requires a non-empty cart with all items in stock."
+
+      - id: "T08"
+        from: "checkout_in_progress"
+        event: "submit_payment"
+        guards:
+          - "G3_payment_matches_total"
+        to: "payment_processing"
+        description: "Submitting payment requires the payment amount to match the cart total."
+
+      - id: "T09"
+        from: "payment_processing"
+        event: "payment_success"
+        guards: []
+        to: "order_confirmed"
+        description: "Successful payment confirms the order."
+
+      - id: "T10"
+        from: "payment_processing"
+        event: "payment_failure"
+        guards: []
+        to: "checkout_in_progress"
+        description: "Failed payment returns the user to checkout to retry."
+
+      - id: "T11"
+        from: "checkout_in_progress"
+        event: "update_quantity"
+        guards: []
+        to: "checkout_in_progress"
+        description: "Updating quantity during checkout keeps user in checkout."
+
+      - id: "T12"
+        from: "checkout_in_progress"
+        event: "remove_item"
+        guards: []
+        to: "checkout_in_progress"
+        description: "Removing an item during checkout when other items remain keeps user in checkout."
+
+      - id: "T13"
+        from: "checkout_in_progress"
+        event: "remove_item"
+        guards:
+          - "last_item_removed"
+        to: "empty_cart"
+        description: "Removing the last item during checkout returns to empty_cart."
+
+      - id: "T14"
+        from: "checkout_in_progress"
+        event: "remove_all_items"
+        guards: []
+        to: "empty_cart"
+        description: "Clearing all items during checkout returns to empty_cart."
+
+      - id: "T15"
+        from: "checkout_in_progress"
+        event: "add_product"
+        guards: []
+        to: "checkout_in_progress"
+        description: "Adding a product during checkout keeps user in checkout."
+
+    invalid_transitions:
+      - id: "INV01"
+        from: "empty_cart"
+        event: "update_quantity"
+        reason: "Cannot update quantity when the cart is empty."
+      - id: "INV02"
+        from: "empty_cart"
+        event: "remove_item"
+        reason: "Cannot remove an item from an empty cart."
+      - id: "INV03"
+        from: "empty_cart"
+        event: "remove_all_items"
+        reason: "Cannot clear an already empty cart."
+      - id: "INV04"
+        from: "empty_cart"
+        event: "click_checkout"
+        reason: "Cannot checkout with an empty cart. Violates guard G1_cart_not_empty."
+      - id: "INV05"
+        from: "empty_cart"
+        event: "submit_payment"
+        reason: "Cannot submit payment from the empty_cart state."
+      - id: "INV06"
+        from: "empty_cart"
+        event: "payment_success"
+        reason: "Payment events are only valid in payment_processing state."
+      - id: "INV07"
+        from: "empty_cart"
+        event: "payment_failure"
+        reason: "Payment events are only valid in payment_processing state."
+      - id: "INV08"
+        from: "items_added"
+        event: "submit_payment"
+        reason: "Cannot submit payment without going through checkout first."
+      - id: "INV09"
+        from: "items_added"
+        event: "payment_success"
+        reason: "Payment events are only valid in payment_processing state."
+      - id: "INV10"
+        from: "items_added"
+        event: "payment_failure"
+        reason: "Payment events are only valid in payment_processing state."
+      - id: "INV11"
+        from: "checkout_in_progress"
+        event: "payment_success"
+        reason: "Payment result events are only valid in payment_processing state."
+      - id: "INV12"
+        from: "checkout_in_progress"
+        event: "payment_failure"
+        reason: "Payment result events are only valid in payment_processing state."
+      - id: "INV13"
+        from: "payment_processing"
+        event: "add_product"
+        reason: "Cannot modify cart while payment is being processed."
+      - id: "INV14"
+        from: "payment_processing"
+        event: "update_quantity"
+        reason: "Cannot modify cart while payment is being processed."
+      - id: "INV15"
+        from: "payment_processing"
+        event: "remove_item"
+        reason: "Cannot modify cart while payment is being processed."
+      - id: "INV16"
+        from: "payment_processing"
+        event: "remove_all_items"
+        reason: "Cannot modify cart while payment is being processed."
+      - id: "INV17"
+        from: "payment_processing"
+        event: "click_checkout"
+        reason: "Cannot restart checkout while payment is being processed."
+      - id: "INV18"
+        from: "payment_processing"
+        event: "submit_payment"
+        reason: "Cannot submit another payment while one is already processing."
+      - id: "INV19"
+        from: "order_confirmed"
+        event: "add_product"
+        reason: "Order is finalized; cannot modify a confirmed order."
+      - id: "INV20"
+        from: "order_confirmed"
+        event: "update_quantity"
+        reason: "Order is finalized; cannot modify a confirmed order."
+      - id: "INV21"
+        from: "order_confirmed"
+        event: "remove_item"
+        reason: "Order is finalized; cannot modify a confirmed order."
+      - id: "INV22"
+        from: "order_confirmed"
+        event: "remove_all_items"
+        reason: "Order is finalized; cannot modify a confirmed order."
+      - id: "INV23"
+        from: "order_confirmed"
+        event: "click_checkout"
+        reason: "Order is finalized; cannot restart checkout."
+      - id: "INV24"
+        from: "order_confirmed"
+        event: "submit_payment"
+        reason: "Order is finalized; payment already completed."
+      - id: "INV25"
+        from: "order_confirmed"
+        event: "payment_success"
+        reason: "Order is finalized; duplicate payment_success is invalid."
+      - id: "INV26"
+        from: "order_confirmed"
+        event: "payment_failure"
+        reason: "Order is finalized; payment_failure is invalid after confirmation."
+      - id: "INV27"
+        from: "items_added"
+        event: "click_checkout"
+        guard_violated: "G2_all_items_in_stock"
+        reason: "Checkout blocked because one or more items are out of stock."
+      - id: "INV28"
+        from: "checkout_in_progress"
+        event: "submit_payment"
+        guard_violated: "G3_payment_matches_total"
+        reason: "Payment rejected because the submitted amount does not match cart total."
+      - id: "INV29"
+        from: "checkout_in_progress"
+        event: "click_checkout"
+        reason: "Already in checkout; cannot re-initiate checkout."
+
+  test_cases:
+
+    # =========================================================================
+    # SECTION 1: Valid Transition Tests
+    # =========================================================================
+    valid_transitions:
+
+      - id: "TC-VT-001"
+        title: "Add first product to empty cart"
+        transition: "T01"
+        preconditions:
+          - "Cart is in empty_cart state."
+          - "Product A exists in the catalog and is in stock."
+        steps:
+          - "Navigate to product A detail page."
+          - "Click 'Add to Cart'."
+        expected_results:
+          - "Cart state transitions to items_added."
+          - "Cart displays product A with quantity 1."
+          - "Cart item count badge shows 1."
+        priority: "high"
+
+      - id: "TC-VT-002"
+        title: "Add a second distinct product to the cart"
+        transition: "T02"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 1)."
+          - "Product B exists and is in stock."
+        steps:
+          - "Navigate to product B detail page."
+          - "Click 'Add to Cart'."
+        expected_results:
+          - "Cart remains in items_added state."
+          - "Cart displays product A and product B."
+          - "Cart item count badge shows 2."
+        priority: "high"
+
+      - id: "TC-VT-003"
+        title: "Add a duplicate product to the cart"
+        transition: "T02"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 1)."
+        steps:
+          - "Navigate to product A detail page."
+          - "Click 'Add to Cart' again."
+        expected_results:
+          - "Cart remains in items_added state."
+          - "Product A quantity increases to 2."
+        priority: "medium"
+
+      - id: "TC-VT-004"
+        title: "Update item quantity in cart"
+        transition: "T03"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 1)."
+        steps:
+          - "Open cart view."
+          - "Change product A quantity to 3."
+        expected_results:
+          - "Cart remains in items_added state."
+          - "Product A quantity is updated to 3."
+          - "Cart total is recalculated."
+        priority: "high"
+
+      - id: "TC-VT-005"
+        title: "Remove one item when multiple items exist"
+        transition: "T04"
+        preconditions:
+          - "Cart is in items_added state with product A and product B."
+        steps:
+          - "Open cart view."
+          - "Click 'Remove' on product A."
+        expected_results:
+          - "Cart remains in items_added state."
+          - "Product A is no longer in the cart."
+          - "Product B remains in the cart."
+          - "Cart total is recalculated."
+        priority: "high"
+
+      - id: "TC-VT-006"
+        title: "Remove the last item from cart"
+        transition: "T05"
+        preconditions:
+          - "Cart is in items_added state with only product A."
+        steps:
+          - "Open cart view."
+          - "Click 'Remove' on product A."
+        expected_results:
+          - "Cart state transitions to empty_cart."
+          - "Cart displays 'Your cart is empty' message."
+          - "Cart item count badge shows 0 or is hidden."
+        priority: "high"
+
+      - id: "TC-VT-007"
+        title: "Clear all items from cart"
+        transition: "T06"
+        preconditions:
+          - "Cart is in items_added state with product A, product B, and product C."
+        steps:
+          - "Open cart view."
+          - "Click 'Clear Cart' or 'Remove All'."
+        expected_results:
+          - "Cart state transitions to empty_cart."
+          - "Cart displays 'Your cart is empty' message."
+          - "Cart total is zero."
+        priority: "high"
+
+      - id: "TC-VT-008"
+        title: "Proceed to checkout with valid cart"
+        transition: "T07"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 1) and product B (qty 2)."
+          - "All items are in stock."
+        steps:
+          - "Open cart view."
+          - "Click 'Checkout'."
+        expected_results:
+          - "Guard G1_cart_not_empty passes (cart has items)."
+          - "Guard G2_all_items_in_stock passes (all items available)."
+          - "Cart state transitions to checkout_in_progress."
+          - "Checkout page is displayed with order summary."
+        priority: "high"
+
+      - id: "TC-VT-009"
+        title: "Submit payment with matching amount"
+        transition: "T08"
+        preconditions:
+          - "Cart is in checkout_in_progress state."
+          - "Cart total is $99.99."
+          - "User has entered valid payment details."
+        steps:
+          - "Verify order summary shows $99.99."
+          - "Click 'Pay Now' / 'Submit Payment'."
+        expected_results:
+          - "Guard G3_payment_matches_total passes (amount equals $99.99)."
+          - "Cart state transitions to payment_processing."
+          - "Loading/processing indicator is displayed."
+          - "Cart modification controls are disabled."
+        priority: "high"
+
+      - id: "TC-VT-010"
+        title: "Payment succeeds"
+        transition: "T09"
+        preconditions:
+          - "Cart is in payment_processing state."
+          - "Payment gateway is configured to approve the transaction."
+        steps:
+          - "Wait for payment gateway response."
+        expected_results:
+          - "Cart state transitions to order_confirmed."
+          - "Order confirmation page is displayed with order number."
+          - "Confirmation email is sent to the user."
+        priority: "high"
+
+      - id: "TC-VT-011"
+        title: "Payment fails and returns to checkout"
+        transition: "T10"
+        preconditions:
+          - "Cart is in payment_processing state."
+          - "Payment gateway is configured to decline the transaction."
+        steps:
+          - "Wait for payment gateway response."
+        expected_results:
+          - "Cart state transitions to checkout_in_progress."
+          - "Error message displayed: 'Payment failed. Please try again.'"
+          - "Cart contents are preserved."
+          - "User can retry payment or modify order."
+        priority: "high"
+
+      - id: "TC-VT-012"
+        title: "Update quantity during checkout"
+        transition: "T11"
+        preconditions:
+          - "Cart is in checkout_in_progress state with product A (qty 1)."
+        steps:
+          - "Modify product A quantity to 2 in the order summary."
+        expected_results:
+          - "Cart remains in checkout_in_progress state."
+          - "Cart total is recalculated."
+          - "Order summary reflects updated quantity."
+        priority: "medium"
+
+      - id: "TC-VT-013"
+        title: "Remove an item during checkout with items remaining"
+        transition: "T12"
+        preconditions:
+          - "Cart is in checkout_in_progress state with product A and product B."
+        steps:
+          - "Click 'Remove' on product A from the order summary."
+        expected_results:
+          - "Cart remains in checkout_in_progress state."
+          - "Product A is removed from the order summary."
+          - "Cart total is recalculated."
+        priority: "medium"
+
+      - id: "TC-VT-014"
+        title: "Remove last item during checkout"
+        transition: "T13"
+        preconditions:
+          - "Cart is in checkout_in_progress state with only product A."
+        steps:
+          - "Click 'Remove' on product A from the order summary."
+        expected_results:
+          - "Cart state transitions to empty_cart."
+          - "User is redirected away from checkout."
+          - "Cart displays 'Your cart is empty' message."
+        priority: "high"
+
+      - id: "TC-VT-015"
+        title: "Clear all items during checkout"
+        transition: "T14"
+        preconditions:
+          - "Cart is in checkout_in_progress state with product A and product B."
+        steps:
+          - "Click 'Clear Cart' from the order summary."
+        expected_results:
+          - "Cart state transitions to empty_cart."
+          - "User is redirected away from checkout."
+          - "Cart displays 'Your cart is empty' message."
+        priority: "high"
+
+      - id: "TC-VT-016"
+        title: "Add a product during checkout"
+        transition: "T15"
+        preconditions:
+          - "Cart is in checkout_in_progress state with product A."
+          - "Product C exists and is in stock."
+        steps:
+          - "Navigate to product C and add it to cart."
+          - "Return to checkout."
+        expected_results:
+          - "Cart remains in checkout_in_progress state."
+          - "Product C appears in the order summary."
+          - "Cart total is recalculated."
+        priority: "medium"
+
+    # =========================================================================
+    # SECTION 2: Guard Condition Tests
+    # =========================================================================
+    guard_tests:
+
+      - id: "TC-GD-001"
+        title: "Guard G1 - Checkout blocked when cart is empty"
+        guard: "G1_cart_not_empty"
+        guard_result: "fail"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to navigate directly to checkout URL."
+        expected_results:
+          - "Guard G1_cart_not_empty blocks the transition."
+          - "Cart remains in empty_cart state."
+          - "Error message displayed: 'Your cart is empty. Add items before checkout.'"
+        priority: "high"
+
+      - id: "TC-GD-002"
+        title: "Guard G2 - Checkout blocked when item is out of stock"
+        guard: "G2_all_items_in_stock"
+        guard_result: "fail"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 5)."
+          - "Product A has only 2 units in stock."
+        steps:
+          - "Click 'Checkout'."
+        expected_results:
+          - "Guard G2_all_items_in_stock blocks the transition."
+          - "Cart remains in items_added state."
+          - "Error message identifies the out-of-stock item and available quantity."
+        priority: "high"
+
+      - id: "TC-GD-003"
+        title: "Guard G2 - Checkout blocked when one of multiple items is out of stock"
+        guard: "G2_all_items_in_stock"
+        guard_result: "fail"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 1, in stock) and product B (qty 3, only 1 in stock)."
+        steps:
+          - "Click 'Checkout'."
+        expected_results:
+          - "Guard G2_all_items_in_stock blocks the transition."
+          - "Cart remains in items_added state."
+          - "Error message identifies product B as the item with insufficient stock."
+        priority: "high"
+
+      - id: "TC-GD-004"
+        title: "Guard G2 - Checkout succeeds when all items are exactly at stock level"
+        guard: "G2_all_items_in_stock"
+        guard_result: "pass"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 5)."
+          - "Product A has exactly 5 units in stock."
+        steps:
+          - "Click 'Checkout'."
+        expected_results:
+          - "Guard G2_all_items_in_stock passes."
+          - "Cart state transitions to checkout_in_progress."
+        priority: "medium"
+
+      - id: "TC-GD-005"
+        title: "Guard G3 - Payment blocked when amount does not match cart total"
+        guard: "G3_payment_matches_total"
+        guard_result: "fail"
+        preconditions:
+          - "Cart is in checkout_in_progress state."
+          - "Cart total is $99.99."
+          - "Payment request is crafted with amount $89.99 (e.g., via API tampering)."
+        steps:
+          - "Submit payment with mismatched amount."
+        expected_results:
+          - "Guard G3_payment_matches_total blocks the transition."
+          - "Cart remains in checkout_in_progress state."
+          - "Error message: 'Payment amount does not match the order total.'"
+        priority: "high"
+
+      - id: "TC-GD-006"
+        title: "Guard G3 - Payment blocked when amount exceeds cart total"
+        guard: "G3_payment_matches_total"
+        guard_result: "fail"
+        preconditions:
+          - "Cart is in checkout_in_progress state."
+          - "Cart total is $99.99."
+          - "Payment request is crafted with amount $109.99."
+        steps:
+          - "Submit payment with amount greater than cart total."
+        expected_results:
+          - "Guard G3_payment_matches_total blocks the transition."
+          - "Cart remains in checkout_in_progress state."
+          - "Error message: 'Payment amount does not match the order total.'"
+        priority: "high"
+
+      - id: "TC-GD-007"
+        title: "Guard G3 - Payment succeeds when amount exactly matches cart total"
+        guard: "G3_payment_matches_total"
+        guard_result: "pass"
+        preconditions:
+          - "Cart is in checkout_in_progress state."
+          - "Cart total is $49.50."
+          - "Payment amount is $49.50."
+        steps:
+          - "Submit payment with exact matching amount."
+        expected_results:
+          - "Guard G3_payment_matches_total passes."
+          - "Cart state transitions to payment_processing."
+        priority: "high"
+
+      - id: "TC-GD-008"
+        title: "Guard G2 - Checkout blocked when item becomes out of stock after being added"
+        guard: "G2_all_items_in_stock"
+        guard_result: "fail"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 1)."
+          - "Product A was in stock when added but has since been purchased by another user."
+          - "Product A stock is now 0."
+        steps:
+          - "Click 'Checkout'."
+        expected_results:
+          - "Guard G2_all_items_in_stock blocks the transition."
+          - "Cart remains in items_added state."
+          - "Error message: 'Product A is no longer in stock.'"
+        priority: "high"
+
+    # =========================================================================
+    # SECTION 3: Invalid Transition Tests
+    # =========================================================================
+    invalid_transitions:
+
+      - id: "TC-IT-001"
+        title: "Cannot update quantity in empty cart"
+        invalid_transition: "INV01"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to call update_quantity via API or UI manipulation."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in empty_cart state."
+          - "Appropriate error is returned or action is a no-op."
+        priority: "medium"
+
+      - id: "TC-IT-002"
+        title: "Cannot remove item from empty cart"
+        invalid_transition: "INV02"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to call remove_item via API or UI manipulation."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in empty_cart state."
+        priority: "medium"
+
+      - id: "TC-IT-003"
+        title: "Cannot clear an already empty cart"
+        invalid_transition: "INV03"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to call remove_all_items via API or UI manipulation."
+        expected_results:
+          - "Transition is rejected or is a no-op."
+          - "Cart remains in empty_cart state."
+        priority: "low"
+
+      - id: "TC-IT-004"
+        title: "Cannot checkout from empty cart"
+        invalid_transition: "INV04"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to click 'Checkout' (button should be disabled or hidden)."
+        expected_results:
+          - "Transition is rejected by guard G1_cart_not_empty."
+          - "Cart remains in empty_cart state."
+          - "Checkout button is disabled or not displayed."
+        priority: "high"
+
+      - id: "TC-IT-005"
+        title: "Cannot submit payment from empty cart"
+        invalid_transition: "INV05"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to call submit_payment via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in empty_cart state."
+        priority: "medium"
+
+      - id: "TC-IT-006"
+        title: "Cannot trigger payment_success from empty cart"
+        invalid_transition: "INV06"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to send payment_success event via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in empty_cart state."
+        priority: "low"
+
+      - id: "TC-IT-007"
+        title: "Cannot trigger payment_failure from empty cart"
+        invalid_transition: "INV07"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to send payment_failure event via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in empty_cart state."
+        priority: "low"
+
+      - id: "TC-IT-008"
+        title: "Cannot submit payment from items_added state"
+        invalid_transition: "INV08"
+        preconditions:
+          - "Cart is in items_added state."
+        steps:
+          - "Attempt to call submit_payment via API, bypassing checkout."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in items_added state."
+        priority: "high"
+
+      - id: "TC-IT-009"
+        title: "Cannot trigger payment_success from items_added state"
+        invalid_transition: "INV09"
+        preconditions:
+          - "Cart is in items_added state."
+        steps:
+          - "Attempt to send payment_success event via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in items_added state."
+        priority: "medium"
+
+      - id: "TC-IT-010"
+        title: "Cannot trigger payment_failure from items_added state"
+        invalid_transition: "INV10"
+        preconditions:
+          - "Cart is in items_added state."
+        steps:
+          - "Attempt to send payment_failure event via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in items_added state."
+        priority: "medium"
+
+      - id: "TC-IT-011"
+        title: "Cannot trigger payment_success from checkout_in_progress"
+        invalid_transition: "INV11"
+        preconditions:
+          - "Cart is in checkout_in_progress state."
+        steps:
+          - "Attempt to send payment_success event via API without submitting payment."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in checkout_in_progress state."
+        priority: "high"
+
+      - id: "TC-IT-012"
+        title: "Cannot trigger payment_failure from checkout_in_progress"
+        invalid_transition: "INV12"
+        preconditions:
+          - "Cart is in checkout_in_progress state."
+        steps:
+          - "Attempt to send payment_failure event via API without submitting payment."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in checkout_in_progress state."
+        priority: "high"
+
+      - id: "TC-IT-013"
+        title: "Cannot add product during payment processing"
+        invalid_transition: "INV13"
+        preconditions:
+          - "Cart is in payment_processing state."
+        steps:
+          - "Attempt to add a product via API while payment is processing."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in payment_processing state."
+          - "Cart contents are unchanged."
+        priority: "high"
+
+      - id: "TC-IT-014"
+        title: "Cannot update quantity during payment processing"
+        invalid_transition: "INV14"
+        preconditions:
+          - "Cart is in payment_processing state."
+        steps:
+          - "Attempt to update item quantity via API while payment is processing."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in payment_processing state."
+        priority: "high"
+
+      - id: "TC-IT-015"
+        title: "Cannot remove item during payment processing"
+        invalid_transition: "INV15"
+        preconditions:
+          - "Cart is in payment_processing state."
+        steps:
+          - "Attempt to remove an item via API while payment is processing."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in payment_processing state."
+        priority: "high"
+
+      - id: "TC-IT-016"
+        title: "Cannot clear cart during payment processing"
+        invalid_transition: "INV16"
+        preconditions:
+          - "Cart is in payment_processing state."
+        steps:
+          - "Attempt to clear all items via API while payment is processing."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in payment_processing state."
+        priority: "high"
+
+      - id: "TC-IT-017"
+        title: "Cannot click checkout during payment processing"
+        invalid_transition: "INV17"
+        preconditions:
+          - "Cart is in payment_processing state."
+        steps:
+          - "Attempt to re-initiate checkout via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in payment_processing state."
+        priority: "medium"
+
+      - id: "TC-IT-018"
+        title: "Cannot submit duplicate payment during processing"
+        invalid_transition: "INV18"
+        preconditions:
+          - "Cart is in payment_processing state."
+        steps:
+          - "Attempt to submit another payment via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in payment_processing state."
+          - "No duplicate charge is created."
+        priority: "high"
+
+      - id: "TC-IT-019"
+        title: "Cannot add product after order confirmed"
+        invalid_transition: "INV19"
+        preconditions:
+          - "Cart is in order_confirmed state."
+        steps:
+          - "Attempt to add a product via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in order_confirmed state."
+        priority: "medium"
+
+      - id: "TC-IT-020"
+        title: "Cannot update quantity after order confirmed"
+        invalid_transition: "INV20"
+        preconditions:
+          - "Cart is in order_confirmed state."
+        steps:
+          - "Attempt to update item quantity via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in order_confirmed state."
+        priority: "medium"
+
+      - id: "TC-IT-021"
+        title: "Cannot remove item after order confirmed"
+        invalid_transition: "INV21"
+        preconditions:
+          - "Cart is in order_confirmed state."
+        steps:
+          - "Attempt to remove an item via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in order_confirmed state."
+        priority: "medium"
+
+      - id: "TC-IT-022"
+        title: "Cannot clear cart after order confirmed"
+        invalid_transition: "INV22"
+        preconditions:
+          - "Cart is in order_confirmed state."
+        steps:
+          - "Attempt to clear all items via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in order_confirmed state."
+        priority: "medium"
+
+      - id: "TC-IT-023"
+        title: "Cannot checkout after order confirmed"
+        invalid_transition: "INV23"
+        preconditions:
+          - "Cart is in order_confirmed state."
+        steps:
+          - "Attempt to click checkout or call checkout API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in order_confirmed state."
+        priority: "medium"
+
+      - id: "TC-IT-024"
+        title: "Cannot submit payment after order confirmed"
+        invalid_transition: "INV24"
+        preconditions:
+          - "Cart is in order_confirmed state."
+        steps:
+          - "Attempt to submit payment via API."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in order_confirmed state."
+        priority: "medium"
+
+      - id: "TC-IT-025"
+        title: "Cannot trigger payment_success after order confirmed"
+        invalid_transition: "INV25"
+        preconditions:
+          - "Cart is in order_confirmed state."
+        steps:
+          - "Attempt to send duplicate payment_success event."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in order_confirmed state."
+          - "No duplicate order is created."
+        priority: "high"
+
+      - id: "TC-IT-026"
+        title: "Cannot trigger payment_failure after order confirmed"
+        invalid_transition: "INV26"
+        preconditions:
+          - "Cart is in order_confirmed state."
+        steps:
+          - "Attempt to send payment_failure event after order was already confirmed."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in order_confirmed state."
+          - "Confirmed order is not reversed."
+        priority: "high"
+
+      - id: "TC-IT-027"
+        title: "Cannot checkout with out-of-stock items (guard rejection)"
+        invalid_transition: "INV27"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 10)."
+          - "Product A has only 3 units in stock."
+        steps:
+          - "Click 'Checkout'."
+        expected_results:
+          - "Guard G2_all_items_in_stock rejects the transition."
+          - "Cart remains in items_added state."
+          - "User is informed which items are out of stock."
+        priority: "high"
+
+      - id: "TC-IT-028"
+        title: "Cannot submit payment with mismatched amount (guard rejection)"
+        invalid_transition: "INV28"
+        preconditions:
+          - "Cart is in checkout_in_progress state with total $150.00."
+          - "Payment amount submitted is $100.00."
+        steps:
+          - "Submit payment via API with incorrect amount."
+        expected_results:
+          - "Guard G3_payment_matches_total rejects the transition."
+          - "Cart remains in checkout_in_progress state."
+          - "Error message indicates amount mismatch."
+        priority: "high"
+
+      - id: "TC-IT-029"
+        title: "Cannot re-initiate checkout from checkout_in_progress"
+        invalid_transition: "INV29"
+        preconditions:
+          - "Cart is in checkout_in_progress state."
+        steps:
+          - "Attempt to trigger click_checkout event again."
+        expected_results:
+          - "Transition is rejected."
+          - "Cart remains in checkout_in_progress state."
+        priority: "low"
+
+    # =========================================================================
+    # SECTION 4: End-to-End Path Tests
+    # =========================================================================
+    end_to_end_paths:
+
+      - id: "TC-E2E-001"
+        title: "Happy path - complete purchase flow"
+        path: "empty_cart -> items_added -> checkout_in_progress -> payment_processing -> order_confirmed"
+        transitions: ["T01", "T07", "T08", "T09"]
+        preconditions:
+          - "Cart starts in empty_cart state."
+          - "Product A is in stock."
+          - "Payment gateway is operational and will approve."
+        steps:
+          - "Add product A to cart."
+          - "Click 'Checkout'."
+          - "Enter valid payment details and submit."
+          - "Wait for payment gateway approval."
+        expected_results:
+          - "Cart transitions: empty_cart -> items_added -> checkout_in_progress -> payment_processing -> order_confirmed."
+          - "Order confirmation is displayed with order number."
+        priority: "high"
+
+      - id: "TC-E2E-002"
+        title: "Payment failure and retry path"
+        path: "empty_cart -> items_added -> checkout_in_progress -> payment_processing -> checkout_in_progress -> payment_processing -> order_confirmed"
+        transitions: ["T01", "T07", "T08", "T10", "T08", "T09"]
+        preconditions:
+          - "Cart starts in empty_cart state."
+          - "Product A is in stock."
+          - "Payment gateway will fail on first attempt, succeed on second."
+        steps:
+          - "Add product A to cart."
+          - "Click 'Checkout'."
+          - "Submit payment (first attempt - will fail)."
+          - "Observe payment failure message."
+          - "Submit payment again (second attempt - will succeed)."
+          - "Observe order confirmation."
+        expected_results:
+          - "First payment attempt fails; returns to checkout_in_progress."
+          - "Second payment attempt succeeds; transitions to order_confirmed."
+          - "Cart contents are preserved between retry attempts."
+        priority: "high"
+
+      - id: "TC-E2E-003"
+        title: "Add items, remove all, add again, and purchase"
+        path: "empty_cart -> items_added -> empty_cart -> items_added -> checkout_in_progress -> payment_processing -> order_confirmed"
+        transitions: ["T01", "T06", "T01", "T07", "T08", "T09"]
+        preconditions:
+          - "Cart starts in empty_cart state."
+          - "Products A and B are in stock."
+        steps:
+          - "Add product A to cart."
+          - "Click 'Clear Cart'."
+          - "Add product B to cart."
+          - "Click 'Checkout'."
+          - "Submit valid payment."
+          - "Wait for payment gateway approval."
+        expected_results:
+          - "Cart correctly resets to empty_cart after clearing."
+          - "Cart correctly transitions back to items_added on re-add."
+          - "Order confirmed for product B only."
+        priority: "medium"
+
+      - id: "TC-E2E-004"
+        title: "Modify cart during checkout then purchase"
+        path: "empty_cart -> items_added -> checkout_in_progress -> checkout_in_progress -> checkout_in_progress -> payment_processing -> order_confirmed"
+        transitions: ["T01", "T07", "T11", "T15", "T08", "T09"]
+        preconditions:
+          - "Cart starts in empty_cart state."
+          - "Products A and C are in stock."
+        steps:
+          - "Add product A (qty 1) to cart."
+          - "Click 'Checkout'."
+          - "Update product A quantity to 3."
+          - "Add product C to cart."
+          - "Submit valid payment for updated total."
+          - "Wait for payment gateway approval."
+        expected_results:
+          - "Cart total updates correctly during checkout modifications."
+          - "Final order reflects product A (qty 3) and product C (qty 1)."
+        priority: "medium"
+
+      - id: "TC-E2E-005"
+        title: "Remove last item during checkout returns to empty cart"
+        path: "empty_cart -> items_added -> checkout_in_progress -> empty_cart"
+        transitions: ["T01", "T07", "T13"]
+        preconditions:
+          - "Cart starts in empty_cart state."
+          - "Product A is in stock."
+        steps:
+          - "Add product A to cart."
+          - "Click 'Checkout'."
+          - "Remove product A from order summary."
+        expected_results:
+          - "Cart transitions from checkout_in_progress to empty_cart."
+          - "User is redirected from checkout page."
+        priority: "medium"
+
+      - id: "TC-E2E-006"
+        title: "Multiple payment failures before success"
+        path: "items_added -> checkout_in_progress -> payment_processing -> checkout_in_progress -> payment_processing -> checkout_in_progress -> payment_processing -> order_confirmed"
+        transitions: ["T07", "T08", "T10", "T08", "T10", "T08", "T09"]
+        preconditions:
+          - "Cart is in items_added state with product A."
+          - "Payment gateway fails twice, then succeeds."
+        steps:
+          - "Click 'Checkout'."
+          - "Submit payment (fails)."
+          - "Submit payment again (fails)."
+          - "Submit payment a third time (succeeds)."
+        expected_results:
+          - "Each failure returns to checkout_in_progress."
+          - "Cart contents preserved across all retries."
+          - "Third attempt succeeds and order is confirmed."
+        priority: "medium"
+
+      - id: "TC-E2E-007"
+        title: "Clear cart during checkout after payment failure"
+        path: "items_added -> checkout_in_progress -> payment_processing -> checkout_in_progress -> empty_cart"
+        transitions: ["T07", "T08", "T10", "T14"]
+        preconditions:
+          - "Cart is in items_added state with product A."
+          - "Payment gateway will decline."
+        steps:
+          - "Click 'Checkout'."
+          - "Submit payment (fails)."
+          - "After returning to checkout, click 'Clear Cart'."
+        expected_results:
+          - "Payment failure returns to checkout_in_progress."
+          - "Clearing cart transitions to empty_cart."
+        priority: "medium"
+
+    # =========================================================================
+    # SECTION 5: Edge Case and Boundary Tests
+    # =========================================================================
+    edge_cases:
+
+      - id: "TC-EC-001"
+        title: "Add product with quantity zero"
+        preconditions:
+          - "Cart is in empty_cart state."
+        steps:
+          - "Attempt to add product A with quantity 0."
+        expected_results:
+          - "Cart remains in empty_cart state."
+          - "Error message or validation prevents zero-quantity additions."
+        priority: "medium"
+
+      - id: "TC-EC-002"
+        title: "Update quantity to zero (equivalent to remove)"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 2) as the only item."
+        steps:
+          - "Update product A quantity to 0."
+        expected_results:
+          - "Product A is removed from the cart."
+          - "Cart transitions to empty_cart (since it was the only item)."
+        priority: "medium"
+
+      - id: "TC-EC-003"
+        title: "Update quantity to negative number"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 1)."
+        steps:
+          - "Attempt to set product A quantity to -1."
+        expected_results:
+          - "Input validation rejects the negative quantity."
+          - "Cart remains in items_added state."
+          - "Product A quantity remains unchanged."
+        priority: "medium"
+
+      - id: "TC-EC-004"
+        title: "Concurrent stock depletion during checkout"
+        preconditions:
+          - "Cart is in items_added state with product A (qty 1)."
+          - "Product A has 1 unit in stock."
+          - "Another user purchases product A at the same time."
+        steps:
+          - "Click 'Checkout' concurrently with another user's purchase."
+        expected_results:
+          - "Guard G2_all_items_in_stock catches the stock depletion."
+          - "Cart remains in items_added state."
+          - "User is informed that product A is no longer available."
+        priority: "high"
+
+      - id: "TC-EC-005"
+        title: "Payment amount changes due to cart modification during checkout"
+        preconditions:
+          - "Cart is in checkout_in_progress state with total $50.00."
+          - "User modifies quantity, changing total to $75.00."
+        steps:
+          - "Update item quantity (total changes to $75.00)."
+          - "Submit payment with original amount $50.00."
+        expected_results:
+          - "Guard G3_payment_matches_total rejects the payment."
+          - "Cart remains in checkout_in_progress state."
+          - "User must submit payment matching the new $75.00 total."
+        priority: "high"
+
+      - id: "TC-EC-006"
+        title: "Add maximum allowed quantity of a single product"
+        preconditions:
+          - "Cart is in empty_cart state."
+          - "Product A has a maximum order quantity of 100."
+        steps:
+          - "Add product A with quantity 100."
+          - "Attempt to add product A again (quantity would become 101)."
+        expected_results:
+          - "First addition succeeds; cart transitions to items_added."
+          - "Second addition is rejected or capped at maximum."
+        priority: "low"
+
+      - id: "TC-EC-007"
+        title: "Payment gateway timeout during processing"
+        preconditions:
+          - "Cart is in payment_processing state."
+          - "Payment gateway does not respond within timeout period."
+        steps:
+          - "Wait for payment gateway timeout."
+        expected_results:
+          - "System treats timeout as payment_failure."
+          - "Cart transitions to checkout_in_progress."
+          - "User is informed of the timeout and can retry."
+        priority: "high"
+
+      - id: "TC-EC-008"
+        title: "Rapid double-click on checkout button"
+        preconditions:
+          - "Cart is in items_added state with valid items."
+        steps:
+          - "Rapidly click 'Checkout' button twice."
+        expected_results:
+          - "Only one checkout transition occurs."
+          - "Cart transitions to checkout_in_progress exactly once."
+          - "No duplicate checkout sessions are created."
+        priority: "medium"
+
+      - id: "TC-EC-009"
+        title: "Rapid double-click on submit payment button"
+        preconditions:
+          - "Cart is in checkout_in_progress state."
+        steps:
+          - "Rapidly click 'Submit Payment' twice."
+        expected_results:
+          - "Only one payment submission is processed."
+          - "Cart transitions to payment_processing exactly once."
+          - "No duplicate charges are created."
+        priority: "high"
+
+      - id: "TC-EC-010"
+        title: "Cart with very large number of distinct items"
+        preconditions:
+          - "Cart is in empty_cart state."
+          - "500 different products are available in the catalog."
+        steps:
+          - "Add all 500 products to the cart one by one."
+          - "Click 'Checkout'."
+        expected_results:
+          - "Cart is in items_added state with 500 items."
+          - "Guard G2_all_items_in_stock evaluates all 500 items."
+          - "Checkout transition completes within acceptable time."
+        priority: "low"
+
+      - id: "TC-EC-011"
+        title: "Payment with floating point precision edge case"
+        preconditions:
+          - "Cart contains items totaling $33.33 + $33.33 + $33.34 = $100.00."
+          - "Cart is in checkout_in_progress state."
+        steps:
+          - "Submit payment for $100.00."
+        expected_results:
+          - "Guard G3_payment_matches_total passes despite floating point arithmetic."
+          - "Cart transitions to payment_processing."
+        priority: "medium"
+
+      - id: "TC-EC-012"
+        title: "Remove item that does not exist in cart"
+        preconditions:
+          - "Cart is in items_added state with product A only."
+        steps:
+          - "Attempt to remove product B (which is not in the cart) via API."
+        expected_results:
+          - "Request is rejected or treated as a no-op."
+          - "Cart remains in items_added state with product A."
+        priority: "low"
+
+  coverage_summary:
+    total_states: 5
+    total_events: 8
+    total_guards: 3
+    valid_transitions_defined: 15
+    invalid_transitions_defined: 29
+    test_cases:
+      valid_transition_tests: 16
+      guard_tests: 8
+      invalid_transition_tests: 29
+      end_to_end_path_tests: 7
+      edge_case_tests: 12
+      total: 72
+    state_coverage: "100% - all 5 states are exercised"
+    event_coverage: "100% - all 8 events are tested in both valid and invalid contexts"
+    guard_coverage: "100% - all 3 guards tested for both pass and fail outcomes"
+    transition_coverage: "100% - all 15 valid transitions and 29 invalid transitions have dedicated test cases"

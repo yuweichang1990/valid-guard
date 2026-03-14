@@ -1,0 +1,1589 @@
+# Valid Guard Test Plan — Vending Machine State Machine
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Vending Machine"
+
+feature_description: >
+  A vending machine with six states (idle, accepting_coins, item_selected,
+  dispensing, returning_change, out_of_stock) supporting coin insertion, item
+  selection with price validation, dispensing, change return, out-of-stock
+  handling, and cancel/refund at any point. Guards enforce sufficient balance
+  before dispensing and stock availability after selection.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # =========================================================================
+  # STATE TRANSITIONS — Core Happy Path
+  # =========================================================================
+  - name: "Idle to accepting_coins on coin insertion"
+    description: >
+      When the machine is idle and a user inserts a coin, the machine
+      transitions to accepting_coins state and records the inserted amount.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. This is the entry point for every transaction;
+      failure blocks all purchases.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition covers the state change from idle to accepting_coins.
+      Equivalence partitioning validates different valid coin denominations
+      as input classes.
+    preconditions:
+      - "Machine is in idle state"
+      - "Machine is powered on and operational"
+    examples:
+      - input:
+          current_state: "idle"
+          action: "insert_coin"
+          coin_value: 0.25
+        expected:
+          new_state: "accepting_coins"
+          balance: 0.25
+        description: "Insert a quarter into an idle machine."
+      - input:
+          current_state: "idle"
+          action: "insert_coin"
+          coin_value: 1.00
+        expected:
+          new_state: "accepting_coins"
+          balance: 1.00
+        description: "Insert a dollar coin into an idle machine."
+    state_transition:
+      states:
+        - "idle"
+        - "accepting_coins"
+      transitions:
+        - from: "idle"
+          to: "accepting_coins"
+          trigger: "insert_coin"
+          guard: "coin is a valid denomination"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - smoke
+
+  - name: "Accumulate multiple coins in accepting_coins state"
+    description: >
+      When already in accepting_coins state, inserting additional coins
+      stays in the same state and increments the balance. Verifies the
+      self-loop transition on the accepting_coins state.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Users routinely insert multiple coins;
+      incorrect accumulation leads to purchase failures or financial loss.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition covers the self-loop on accepting_coins.
+      Boundary value tests accumulation near item price thresholds.
+    preconditions:
+      - "Machine is in accepting_coins state"
+      - "Some coins have already been inserted"
+    examples:
+      - input:
+          current_state: "accepting_coins"
+          existing_balance: 0.50
+          action: "insert_coin"
+          coin_value: 0.25
+        expected:
+          new_state: "accepting_coins"
+          balance: 0.75
+        description: "Insert additional quarter, balance increases."
+      - input:
+          current_state: "accepting_coins"
+          existing_balance: 1.25
+          action: "insert_coin"
+          coin_value: 0.25
+        expected:
+          new_state: "accepting_coins"
+          balance: 1.50
+        description: "Balance accumulates to exactly match a $1.50 item price."
+    state_transition:
+      states:
+        - "accepting_coins"
+      transitions:
+        - from: "accepting_coins"
+          to: "accepting_coins"
+          trigger: "insert_coin"
+          guard: "coin is a valid denomination"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - accumulation
+
+  - name: "Select item with sufficient funds — transition to dispensing"
+    description: >
+      From accepting_coins, user selects an in-stock item and the guard
+      condition (amount >= item_price) is satisfied. Machine transitions
+      to dispensing state.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. This is the core purchase decision point.
+      Guard failure here means either free products or blocked purchases.
+    techniques:
+      - state_transition
+      - decision_table
+    technique_rationale: >
+      State transition verifies the guarded transition from accepting_coins
+      to dispensing. Decision table captures the combination of sufficient
+      funds AND in-stock conditions that must both be true.
+    preconditions:
+      - "Machine is in accepting_coins state"
+      - "Inserted amount >= selected item price"
+      - "Selected item is in stock"
+    examples:
+      - input:
+          current_state: "accepting_coins"
+          balance: 1.50
+          action: "select_item"
+          item: "soda"
+          item_price: 1.50
+          stock: 5
+        expected:
+          new_state: "dispensing"
+          item_dispensed: "soda"
+        description: "Exact amount inserted, item in stock, dispense."
+      - input:
+          current_state: "accepting_coins"
+          balance: 2.00
+          action: "select_item"
+          item: "chips"
+          item_price: 1.25
+          stock: 3
+        expected:
+          new_state: "dispensing"
+          item_dispensed: "chips"
+        description: "Overpaid — still transitions to dispensing."
+    state_transition:
+      states:
+        - "accepting_coins"
+        - "item_selected"
+        - "dispensing"
+      transitions:
+        - from: "accepting_coins"
+          to: "dispensing"
+          trigger: "select_item"
+          guard: "amount >= item_price AND stock > 0"
+    decision_table:
+      conditions:
+        - "amount >= item_price"
+        - "item in stock"
+      actions:
+        - "transition_to_dispensing"
+        - "transition_to_out_of_stock"
+        - "remain_in_accepting_coins"
+      rules:
+        - description: "Sufficient funds and item in stock"
+          condition_values:
+            amount >= item_price: true
+            item in stock: true
+          expected_actions:
+            transition_to_dispensing: true
+            transition_to_out_of_stock: false
+            remain_in_accepting_coins: false
+        - description: "Sufficient funds but item out of stock"
+          condition_values:
+            amount >= item_price: true
+            item in stock: false
+          expected_actions:
+            transition_to_dispensing: false
+            transition_to_out_of_stock: true
+            remain_in_accepting_coins: false
+        - description: "Insufficient funds regardless of stock"
+          condition_values:
+            amount >= item_price: false
+            item in stock: true
+          expected_actions:
+            transition_to_dispensing: false
+            transition_to_out_of_stock: false
+            remain_in_accepting_coins: true
+        - description: "Insufficient funds and item out of stock"
+          condition_values:
+            amount >= item_price: false
+            item in stock: false
+          expected_actions:
+            transition_to_dispensing: false
+            transition_to_out_of_stock: false
+            remain_in_accepting_coins: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - guard-condition
+
+  - name: "Dispensing to returning_change when overpaid"
+    description: >
+      After dispensing the item, if the inserted amount exceeds the item
+      price, the machine transitions to returning_change to refund the
+      difference, then returns to idle.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. Failure to return correct change is a silent
+      financial error — users may not immediately realize they were shorted.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition covers the dispensing -> returning_change -> idle path.
+      Boundary value tests change amounts at critical thresholds (1 cent
+      over, large overpayment).
+    preconditions:
+      - "Machine is in dispensing state"
+      - "Item has been dispensed successfully"
+      - "Inserted amount > item price"
+    examples:
+      - input:
+          current_state: "dispensing"
+          balance: 2.00
+          item_price: 1.50
+        expected:
+          new_state: "returning_change"
+          change_amount: 0.50
+          next_state: "idle"
+        description: "Overpaid by $0.50, machine returns change then goes idle."
+      - input:
+          current_state: "dispensing"
+          balance: 5.00
+          item_price: 1.25
+        expected:
+          new_state: "returning_change"
+          change_amount: 3.75
+          next_state: "idle"
+        description: "Large overpayment — returns $3.75 in change."
+      - input:
+          current_state: "dispensing"
+          balance: 1.50
+          item_price: 1.50
+        expected:
+          new_state: "idle"
+          change_amount: 0.00
+        description: "Exact payment — skip returning_change, go directly to idle."
+    state_transition:
+      states:
+        - "dispensing"
+        - "returning_change"
+        - "idle"
+      transitions:
+        - from: "dispensing"
+          to: "returning_change"
+          trigger: "item_dispensed"
+          guard: "balance > item_price"
+        - from: "dispensing"
+          to: "idle"
+          trigger: "item_dispensed"
+          guard: "balance == item_price"
+        - from: "returning_change"
+          to: "idle"
+          trigger: "change_returned"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - change-handling
+
+  - name: "Dispensing to idle when exact amount paid"
+    description: >
+      After dispensing, if the balance equals the item price exactly,
+      the machine transitions directly back to idle with no change
+      returned, skipping the returning_change state entirely.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3.
+      Average: 2.25 -> medium. Exact payment is common but the failure
+      mode (incorrectly entering returning_change with $0) is visible.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition covers the direct dispensing -> idle path.
+      Boundary value tests the exact equality condition (amount == item_price).
+    preconditions:
+      - "Machine is in dispensing state"
+      - "Inserted amount == item price"
+    examples:
+      - input:
+          current_state: "dispensing"
+          balance: 1.50
+          item_price: 1.50
+        expected:
+          new_state: "idle"
+          change_returned: 0.00
+        description: "Exact payment, direct return to idle."
+    state_transition:
+      states:
+        - "dispensing"
+        - "idle"
+      transitions:
+        - from: "dispensing"
+          to: "idle"
+          trigger: "item_dispensed"
+          guard: "balance == item_price"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - state-machine
+      - boundary
+
+  # =========================================================================
+  # STATE TRANSITIONS — Error / Alternate Paths
+  # =========================================================================
+  - name: "Select item with insufficient funds — remain in accepting_coins"
+    description: >
+      User selects an item but the guard condition (amount >= item_price)
+      is NOT satisfied. Machine stays in accepting_coins and displays an
+      error indicating more money is needed.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. If the guard fails open, items are dispensed
+      for free. If it fails closed on valid purchases, revenue is lost.
+    techniques:
+      - state_transition
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      State transition ensures the machine stays in accepting_coins.
+      Boundary value tests the exact threshold (1 cent below item price).
+      Error guessing covers floating-point rounding issues in currency.
+    preconditions:
+      - "Machine is in accepting_coins state"
+      - "Inserted amount < selected item price"
+    examples:
+      - input:
+          current_state: "accepting_coins"
+          balance: 1.00
+          action: "select_item"
+          item: "soda"
+          item_price: 1.50
+        expected:
+          new_state: "accepting_coins"
+          error: "INSUFFICIENT_FUNDS"
+          amount_needed: 0.50
+        description: "50 cents short — machine stays in accepting_coins."
+      - input:
+          current_state: "accepting_coins"
+          balance: 1.49
+          action: "select_item"
+          item: "soda"
+          item_price: 1.50
+        expected:
+          new_state: "accepting_coins"
+          error: "INSUFFICIENT_FUNDS"
+          amount_needed: 0.01
+        description: "One cent below price — boundary value, guard rejects."
+      - input:
+          current_state: "accepting_coins"
+          balance: 0.00
+          action: "select_item"
+          item: "soda"
+          item_price: 1.50
+        expected:
+          new_state: "accepting_coins"
+          error: "INSUFFICIENT_FUNDS"
+          amount_needed: 1.50
+        description: "Zero balance — full price still needed."
+    state_transition:
+      states:
+        - "accepting_coins"
+      transitions:
+        - from: "accepting_coins"
+          to: "accepting_coins"
+          trigger: "select_item"
+          guard: "amount < item_price"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - guard-condition
+      - error-handling
+
+  - name: "Select out-of-stock item — transition to out_of_stock and refund"
+    description: >
+      User selects an item that has zero stock. Machine transitions to
+      out_of_stock state, returns all inserted coins, then transitions
+      back to idle. This must happen regardless of whether sufficient
+      funds were inserted.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, but promoted to high because failure to
+      refund coins on out-of-stock is a silent financial loss for the user.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition covers the accepting_coins -> out_of_stock -> idle
+      path. Error guessing anticipates edge cases like the last item being
+      purchased between selection and dispensing.
+    preconditions:
+      - "Machine is in accepting_coins state"
+      - "Selected item stock == 0"
+    examples:
+      - input:
+          current_state: "accepting_coins"
+          balance: 2.00
+          action: "select_item"
+          item: "candy_bar"
+          item_price: 1.00
+          stock: 0
+        expected:
+          new_state: "out_of_stock"
+          refund_amount: 2.00
+          next_state: "idle"
+        description: "Out-of-stock item selected, all coins returned."
+      - input:
+          current_state: "accepting_coins"
+          balance: 0.50
+          action: "select_item"
+          item: "candy_bar"
+          item_price: 1.00
+          stock: 0
+        expected:
+          new_state: "out_of_stock"
+          refund_amount: 0.50
+          next_state: "idle"
+        description: "Out-of-stock with insufficient funds — still refunds coins."
+    state_transition:
+      states:
+        - "accepting_coins"
+        - "out_of_stock"
+        - "idle"
+      transitions:
+        - from: "accepting_coins"
+          to: "out_of_stock"
+          trigger: "select_item"
+          guard: "stock == 0"
+        - from: "out_of_stock"
+          to: "idle"
+          trigger: "coins_returned"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - out-of-stock
+      - refund
+
+  - name: "Cancel from accepting_coins — refund all coins and return to idle"
+    description: >
+      User presses cancel while in accepting_coins state. Machine refunds
+      all inserted coins and transitions back to idle.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. Failure to refund on cancel is a silent loss
+      of user money — the most damaging user experience failure.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition covers the cancel path from accepting_coins to idle.
+      Equivalence partitioning tests cancel with different balance amounts
+      (small, large, single coin) to ensure all amounts are fully refunded.
+    preconditions:
+      - "Machine is in accepting_coins state"
+      - "User has inserted at least one coin"
+    examples:
+      - input:
+          current_state: "accepting_coins"
+          balance: 0.75
+          action: "cancel"
+        expected:
+          new_state: "idle"
+          refund_amount: 0.75
+        description: "Cancel with $0.75 balance — full refund."
+      - input:
+          current_state: "accepting_coins"
+          balance: 5.00
+          action: "cancel"
+        expected:
+          new_state: "idle"
+          refund_amount: 5.00
+        description: "Cancel with large balance — full refund."
+      - input:
+          current_state: "accepting_coins"
+          balance: 0.05
+          action: "cancel"
+        expected:
+          new_state: "idle"
+          refund_amount: 0.05
+        description: "Cancel with minimum coin value — full refund."
+    state_transition:
+      states:
+        - "accepting_coins"
+        - "idle"
+      transitions:
+        - from: "accepting_coins"
+          to: "idle"
+          trigger: "cancel"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - cancel
+      - refund
+      - critical-path
+
+  - name: "Cancel from item_selected — refund all coins and return to idle"
+    description: >
+      User presses cancel after an item has been selected but before
+      dispensing begins. Machine refunds all coins and returns to idle.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, promoted to high because cancel must
+      reliably refund from every reachable state.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition verifies cancel from item_selected to idle.
+      Error guessing covers race condition where dispensing starts
+      before cancel is processed.
+    preconditions:
+      - "Machine is in item_selected state"
+      - "Dispensing has not yet started"
+    examples:
+      - input:
+          current_state: "item_selected"
+          balance: 2.00
+          selected_item: "soda"
+          action: "cancel"
+        expected:
+          new_state: "idle"
+          refund_amount: 2.00
+          item_dispensed: false
+        description: "Cancel after item selection — refund, no dispense."
+    state_transition:
+      states:
+        - "item_selected"
+        - "idle"
+      transitions:
+        - from: "item_selected"
+          to: "idle"
+          trigger: "cancel"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - cancel
+      - refund
+
+  - name: "Cancel from idle — no-op, no coins to refund"
+    description: >
+      User presses cancel while the machine is idle. No coins have been
+      inserted, so no refund occurs. Machine remains in idle state.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 3.
+      Average: 1.5 -> medium, but scored low because the consequence
+      of mishandling is negligible — no money is at stake.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition confirms the self-loop on idle.
+      Error guessing anticipates users pressing cancel when unnecessary.
+    preconditions:
+      - "Machine is in idle state"
+      - "No coins have been inserted"
+    examples:
+      - input:
+          current_state: "idle"
+          balance: 0.00
+          action: "cancel"
+        expected:
+          new_state: "idle"
+          refund_amount: 0.00
+        description: "Cancel on idle machine — no-op."
+    state_transition:
+      states:
+        - "idle"
+      transitions:
+        - from: "idle"
+          to: "idle"
+          trigger: "cancel"
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - state-machine
+      - edge-case
+
+  # =========================================================================
+  # FULL LIFECYCLE — End-to-End State Transition Diagram
+  # =========================================================================
+  - name: "Complete vending machine state transition diagram"
+    description: >
+      Comprehensive state machine covering all six states and all valid
+      transitions including guards. This scenario represents the full
+      transition graph and validates that no invalid transitions are
+      possible.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. The overall state machine integrity is the
+      foundation of all machine behavior; unmodeled transitions can cause
+      stuck states or financial loss.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      This is a pure state transition model covering every valid path
+      through the machine, including all guards and triggers.
+    preconditions:
+      - "Machine is operational and powered on"
+    examples:
+      - input:
+          sequence:
+            - { action: "insert_coin", coin: 1.00 }
+            - { action: "insert_coin", coin: 0.50 }
+            - { action: "select_item", item: "soda", price: 1.25 }
+        expected:
+          final_state: "idle"
+          item_dispensed: "soda"
+          change_returned: 0.25
+        description: "Full happy path: insert coins -> select -> dispense -> change -> idle."
+      - input:
+          sequence:
+            - { action: "insert_coin", coin: 1.00 }
+            - { action: "select_item", item: "water", price: 1.00 }
+        expected:
+          final_state: "idle"
+          item_dispensed: "water"
+          change_returned: 0.00
+        description: "Exact payment path: insert -> select -> dispense -> idle (no change)."
+      - input:
+          sequence:
+            - { action: "insert_coin", coin: 0.50 }
+            - { action: "cancel" }
+        expected:
+          final_state: "idle"
+          item_dispensed: null
+          refund_amount: 0.50
+        description: "Cancel path: insert -> cancel -> refund -> idle."
+      - input:
+          sequence:
+            - { action: "insert_coin", coin: 2.00 }
+            - { action: "select_item", item: "chips", price: 1.50, stock: 0 }
+        expected:
+          final_state: "idle"
+          item_dispensed: null
+          refund_amount: 2.00
+        description: "Out-of-stock path: insert -> select OOS -> refund -> idle."
+    state_transition:
+      states:
+        - "idle"
+        - "accepting_coins"
+        - "item_selected"
+        - "dispensing"
+        - "returning_change"
+        - "out_of_stock"
+      transitions:
+        - from: "idle"
+          to: "accepting_coins"
+          trigger: "insert_coin"
+          guard: "coin is valid denomination"
+        - from: "accepting_coins"
+          to: "accepting_coins"
+          trigger: "insert_coin"
+          guard: "coin is valid denomination"
+        - from: "accepting_coins"
+          to: "dispensing"
+          trigger: "select_item"
+          guard: "amount >= item_price AND stock > 0"
+        - from: "accepting_coins"
+          to: "accepting_coins"
+          trigger: "select_item"
+          guard: "amount < item_price"
+        - from: "accepting_coins"
+          to: "out_of_stock"
+          trigger: "select_item"
+          guard: "stock == 0"
+        - from: "dispensing"
+          to: "returning_change"
+          trigger: "item_dispensed"
+          guard: "balance > item_price"
+        - from: "dispensing"
+          to: "idle"
+          trigger: "item_dispensed"
+          guard: "balance == item_price"
+        - from: "returning_change"
+          to: "idle"
+          trigger: "change_returned"
+        - from: "out_of_stock"
+          to: "idle"
+          trigger: "coins_returned"
+        - from: "accepting_coins"
+          to: "idle"
+          trigger: "cancel"
+        - from: "item_selected"
+          to: "idle"
+          trigger: "cancel"
+        - from: "idle"
+          to: "idle"
+          trigger: "cancel"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - integration
+      - critical-path
+
+  # =========================================================================
+  # BOUNDARY VALUES — Guard Condition Thresholds
+  # =========================================================================
+  - name: "Guard boundary — amount exactly equals item price"
+    description: >
+      Tests the guard condition at the exact boundary where inserted
+      amount equals the item price. This is the minimum valid amount for
+      a successful purchase.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Off-by-one in the guard (> vs >=) would
+      reject exact payments, which are very common.
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value tests the exact threshold of the guard condition.
+      State transition verifies correct transition at this boundary.
+    preconditions:
+      - "Machine is in accepting_coins state"
+    examples:
+      - input:
+          balance: 1.50
+          item_price: 1.50
+          action: "select_item"
+        expected:
+          guard_passes: true
+          new_state: "dispensing"
+        description: "Exact amount (amount == item_price) — guard passes (>= boundary)."
+      - input:
+          balance: 1.49
+          item_price: 1.50
+          action: "select_item"
+        expected:
+          guard_passes: false
+          new_state: "accepting_coins"
+          error: "INSUFFICIENT_FUNDS"
+        description: "One cent below price — guard fails."
+      - input:
+          balance: 1.51
+          item_price: 1.50
+          action: "select_item"
+        expected:
+          guard_passes: true
+          new_state: "dispensing"
+        description: "One cent above price — guard passes."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - guard-condition
+      - critical-path
+
+  - name: "Change calculation boundary — minimal and maximal overpayment"
+    description: >
+      Tests change calculation at the boundaries: minimum possible
+      overpayment (1 cent over) and large overpayments to verify
+      correct arithmetic and coin dispensing.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.25 -> medium. Change calculation errors cause direct
+      financial loss but are usually noticed by the user.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Boundary value analysis targets the edges of the change amount
+      range — minimum overpayment and maximum practical overpayment.
+    preconditions:
+      - "Item has been dispensed"
+      - "Balance exceeds item price"
+    examples:
+      - input:
+          balance: 1.51
+          item_price: 1.50
+        expected:
+          change_amount: 0.01
+        description: "Minimum overpayment — 1 cent change."
+      - input:
+          balance: 10.00
+          item_price: 0.75
+        expected:
+          change_amount: 9.25
+        description: "Large overpayment — significant change returned."
+      - input:
+          balance: 1.50
+          item_price: 1.50
+        expected:
+          change_amount: 0.00
+        description: "Zero change — exact payment, no change returned."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - change-handling
+      - pricing
+
+  # =========================================================================
+  # EQUIVALENCE PARTITIONING — Coin Denominations
+  # =========================================================================
+  - name: "Valid coin denominations accepted"
+    description: >
+      The machine accepts standard coin denominations (5c, 10c, 25c, 50c,
+      $1.00). Each valid denomination represents an equivalence class.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 3, Consequence: 2, Detectability: 3.
+      Average: 2.5 -> high, but scored medium because rejection of a
+      valid coin is immediately visible to the user.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Each coin denomination is a distinct valid equivalence class.
+      One representative from each class verifies acceptance logic.
+    preconditions:
+      - "Machine is in idle or accepting_coins state"
+    examples:
+      - input:
+          coin_value: 0.05
+        expected:
+          accepted: true
+          balance_increment: 0.05
+        description: "Nickel — valid denomination."
+      - input:
+          coin_value: 0.10
+        expected:
+          accepted: true
+          balance_increment: 0.10
+        description: "Dime — valid denomination."
+      - input:
+          coin_value: 0.25
+        expected:
+          accepted: true
+          balance_increment: 0.25
+        description: "Quarter — valid denomination."
+      - input:
+          coin_value: 0.50
+        expected:
+          accepted: true
+          balance_increment: 0.50
+        description: "Half dollar — valid denomination."
+      - input:
+          coin_value: 1.00
+        expected:
+          accepted: true
+          balance_increment: 1.00
+        description: "Dollar coin — valid denomination."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - equivalence-partitioning
+      - coin-handling
+
+  - name: "Invalid coin denominations rejected"
+    description: >
+      The machine rejects objects that are not valid coin denominations.
+      This includes foreign coins, slugs, and non-standard values.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3.
+      Average: 2.25 -> medium. Accepting invalid coins leads to financial
+      loss, but physical coin validators usually handle this.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning covers the invalid input class.
+      Error guessing anticipates specific invalid inputs like slugs
+      or foreign coins.
+    preconditions:
+      - "Machine is in idle or accepting_coins state"
+    examples:
+      - input:
+          coin_value: 0.03
+        expected:
+          accepted: false
+          error: "INVALID_COIN"
+        description: "Non-standard denomination — rejected."
+      - input:
+          coin_value: 0.00
+        expected:
+          accepted: false
+          error: "INVALID_COIN"
+        description: "Zero-value object — rejected."
+      - input:
+          coin_value: -0.25
+        expected:
+          accepted: false
+          error: "INVALID_COIN"
+        description: "Negative value — rejected (defensive check)."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - equivalence-partitioning
+      - error-handling
+      - validation
+
+  # =========================================================================
+  # ERROR HANDLING — Mechanical & System Failures
+  # =========================================================================
+  - name: "Dispenser mechanism jams during dispensing"
+    description: >
+      The mechanical dispenser fails to release the item. Machine must
+      detect the jam, refund the user's money, and enter an error state
+      or return to idle with a service alert.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, promoted to high because failure to refund
+      after a jam is a silent loss — user paid but received nothing.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates mechanical failure. State transition
+      covers the recovery path from dispensing back to idle via refund.
+    preconditions:
+      - "Machine is in dispensing state"
+      - "Dispenser mechanism fails"
+    examples:
+      - input:
+          current_state: "dispensing"
+          dispenser_status: "jammed"
+          balance: 1.50
+          item_price: 1.50
+        expected:
+          new_state: "idle"
+          refund_amount: 1.50
+          service_alert: true
+          item_dispensed: false
+        description: "Dispenser jam — full refund and service alert."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-handling
+      - hardware
+      - reliability
+
+  - name: "Insufficient change in machine — cannot make change"
+    description: >
+      User overpays but the machine does not have enough coins in its
+      reserve to return the correct change. Machine must handle this
+      gracefully — either reject the transaction or dispense with
+      partial change and alert.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, promoted to high because inability to
+      make change silently is a financial integrity issue.
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the low-change-reserve scenario. Cause-effect
+      graphing maps the relationship between overpayment amount, available
+      change denominations, and the ability to make exact change.
+    preconditions:
+      - "Machine change reserve is low or empty"
+      - "User has overpaid"
+    examples:
+      - input:
+          balance: 2.00
+          item_price: 1.25
+          change_reserve: 0.50
+          change_needed: 0.75
+        expected:
+          error: "CANNOT_MAKE_CHANGE"
+          transaction_rejected: true
+          refund_amount: 2.00
+        description: "Insufficient change reserve — transaction rejected, full refund."
+      - input:
+          balance: 2.00
+          item_price: 1.25
+          change_reserve: 0.00
+          change_needed: 0.75
+        expected:
+          error: "CANNOT_MAKE_CHANGE"
+          transaction_rejected: true
+          refund_amount: 2.00
+        description: "Empty change reserve — transaction rejected, full refund."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-handling
+      - change-handling
+      - edge-case
+
+  - name: "Stock decrements correctly after successful dispense"
+    description: >
+      After each successful dispense, the stock count for the purchased
+      item decrements by exactly one. Verifies the boundary where the
+      last item is purchased and stock reaches zero.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. Incorrect stock tracking can lead to
+      selling items that don't exist (overselling) or refusing to sell
+      items that are available.
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value tests the stock count at critical points (1 remaining,
+      0 remaining). State transition verifies the machine's behavior changes
+      when stock hits zero.
+    preconditions:
+      - "Machine has items in stock"
+    examples:
+      - input:
+          item: "soda"
+          stock_before: 1
+          action: "purchase"
+        expected:
+          stock_after: 0
+          item_dispensed: true
+        description: "Last item purchased — stock goes to zero."
+      - input:
+          item: "soda"
+          stock_before: 0
+          action: "select_item"
+        expected:
+          new_state: "out_of_stock"
+          item_dispensed: false
+        description: "Attempt to buy with zero stock — out_of_stock state."
+      - input:
+          item: "soda"
+          stock_before: 5
+          action: "purchase"
+        expected:
+          stock_after: 4
+          item_dispensed: true
+        description: "Normal stock decrement from 5 to 4."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - inventory
+      - data-integrity
+
+  # =========================================================================
+  # INVALID TRANSITIONS — Negative State Tests
+  # =========================================================================
+  - name: "Invalid state transitions are rejected"
+    description: >
+      Verify that illegal state transitions are blocked. For example,
+      the machine should not jump from idle directly to dispensing, or
+      from returning_change to accepting_coins.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, promoted to high because invalid transitions
+      can cause items to be dispensed without payment or stuck states.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition testing covers N-switch coverage — verifying
+      that undefined transitions are rejected. Error guessing identifies
+      the most dangerous invalid transitions.
+    preconditions:
+      - "Machine is in a defined state"
+    examples:
+      - input:
+          current_state: "idle"
+          action: "dispense_item"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot dispense from idle — no payment made."
+      - input:
+          current_state: "returning_change"
+          action: "insert_coin"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot insert coins while returning change."
+      - input:
+          current_state: "dispensing"
+          action: "select_item"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot select another item while dispensing."
+      - input:
+          current_state: "out_of_stock"
+          action: "select_item"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot select items from out_of_stock state."
+    state_transition:
+      states:
+        - "idle"
+        - "accepting_coins"
+        - "item_selected"
+        - "dispensing"
+        - "returning_change"
+        - "out_of_stock"
+      transitions:
+        - from: "idle"
+          to: "idle"
+          trigger: "dispense_item"
+          guard: "BLOCKED — invalid transition"
+        - from: "returning_change"
+          to: "returning_change"
+          trigger: "insert_coin"
+          guard: "BLOCKED — invalid transition"
+        - from: "dispensing"
+          to: "dispensing"
+          trigger: "select_item"
+          guard: "BLOCKED — invalid transition"
+        - from: "out_of_stock"
+          to: "out_of_stock"
+          trigger: "select_item"
+          guard: "BLOCKED — invalid transition"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - negative-testing
+      - security
+
+  # =========================================================================
+  # EDGE CASES
+  # =========================================================================
+  - name: "Rapid repeated coin insertion"
+    description: >
+      User inserts coins in rapid succession. Machine must correctly
+      accumulate all coins without losing any, even under fast input.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium. Race conditions in coin accumulation
+      can silently lose money.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets concurrency and timing-related defects
+      in the coin acceptance subsystem.
+    preconditions:
+      - "Machine is in accepting_coins state"
+    examples:
+      - input:
+          rapid_coins: [0.25, 0.25, 0.25, 0.25]
+          interval_ms: 50
+        expected:
+          balance: 1.00
+          coins_accepted: 4
+        description: "Four quarters inserted in rapid succession — all counted."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - edge-case
+      - concurrency
+      - coin-handling
+
+  - name: "Multiple items selected without additional coins"
+    description: >
+      After one item is dispensed and the machine returns to idle, user
+      attempts to select another item without inserting new coins.
+      Machine must require new payment.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.5 -> high, but scored medium because the balance
+      resetting to zero on return to idle is the expected default behavior.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition verifies the machine resets balance on return to idle.
+      Error guessing anticipates the stale balance bug.
+    preconditions:
+      - "Previous transaction completed successfully"
+      - "Machine is back in idle state"
+    examples:
+      - input:
+          previous_transaction: "completed"
+          current_state: "idle"
+          balance: 0.00
+          action: "select_item"
+          item: "soda"
+          item_price: 1.50
+        expected:
+          error: "NO_COINS_INSERTED"
+          new_state: "idle"
+        description: "No coins inserted in new session — selection rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - edge-case
+      - state-machine
+      - session-isolation
+
+  - name: "Power failure during dispensing — recovery behavior"
+    description: >
+      Power is lost while the machine is in the dispensing state. On
+      power restoration, the machine must recover gracefully — either
+      completing the dispense or refunding the payment.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, promoted to high because unrecoverable
+      states mean permanent money loss and potential inventory mismatch.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets power failure scenarios. State transition
+      verifies recovery path from an interrupted dispense.
+    preconditions:
+      - "Machine loses power during dispensing"
+    examples:
+      - input:
+          state_at_failure: "dispensing"
+          balance_at_failure: 2.00
+          item_price: 1.50
+          item_partially_dispensed: false
+        expected:
+          recovery_action: "refund"
+          refund_amount: 2.00
+          final_state: "idle"
+        description: "Power loss before item drops — refund on recovery."
+      - input:
+          state_at_failure: "dispensing"
+          balance_at_failure: 2.00
+          item_price: 1.50
+          item_partially_dispensed: true
+        expected:
+          recovery_action: "complete_dispense_and_return_change"
+          change_amount: 0.50
+          final_state: "idle"
+        description: "Power loss after item drops — complete change return on recovery."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - error-handling
+      - reliability
+      - recovery
+      - hardware
+
+  # =========================================================================
+  # COMBINATORIAL — Item Selection Decision Logic
+  # =========================================================================
+  - name: "Item selection decision logic — all condition combinations"
+    description: >
+      Comprehensive decision table covering all combinations of conditions
+      that determine the outcome when a user selects an item: sufficient
+      funds, item in stock, and machine operational status.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. This decision logic governs the core
+      purchase flow — incorrect rules lead to financial or inventory errors.
+    techniques:
+      - decision_table
+      - pairwise
+    technique_rationale: >
+      Decision table enumerates all meaningful condition combinations.
+      Pairwise reduces explosion for additional parameters like coin
+      type and item category.
+    preconditions:
+      - "Machine is in accepting_coins state"
+      - "User has pressed a selection button"
+    decision_table:
+      conditions:
+        - "sufficient_funds"
+        - "item_in_stock"
+        - "machine_operational"
+      actions:
+        - "dispense_item"
+        - "return_coins"
+        - "display_error"
+        - "transition_state"
+      rules:
+        - description: "All conditions met — dispense"
+          condition_values:
+            sufficient_funds: true
+            item_in_stock: true
+            machine_operational: true
+          expected_actions:
+            dispense_item: true
+            return_coins: false
+            display_error: false
+            transition_state: "dispensing"
+        - description: "Sufficient funds, in stock, but machine error"
+          condition_values:
+            sufficient_funds: true
+            item_in_stock: true
+            machine_operational: false
+          expected_actions:
+            dispense_item: false
+            return_coins: true
+            display_error: true
+            transition_state: "idle"
+        - description: "Sufficient funds but out of stock"
+          condition_values:
+            sufficient_funds: true
+            item_in_stock: false
+            machine_operational: true
+          expected_actions:
+            dispense_item: false
+            return_coins: true
+            display_error: true
+            transition_state: "out_of_stock"
+        - description: "Insufficient funds, item in stock"
+          condition_values:
+            sufficient_funds: false
+            item_in_stock: true
+            machine_operational: true
+          expected_actions:
+            dispense_item: false
+            return_coins: false
+            display_error: true
+            transition_state: "accepting_coins"
+        - description: "Insufficient funds and out of stock"
+          condition_values:
+            sufficient_funds: false
+            item_in_stock: false
+            machine_operational: true
+          expected_actions:
+            dispense_item: false
+            return_coins: false
+            display_error: true
+            transition_state: "accepting_coins"
+        - description: "No conditions met — machine broken, no funds, no stock"
+          condition_values:
+            sufficient_funds: false
+            item_in_stock: false
+            machine_operational: false
+          expected_actions:
+            dispense_item: false
+            return_coins: false
+            display_error: true
+            transition_state: "idle"
+    examples:
+      - input:
+          balance: 2.00
+          item: "soda"
+          item_price: 1.50
+          stock: 5
+          machine_status: "operational"
+        expected:
+          item_dispensed: "soda"
+          change: 0.50
+          new_state: "dispensing"
+        description: "All green — successful purchase with change."
+      - input:
+          balance: 2.00
+          item: "soda"
+          item_price: 1.50
+          stock: 0
+          machine_status: "operational"
+        expected:
+          item_dispensed: null
+          refund: 2.00
+          new_state: "out_of_stock"
+        description: "Sufficient funds, out of stock — refund."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - combinatorial
+      - critical-path
+
+  # =========================================================================
+  # FLOATING POINT — Currency Arithmetic
+  # =========================================================================
+  - name: "Floating point precision in currency calculations"
+    description: >
+      Verify that coin accumulation and change calculation do not
+      suffer from floating-point rounding errors (e.g., 0.1 + 0.2
+      != 0.3 in IEEE 754). All monetary calculations should use
+      integer cents or fixed-point arithmetic.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 3, Consequence: 2, Detectability: 1.
+      Average: 2.0 -> medium. Floating-point errors in currency are
+      subtle and may cause incorrect change amounts that go unnoticed.
+    techniques:
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Error guessing targets the classic IEEE 754 floating-point pitfalls.
+      Boundary value tests specific coin combinations known to trigger
+      rounding errors.
+    preconditions:
+      - "Machine uses decimal arithmetic for money"
+    examples:
+      - input:
+          coins_inserted: [0.10, 0.10, 0.10]
+          item_price: 0.30
+        expected:
+          balance: 0.30
+          guard_passes: true
+          change: 0.00
+        description: "Three dimes should equal exactly $0.30 — no floating-point drift."
+      - input:
+          coins_inserted: [0.10, 0.20]
+          item_price: 0.30
+        expected:
+          balance: 0.30
+          guard_passes: true
+        description: "0.1 + 0.2 must equal 0.3 — classic floating-point test."
+      - input:
+          coins_inserted: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+          item_price: 0.35
+        expected:
+          balance: 0.35
+          guard_passes: true
+        description: "Seven nickels — accumulated small values must sum correctly."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - edge-case
+      - precision
+      - currency
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As a customer, I want to insert coins, select an item, and receive
+    my purchase with correct change so that I can buy products from the
+    vending machine reliably.
+  rules:
+    - rule_name: "Coin insertion transitions machine from idle to accepting_coins"
+      examples:
+        - "Insert quarter into idle machine -> machine enters accepting_coins with $0.25 balance"
+        - "Insert dollar coin into idle machine -> machine enters accepting_coins with $1.00 balance"
+        - "Insert invalid object -> machine rejects and stays in current state"
+
+    - rule_name: "Multiple coins accumulate balance without state change"
+      examples:
+        - "Insert 3 quarters sequentially -> balance shows $0.75, stays in accepting_coins"
+        - "Insert mix of denominations (dime, quarter, dollar) -> balance sums correctly"
+        - "Rapid coin insertion -> all coins counted, no race conditions"
+
+    - rule_name: "Item selection requires sufficient funds (guard: amount >= item_price)"
+      examples:
+        - "Balance $1.50, item price $1.50 -> dispense (exact boundary)"
+        - "Balance $2.00, item price $1.50 -> dispense with $0.50 change"
+        - "Balance $1.49, item price $1.50 -> rejected, stay in accepting_coins"
+        - "Balance $0.00, select item -> rejected, no coins inserted"
+
+    - rule_name: "Out-of-stock items trigger refund and return to idle"
+      examples:
+        - "Select item with stock == 0, balance $2.00 -> refund $2.00, return to idle"
+        - "Select item with stock == 0, balance $0.50 -> refund $0.50 even though insufficient"
+        - "Last item purchased by another (race) -> out_of_stock, refund"
+
+    - rule_name: "Overpayment triggers returning_change state before idle"
+      examples:
+        - "Paid $2.00 for $1.50 item -> dispense, return $0.50, then idle"
+        - "Paid $5.00 for $0.75 item -> dispense, return $4.25, then idle"
+        - "Paid exact amount -> skip returning_change, go directly to idle"
+
+    - rule_name: "Cancel at any point refunds all inserted coins and returns to idle"
+      examples:
+        - "Cancel from accepting_coins with $0.75 -> refund $0.75, idle"
+        - "Cancel from item_selected with $2.00 -> refund $2.00, idle"
+        - "Cancel from idle -> no-op, no coins to refund"
+
+    - rule_name: "Invalid state transitions are blocked"
+      examples:
+        - "Attempt to dispense from idle -> rejected, INVALID_STATE_TRANSITION"
+        - "Attempt to insert coin during returning_change -> rejected"
+        - "Attempt to select item during dispensing -> rejected"
+
+# ===========================================================================
+# Questions — Ambiguities Requiring Human Clarification
+# ===========================================================================
+# 1. What specific coin denominations does the machine accept? (Assumed US: 5c, 10c, 25c, 50c, $1)
+# 2. Does the machine accept paper bills or only coins?
+# 3. What happens if the machine cannot make exact change? (Assumed: reject transaction, full refund)
+# 4. Is there a maximum balance the machine will accept before requiring a selection?
+# 5. Does the item_selected state exist as a distinct state, or does selection immediately evaluate guards?
+# 6. What is the recovery behavior after power failure during different states?
+# 7. Can the machine display available items and their stock levels to the user?
+# 8. Is there a timeout that returns to idle if no action is taken in accepting_coins?
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

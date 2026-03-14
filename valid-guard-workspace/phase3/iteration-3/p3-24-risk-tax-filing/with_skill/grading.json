@@ -1,0 +1,58 @@
+{
+  "eval_key": "p3-24-risk-tax-filing",
+  "eval_name": "Government tax filing risk matrix",
+  "category": "risk_assessment",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "Tax calculation engine = high risk",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Engine', 'high')"
+    },
+    {
+      "text": "Data encryption = high risk",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Encrypt', 'high')"
+    },
+    {
+      "text": "Decorative banner = low risk",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Seasonal', 'low')"
+    },
+    {
+      "text": "Accessibility (WCAG) assessed",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Accessib"
+    },
+    {
+      "text": "E-signature compliance",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: E-sign"
+    },
+    {
+      "text": "Uses risk matrix (probability x impact)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: 3x3"
+    },
+    {
+      "text": "Recommends test investment based on risk",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('Allocat', '', '')"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "total": 7,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 0
+  }
+}

@@ -1,0 +1,611 @@
+test_plan:
+  system: Vending Machine
+  description: >
+    Test plan for a vending machine with states idle, accepting_coins,
+    item_selected, dispensing, returning_change, and out_of_stock.
+    Covers all state transitions, guard conditions, cancel flows, and edge cases.
+
+  states:
+    - idle
+    - accepting_coins
+    - item_selected
+    - dispensing
+    - returning_change
+    - out_of_stock
+
+  transitions:
+    - from: idle
+      to: accepting_coins
+      trigger: insert_coin
+    - from: accepting_coins
+      to: item_selected
+      trigger: select_item
+    - from: item_selected
+      to: dispensing
+      guard: amount >= item_price
+      condition: item in stock
+    - from: item_selected
+      to: out_of_stock
+      condition: item not in stock
+    - from: dispensing
+      to: returning_change
+      condition: amount > item_price
+    - from: dispensing
+      to: idle
+      condition: amount == item_price
+    - from: returning_change
+      to: idle
+      action: return overpaid amount
+    - from: out_of_stock
+      to: idle
+      action: return all inserted coins
+    - from: accepting_coins
+      to: idle
+      trigger: cancel
+      action: refund inserted coins
+    - from: item_selected
+      to: idle
+      trigger: cancel
+      action: refund inserted coins
+
+  test_cases:
+
+    # ---------------------------------------------------------------
+    # 1. Basic happy-path transitions
+    # ---------------------------------------------------------------
+    - id: TC-01
+      name: Exact payment purchase
+      description: >
+        Insert exact amount for an item, select it, dispense, and return to idle
+        without entering returning_change state.
+      preconditions:
+        - Machine is in idle state
+        - Item A costs 1.50 and is in stock
+      steps:
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Insert coin (0.50)
+          expected_state: accepting_coins
+          expected_balance: 1.50
+        - action: Select item A
+          expected_state: item_selected
+          guard_check: 1.50 >= 1.50 is true
+        - action: System dispenses item A
+          expected_state: dispensing
+        - action: No overpayment detected
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: Item A dispensed, no change returned, machine returns to idle.
+
+    - id: TC-02
+      name: Overpayment purchase with change
+      description: >
+        Insert more than the item price, select the item, dispense it,
+        then return the overpaid amount as change before returning to idle.
+      preconditions:
+        - Machine is in idle state
+        - Item B costs 1.25 and is in stock
+      steps:
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Insert coin (0.50)
+          expected_state: accepting_coins
+          expected_balance: 1.50
+        - action: Select item B
+          expected_state: item_selected
+          guard_check: 1.50 >= 1.25 is true
+        - action: System dispenses item B
+          expected_state: dispensing
+        - action: Overpayment detected (0.25)
+          expected_state: returning_change
+        - action: Change of 0.25 returned
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: Item B dispensed, 0.25 change returned, machine returns to idle.
+
+    # ---------------------------------------------------------------
+    # 2. Guard condition failures
+    # ---------------------------------------------------------------
+    - id: TC-03
+      name: Insufficient funds - guard rejects selection
+      description: >
+        Insert less money than the item price. The guard condition
+        (amount >= item_price) should fail, preventing transition to dispensing.
+      preconditions:
+        - Machine is in idle state
+        - Item C costs 2.00 and is in stock
+      steps:
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.25
+        - action: Select item C
+          expected_state: accepting_coins
+          guard_check: 0.25 >= 2.00 is false
+      expected_outcome: >
+        Selection is rejected. Machine remains in accepting_coins state.
+        User can insert more coins or cancel.
+
+    - id: TC-04
+      name: Insufficient funds then add more coins and succeed
+      description: >
+        First attempt to select with insufficient funds fails.
+        Then insert more coins to meet the price and select again successfully.
+      preconditions:
+        - Machine is in idle state
+        - Item D costs 1.00 and is in stock
+      steps:
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.25
+        - action: Select item D
+          expected_state: accepting_coins
+          guard_check: 0.25 >= 1.00 is false
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.50
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.75
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Select item D
+          expected_state: item_selected
+          guard_check: 1.00 >= 1.00 is true
+        - action: System dispenses item D
+          expected_state: dispensing
+        - action: No overpayment detected
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: Item D dispensed after inserting sufficient funds on retry.
+
+    # ---------------------------------------------------------------
+    # 3. Out-of-stock transitions
+    # ---------------------------------------------------------------
+    - id: TC-05
+      name: Select out-of-stock item
+      description: >
+        Select an item that is out of stock after inserting sufficient funds.
+        Machine should move to out_of_stock, refund all coins, and return to idle.
+      preconditions:
+        - Machine is in idle state
+        - Item E costs 1.00 and is OUT of stock
+      steps:
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Select item E
+          expected_state: out_of_stock
+        - action: System returns all inserted coins (1.00)
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: No item dispensed. Full refund of 1.00 issued. Machine returns to idle.
+
+    - id: TC-06
+      name: Out-of-stock with overpayment amount
+      description: >
+        Insert more than enough for an out-of-stock item.
+        All inserted coins should be refunded, not just the item price.
+      preconditions:
+        - Machine is in idle state
+        - Item F costs 0.75 and is OUT of stock
+      steps:
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Select item F
+          expected_state: out_of_stock
+        - action: System returns all inserted coins (1.00)
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: Full refund of 1.00, not just 0.75. Machine returns to idle.
+
+    # ---------------------------------------------------------------
+    # 4. Cancel / refund transitions
+    # ---------------------------------------------------------------
+    - id: TC-07
+      name: Cancel from accepting_coins state
+      description: >
+        Insert some coins, then cancel. Machine should refund all inserted
+        coins and return to idle.
+      preconditions:
+        - Machine is in idle state
+      steps:
+        - action: Insert coin (0.50)
+          expected_state: accepting_coins
+          expected_balance: 0.50
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.75
+        - action: Press cancel
+          expected_state: idle
+          expected_balance: 0.00
+          refund_amount: 0.75
+      expected_outcome: All inserted coins (0.75) refunded. Machine returns to idle.
+
+    - id: TC-08
+      name: Cancel from item_selected state
+      description: >
+        Insert coins, attempt to select an item (transition to item_selected),
+        then cancel before dispensing. All coins should be refunded.
+      preconditions:
+        - Machine is in idle state
+        - Item G costs 1.50 and is in stock
+      steps:
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 2.00
+        - action: Select item G
+          expected_state: item_selected
+          guard_check: 2.00 >= 1.50 is true
+        - action: Press cancel before dispensing begins
+          expected_state: idle
+          expected_balance: 0.00
+          refund_amount: 2.00
+      expected_outcome: All inserted coins (2.00) refunded. No item dispensed. Machine returns to idle.
+
+    - id: TC-09
+      name: Cancel with no coins inserted
+      description: >
+        Press cancel while in idle state with no coins inserted.
+        Machine should remain in idle with no refund needed.
+      preconditions:
+        - Machine is in idle state
+        - No coins have been inserted
+      steps:
+        - action: Press cancel
+          expected_state: idle
+          expected_balance: 0.00
+          refund_amount: 0.00
+      expected_outcome: No state change. No refund. Machine remains idle.
+
+    # ---------------------------------------------------------------
+    # 5. Multiple coin insertion sequences
+    # ---------------------------------------------------------------
+    - id: TC-10
+      name: Multiple small coins to reach item price
+      description: >
+        Insert many small denomination coins to accumulate to the item price.
+      preconditions:
+        - Machine is in idle state
+        - Item H costs 0.75 and is in stock
+      steps:
+        - action: Insert coin (0.10)
+          expected_state: accepting_coins
+          expected_balance: 0.10
+        - action: Insert coin (0.10)
+          expected_state: accepting_coins
+          expected_balance: 0.20
+        - action: Insert coin (0.10)
+          expected_state: accepting_coins
+          expected_balance: 0.30
+        - action: Insert coin (0.10)
+          expected_state: accepting_coins
+          expected_balance: 0.40
+        - action: Insert coin (0.10)
+          expected_state: accepting_coins
+          expected_balance: 0.50
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.75
+        - action: Select item H
+          expected_state: item_selected
+          guard_check: 0.75 >= 0.75 is true
+        - action: System dispenses item H
+          expected_state: dispensing
+        - action: No overpayment detected
+          expected_state: idle
+      expected_outcome: Item H dispensed after accumulating exact price through multiple coins.
+
+    - id: TC-11
+      name: Insert additional coins while already in accepting_coins
+      description: >
+        Verify that the machine stays in accepting_coins as multiple coins
+        are inserted sequentially and the balance accumulates correctly.
+      preconditions:
+        - Machine is in idle state
+      steps:
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.25
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.50
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.75
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+      expected_outcome: Machine remains in accepting_coins. Balance accumulates correctly to 1.00.
+
+    # ---------------------------------------------------------------
+    # 6. Boundary and edge cases
+    # ---------------------------------------------------------------
+    - id: TC-12
+      name: Select item without inserting any coins
+      description: >
+        Attempt to select an item directly from idle without inserting coins.
+        Guard should fail since amount (0) < item_price.
+      preconditions:
+        - Machine is in idle state
+        - Item I costs 1.00 and is in stock
+      steps:
+        - action: Select item I without inserting coins
+          expected_state: idle
+          guard_check: 0.00 >= 1.00 is false
+      expected_outcome: Selection rejected. Machine remains in idle state.
+
+    - id: TC-13
+      name: Last item in stock becomes out of stock after purchase
+      description: >
+        Purchase the last unit of an item. Verify the item is dispensed.
+        Then attempt to purchase the same item and confirm out_of_stock behavior.
+      preconditions:
+        - Machine is in idle state
+        - Item J costs 1.00 and has exactly 1 unit in stock
+      steps:
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Select item J
+          expected_state: item_selected
+          guard_check: 1.00 >= 1.00 is true
+        - action: System dispenses item J (last unit)
+          expected_state: dispensing
+        - action: No overpayment
+          expected_state: idle
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Select item J (now out of stock)
+          expected_state: out_of_stock
+        - action: System returns all coins (1.00)
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: >
+        First purchase succeeds. Second attempt triggers out_of_stock,
+        refunds all coins, and returns to idle.
+
+    - id: TC-14
+      name: Large overpayment change calculation
+      description: >
+        Insert a significantly larger amount than the item price and verify
+        the correct change is returned.
+      preconditions:
+        - Machine is in idle state
+        - Item K costs 0.50 and is in stock
+      steps:
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 2.00
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 3.00
+        - action: Select item K
+          expected_state: item_selected
+          guard_check: 3.00 >= 0.50 is true
+        - action: System dispenses item K
+          expected_state: dispensing
+        - action: Overpayment detected (2.50)
+          expected_state: returning_change
+        - action: Change of 2.50 returned
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: Item K dispensed. Change of 2.50 returned correctly. Machine returns to idle.
+
+    - id: TC-15
+      name: Rapid cancel after coin insertion
+      description: >
+        Insert a single coin and immediately cancel. Verify the single coin
+        is refunded and machine returns to idle promptly.
+      preconditions:
+        - Machine is in idle state
+      steps:
+        - action: Insert coin (0.25)
+          expected_state: accepting_coins
+          expected_balance: 0.25
+        - action: Press cancel immediately
+          expected_state: idle
+          expected_balance: 0.00
+          refund_amount: 0.25
+      expected_outcome: Single coin refunded. Machine returns to idle.
+
+    # ---------------------------------------------------------------
+    # 7. Full path coverage (all states visited)
+    # ---------------------------------------------------------------
+    - id: TC-16
+      name: Full state traversal - happy path with change
+      description: >
+        Traverse all main states in sequence:
+        idle -> accepting_coins -> item_selected -> dispensing -> returning_change -> idle.
+      preconditions:
+        - Machine is in idle state
+        - Item L costs 1.00 and is in stock
+      steps:
+        - action: Verify initial state
+          expected_state: idle
+        - action: Insert coin (1.50)
+          expected_state: accepting_coins
+        - action: Select item L
+          expected_state: item_selected
+        - action: System dispenses item L
+          expected_state: dispensing
+        - action: Overpayment of 0.50 detected
+          expected_state: returning_change
+        - action: Change of 0.50 returned
+          expected_state: idle
+      expected_outcome: All five main states traversed in order. Item dispensed and change returned.
+
+    - id: TC-17
+      name: Full state traversal - out of stock path
+      description: >
+        Traverse the out-of-stock path:
+        idle -> accepting_coins -> item_selected -> out_of_stock -> idle.
+      preconditions:
+        - Machine is in idle state
+        - Item M costs 1.00 and is OUT of stock
+      steps:
+        - action: Verify initial state
+          expected_state: idle
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+        - action: Select item M
+          expected_state: out_of_stock
+        - action: System returns all coins (1.00)
+          expected_state: idle
+      expected_outcome: Out-of-stock path fully traversed. Coins refunded. Machine returns to idle.
+
+    # ---------------------------------------------------------------
+    # 8. Sequential transactions
+    # ---------------------------------------------------------------
+    - id: TC-18
+      name: Two consecutive successful purchases
+      description: >
+        Complete two full purchase cycles back-to-back to verify the machine
+        resets correctly between transactions.
+      preconditions:
+        - Machine is in idle state
+        - Item N costs 0.75 and is in stock (2+ units)
+        - Item O costs 1.25 and is in stock
+      steps:
+        - action: "Transaction 1: Insert coin (1.00)"
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: "Transaction 1: Select item N"
+          expected_state: item_selected
+          guard_check: 1.00 >= 0.75 is true
+        - action: "Transaction 1: System dispenses item N"
+          expected_state: dispensing
+        - action: "Transaction 1: Return change 0.25"
+          expected_state: returning_change
+        - action: "Transaction 1: Change returned"
+          expected_state: idle
+          expected_balance: 0.00
+        - action: "Transaction 2: Insert coin (1.00)"
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: "Transaction 2: Insert coin (0.25)"
+          expected_state: accepting_coins
+          expected_balance: 1.25
+        - action: "Transaction 2: Select item O"
+          expected_state: item_selected
+          guard_check: 1.25 >= 1.25 is true
+        - action: "Transaction 2: System dispenses item O"
+          expected_state: dispensing
+        - action: "Transaction 2: No overpayment"
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: >
+        Both transactions complete successfully. Machine correctly resets
+        balance and state between purchases.
+
+    - id: TC-19
+      name: Cancel then successful purchase
+      description: >
+        Cancel a first transaction, then complete a successful purchase to verify
+        the machine resets properly after cancellation.
+      preconditions:
+        - Machine is in idle state
+        - Item P costs 1.00 and is in stock
+      steps:
+        - action: Insert coin (0.50)
+          expected_state: accepting_coins
+          expected_balance: 0.50
+        - action: Press cancel
+          expected_state: idle
+          expected_balance: 0.00
+          refund_amount: 0.50
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Select item P
+          expected_state: item_selected
+          guard_check: 1.00 >= 1.00 is true
+        - action: System dispenses item P
+          expected_state: dispensing
+        - action: No overpayment
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: >
+        Cancel resets machine properly. Subsequent purchase completes
+        without residual state from the cancelled transaction.
+
+    - id: TC-20
+      name: Out-of-stock refund then purchase different item
+      description: >
+        Attempt to buy an out-of-stock item, get refunded, then buy a
+        different in-stock item successfully.
+      preconditions:
+        - Machine is in idle state
+        - Item Q costs 1.00 and is OUT of stock
+        - Item R costs 0.75 and is in stock
+      steps:
+        - action: Insert coin (1.00)
+          expected_state: accepting_coins
+          expected_balance: 1.00
+        - action: Select item Q (out of stock)
+          expected_state: out_of_stock
+        - action: System returns all coins (1.00)
+          expected_state: idle
+          expected_balance: 0.00
+        - action: Insert coin (0.75)
+          expected_state: accepting_coins
+          expected_balance: 0.75
+        - action: Select item R
+          expected_state: item_selected
+          guard_check: 0.75 >= 0.75 is true
+        - action: System dispenses item R
+          expected_state: dispensing
+        - action: No overpayment
+          expected_state: idle
+          expected_balance: 0.00
+      expected_outcome: >
+        Out-of-stock refund works correctly. Subsequent purchase of a
+        different in-stock item succeeds.
+
+  coverage_summary:
+    total_test_cases: 20
+    states_covered:
+      - idle
+      - accepting_coins
+      - item_selected
+      - dispensing
+      - returning_change
+      - out_of_stock
+    transitions_covered:
+      - "idle -> accepting_coins (insert coin)"
+      - "accepting_coins -> accepting_coins (insert additional coins)"
+      - "accepting_coins -> item_selected (select item, guard passes)"
+      - "accepting_coins -> accepting_coins (select item, guard fails)"
+      - "item_selected -> dispensing (item in stock)"
+      - "item_selected -> out_of_stock (item not in stock)"
+      - "dispensing -> returning_change (overpaid)"
+      - "dispensing -> idle (exact payment)"
+      - "returning_change -> idle (change returned)"
+      - "out_of_stock -> idle (coins refunded)"
+      - "accepting_coins -> idle (cancel, refund)"
+      - "item_selected -> idle (cancel, refund)"
+      - "idle -> idle (cancel with no coins)"
+    guard_conditions_tested:
+      - "amount >= item_price (true - exact match)"
+      - "amount >= item_price (true - overpayment)"
+      - "amount >= item_price (false - underpayment)"
+      - "amount >= item_price (false - zero balance)"
+    categories:
+      happy_path: [TC-01, TC-02]
+      guard_failures: [TC-03, TC-04]
+      out_of_stock: [TC-05, TC-06]
+      cancel_refund: [TC-07, TC-08, TC-09]
+      coin_accumulation: [TC-10, TC-11]
+      boundary_edge_cases: [TC-12, TC-13, TC-14, TC-15]
+      full_path_coverage: [TC-16, TC-17]
+      sequential_transactions: [TC-18, TC-19, TC-20]

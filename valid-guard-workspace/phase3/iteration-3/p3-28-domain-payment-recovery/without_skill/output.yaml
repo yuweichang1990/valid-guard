@@ -1,0 +1,689 @@
+test_plan:
+  title: "Payment Failure Recovery Flow — E-Commerce Application"
+  version: "1.0"
+  created: "2026-03-14"
+  description: >
+    Comprehensive test plan covering all payment failure types, their user-visible
+    messages, backend actions, order state transitions, and idempotency guarantees
+    to prevent double charges during retries.
+
+  # ---------------------------------------------------------------------------
+  # Shared definitions
+  # ---------------------------------------------------------------------------
+  order_states:
+    - CART                  # items selected, no payment attempted
+    - PAYMENT_PENDING       # payment request sent to gateway
+    - PAYMENT_RETRY_PENDING # automatic retry in progress (network timeout path)
+    - AWAITING_NEW_PAYMENT  # user must supply a different payment method
+    - AWAITING_3DS_AUTH     # waiting for 3-D Secure re-authentication
+    - MANUAL_REVIEW         # flagged for internal fraud review
+    - PAYMENT_CONFIRMED     # funds captured successfully
+    - CANCELLED             # order abandoned or terminated
+
+  idempotency_contract:
+    description: >
+      Every payment attempt is associated with a unique idempotency key
+      (order_id + attempt_sequence). The payment gateway and the backend
+      both use this key to deduplicate. A charge can only be captured once
+      per idempotency key.
+    key_format: "{order_id}:{attempt_seq}"
+    backend_enforcement:
+      - "Persist idempotency key and gateway response before returning to caller."
+      - "On retry, send the same idempotency key so the gateway returns the original response."
+      - "Never generate a new idempotency key for the same logical attempt."
+
+  # ---------------------------------------------------------------------------
+  # Failure-type specifications
+  # ---------------------------------------------------------------------------
+  failure_types:
+
+    # ---- 1. Insufficient Funds ----
+    - id: INSUFFICIENT_FUNDS
+      gateway_code: "card_declined:insufficient_funds"
+      description: "Cardholder's account does not have enough balance."
+
+      user_visible_message: >
+        Your payment could not be completed because your card has insufficient
+        funds. Please try a different card or payment method.
+
+      backend_actions:
+        - action: "rollback_authorization"
+          detail: "Void/release any pending authorization hold."
+        - action: "persist_failure_reason"
+          detail: "Store decline code and timestamp on the payment_attempts table."
+        - action: "notify_user"
+          detail: "Send in-app and optional email notification with next steps."
+
+      order_state_transition:
+        from: PAYMENT_PENDING
+        to: AWAITING_NEW_PAYMENT
+
+      tests:
+        - id: "INSUF-01"
+          title: "User sees insufficient-funds message and payment method selector"
+          preconditions:
+            - "Order is in PAYMENT_PENDING state."
+            - "Gateway returns decline code insufficient_funds."
+          steps:
+            - "Submit payment with a card configured to return insufficient_funds."
+            - "Observe the UI response."
+          expected_results:
+            - "User-visible message matches the defined text above."
+            - "Payment method selector is re-displayed with all available methods."
+            - "Original card is still listed but not pre-selected."
+            - "Order state is AWAITING_NEW_PAYMENT in the database."
+
+        - id: "INSUF-02"
+          title: "Authorization hold is released after insufficient-funds decline"
+          preconditions:
+            - "Gateway performed a pre-authorization before declining."
+          steps:
+            - "Trigger insufficient_funds decline."
+            - "Query gateway dashboard or sandbox API for the authorization status."
+          expected_results:
+            - "Authorization is voided within the configured window (e.g., < 5 s)."
+            - "No pending hold remains on the customer's account."
+
+        - id: "INSUF-03"
+          title: "User retries with a different card successfully after insufficient funds"
+          preconditions:
+            - "Order is in AWAITING_NEW_PAYMENT after an insufficient-funds failure."
+          steps:
+            - "Select a new valid card."
+            - "Submit payment."
+          expected_results:
+            - "Payment succeeds."
+            - "Order transitions to PAYMENT_CONFIRMED."
+            - "Only one charge appears on the new card; zero charges on the original card."
+
+        - id: "INSUF-04"
+          title: "No double charge when user rapidly resubmits after insufficient funds"
+          preconditions:
+            - "Order is in AWAITING_NEW_PAYMENT."
+          steps:
+            - "User double-clicks the pay button within 200 ms."
+          expected_results:
+            - "Only one payment attempt is sent to the gateway (idempotency key dedup)."
+            - "Second click is rejected client-side or deduplicated server-side."
+
+    # ---- 2. Declined Card ----
+    - id: DECLINED_CARD
+      gateway_codes:
+        - "card_declined:generic_decline"
+        - "card_declined:lost_card"
+        - "card_declined:stolen_card"
+        - "card_declined:expired_card"
+        - "card_declined:pickup_card"
+        - "card_declined:restricted_card"
+      description: "Card is declined for a reason other than insufficient funds."
+
+      user_visible_message_template: >
+        Your payment was declined{reason_suffix}. Please contact your bank
+        for more information or try a different payment method.
+      reason_suffix_examples:
+        generic_decline: ""
+        expired_card: " because the card has expired"
+        restricted_card: " due to restrictions on your card"
+        lost_card: ""
+        stolen_card: ""
+
+      user_visible_message_note: >
+        For lost_card and stolen_card, do NOT reveal the specific decline reason
+        to the user; use the generic message. The detailed code is logged
+        internally only.
+
+      backend_actions:
+        - action: "rollback_authorization"
+          detail: "Void any pending authorization."
+        - action: "persist_failure_reason"
+          detail: "Store the specific gateway decline code internally."
+        - action: "notify_user"
+          detail: "Display the templated user message with the appropriate suffix."
+
+      order_state_transition:
+        from: PAYMENT_PENDING
+        to: AWAITING_NEW_PAYMENT
+
+      tests:
+        - id: "DECL-01"
+          title: "Generic decline shows correct message without specific reason"
+          preconditions:
+            - "Gateway returns generic_decline."
+          steps:
+            - "Submit payment."
+          expected_results:
+            - "Message reads: 'Your payment was declined. Please contact your bank for more information or try a different payment method.'"
+            - "Order state is AWAITING_NEW_PAYMENT."
+
+        - id: "DECL-02"
+          title: "Expired-card decline includes specific reason suffix"
+          preconditions:
+            - "Gateway returns expired_card."
+          steps:
+            - "Submit payment with expired card."
+          expected_results:
+            - "Message includes 'because the card has expired'."
+            - "User is prompted to try a different card."
+
+        - id: "DECL-03"
+          title: "Lost/stolen card decline does NOT reveal sensitive reason"
+          preconditions:
+            - "Gateway returns lost_card or stolen_card."
+          steps:
+            - "Submit payment."
+          expected_results:
+            - "User message uses the generic decline text only."
+            - "Internal logs contain the actual decline code (lost_card / stolen_card)."
+            - "No UI element, HTML source, or API response body leaks the sensitive code."
+
+        - id: "DECL-04"
+          title: "Authorization hold is released upon card decline"
+          preconditions:
+            - "Pre-authorization was placed before decline."
+          steps:
+            - "Trigger any declined-card scenario."
+            - "Check gateway for pending authorizations."
+          expected_results:
+            - "Authorization is voided."
+            - "No residual hold on customer account."
+
+        - id: "DECL-05"
+          title: "User retries with different card after decline and succeeds"
+          preconditions:
+            - "Order is in AWAITING_NEW_PAYMENT."
+          steps:
+            - "Select a new valid card."
+            - "Submit payment."
+          expected_results:
+            - "Payment succeeds on the new card."
+            - "Order state is PAYMENT_CONFIRMED."
+            - "Exactly one successful charge exists across all attempts."
+
+    # ---- 3. Network Timeout ----
+    - id: NETWORK_TIMEOUT
+      gateway_behavior: "No response received within the configured timeout (e.g., 30 s)."
+      description: >
+        The connection to the payment gateway times out. The backend retries
+        automatically with exponential backoff, up to 3 retries.
+
+      retry_policy:
+        max_retries: 3
+        backoff_strategy: "exponential"
+        base_delay_ms: 1000
+        multiplier: 2
+        delays_ms: [1000, 2000, 4000]
+        jitter: true
+        jitter_range_ms: [0, 500]
+
+      user_visible_message_during_retry: >
+        We are processing your payment. Please wait...
+
+      user_visible_message_after_all_retries_exhausted: >
+        We were unable to process your payment due to a temporary issue.
+        Please try again in a few minutes. You have not been charged.
+
+      backend_actions:
+        - action: "retry_with_same_idempotency_key"
+          detail: >
+            Reuse the same idempotency key for every retry so the gateway
+            deduplicates if the original request actually succeeded.
+        - action: "query_gateway_status_before_retry"
+          detail: >
+            Before each retry, query the gateway's payment-status endpoint
+            to check whether the original charge went through. If it did,
+            skip the retry and mark the payment as confirmed.
+        - action: "rollback_if_all_retries_fail"
+          detail: >
+            After 3 failed retries, void any authorization that may have
+            been placed and transition order to AWAITING_NEW_PAYMENT.
+
+      order_state_transitions:
+        on_retry: { from: PAYMENT_PENDING, to: PAYMENT_RETRY_PENDING }
+        on_eventual_success: { from: PAYMENT_RETRY_PENDING, to: PAYMENT_CONFIRMED }
+        on_all_retries_exhausted: { from: PAYMENT_RETRY_PENDING, to: AWAITING_NEW_PAYMENT }
+
+      tests:
+        - id: "NTWK-01"
+          title: "First timeout triggers automatic retry after base delay"
+          preconditions:
+            - "Gateway is configured to time out on the first request."
+          steps:
+            - "Submit payment."
+            - "Observe backend logs for retry timing."
+          expected_results:
+            - "First retry fires after approximately 1000 ms (+ jitter)."
+            - "Order state is PAYMENT_RETRY_PENDING."
+            - "User sees 'processing your payment' spinner/message."
+
+        - id: "NTWK-02"
+          title: "Exponential backoff is applied across all 3 retries"
+          preconditions:
+            - "Gateway times out on every request."
+          steps:
+            - "Submit payment."
+            - "Record timestamps of each retry attempt from logs."
+          expected_results:
+            - "Delay between attempt 1 and retry 1 is ~1000 ms."
+            - "Delay between retry 1 and retry 2 is ~2000 ms."
+            - "Delay between retry 2 and retry 3 is ~4000 ms."
+            - "Jitter is present (delays are not exactly the base values)."
+
+        - id: "NTWK-03"
+          title: "Retry succeeds on second attempt — payment confirmed"
+          preconditions:
+            - "Gateway times out on first request, succeeds on second."
+          steps:
+            - "Submit payment."
+          expected_results:
+            - "Order transitions to PAYMENT_CONFIRMED after the second attempt."
+            - "User sees success confirmation."
+            - "Exactly one charge on the customer's card (idempotency key ensures no duplicate)."
+
+        - id: "NTWK-04"
+          title: "All retries exhausted — user notified and order awaits new payment"
+          preconditions:
+            - "Gateway times out on all 4 attempts (initial + 3 retries)."
+          steps:
+            - "Submit payment."
+            - "Wait for all retries to complete."
+          expected_results:
+            - "User message matches the 'unable to process' text above."
+            - "Order state is AWAITING_NEW_PAYMENT."
+            - "No charge on customer's card."
+
+        - id: "NTWK-05"
+          title: "No double charge when gateway received but did not acknowledge the original request"
+          preconditions:
+            - "Gateway actually processed the first request but the response was lost."
+            - "Backend retries with the same idempotency key."
+          steps:
+            - "Simulate gateway receiving charge but dropping the response."
+            - "Backend retries."
+          expected_results:
+            - "Gateway returns the original successful response on retry (idempotency)."
+            - "Only one charge exists on the customer's card."
+            - "Order transitions to PAYMENT_CONFIRMED."
+
+        - id: "NTWK-06"
+          title: "Gateway status check before retry detects already-captured payment"
+          preconditions:
+            - "Gateway processed the charge; response was lost."
+            - "Backend queries gateway status endpoint before retrying."
+          steps:
+            - "Simulate lost response."
+            - "Backend checks payment status."
+          expected_results:
+            - "Status check returns 'captured'."
+            - "No retry is sent."
+            - "Order transitions directly to PAYMENT_CONFIRMED."
+
+        - id: "NTWK-07"
+          title: "User cannot submit a second payment while retries are in progress"
+          preconditions:
+            - "Order is in PAYMENT_RETRY_PENDING."
+          steps:
+            - "User attempts to click pay again or call the payment API directly."
+          expected_results:
+            - "Request is rejected with HTTP 409 Conflict or equivalent."
+            - "Message: 'A payment is already being processed for this order.'"
+            - "No additional gateway call is made."
+
+        - id: "NTWK-08"
+          title: "Maximum of 3 retries is enforced — no infinite loop"
+          preconditions:
+            - "Gateway always times out."
+          steps:
+            - "Submit payment."
+            - "Count total attempts in logs."
+          expected_results:
+            - "Exactly 4 total attempts (1 initial + 3 retries)."
+            - "System stops retrying after the third retry."
+
+    # ---- 4. 3-D Secure Authentication Failure ----
+    - id: THREE_DS_AUTH_FAILURE
+      gateway_code: "authentication_failed:3ds"
+      description: >
+        The customer failed the 3-D Secure (3DS) challenge — wrong OTP,
+        cancelled the challenge, or the issuer rejected the authentication.
+
+      user_visible_message: >
+        Payment authentication was not completed. Please try again to
+        verify your identity, or use a different payment method.
+
+      backend_actions:
+        - action: "invalidate_3ds_session"
+          detail: "Mark the current 3DS session as failed; do not reuse tokens."
+        - action: "rollback_authorization"
+          detail: "Void any pre-authorization created before the 3DS challenge."
+        - action: "create_new_3ds_challenge"
+          detail: "Generate a fresh 3DS authentication request when user retries."
+
+      order_state_transition:
+        from: PAYMENT_PENDING
+        to: AWAITING_3DS_AUTH
+
+      tests:
+        - id: "3DS-01"
+          title: "User cancels 3DS challenge — re-authentication option is offered"
+          preconditions:
+            - "3DS challenge is presented."
+            - "User clicks 'Cancel' on the issuer's 3DS page."
+          steps:
+            - "Cancel the 3DS challenge."
+          expected_results:
+            - "User sees the authentication-not-completed message."
+            - "A 'Try Again' button is displayed."
+            - "Order state is AWAITING_3DS_AUTH."
+
+        - id: "3DS-02"
+          title: "User enters wrong OTP — re-authentication option offered"
+          preconditions:
+            - "3DS challenge is presented."
+          steps:
+            - "Enter incorrect OTP three times (issuer rejects)."
+          expected_results:
+            - "Gateway returns authentication_failed."
+            - "User sees the re-authentication message."
+            - "Previous 3DS session tokens are invalidated."
+
+        - id: "3DS-03"
+          title: "User successfully re-authenticates on second attempt"
+          preconditions:
+            - "Order is in AWAITING_3DS_AUTH after a first 3DS failure."
+          steps:
+            - "Click 'Try Again'."
+            - "Complete the 3DS challenge correctly."
+          expected_results:
+            - "A fresh 3DS session is created (new transaction ID)."
+            - "Payment is authorized and captured."
+            - "Order transitions to PAYMENT_CONFIRMED."
+            - "Exactly one charge on the customer's card."
+
+        - id: "3DS-04"
+          title: "Authorization hold is released after 3DS failure"
+          preconditions:
+            - "Pre-authorization was placed before 3DS challenge."
+          steps:
+            - "Fail the 3DS challenge."
+            - "Check gateway for pending authorizations."
+          expected_results:
+            - "Authorization is voided."
+            - "No hold on customer's card."
+
+        - id: "3DS-05"
+          title: "Expired 3DS session cannot be reused"
+          preconditions:
+            - "3DS session was created but timed out (e.g., 15-minute window expired)."
+          steps:
+            - "Attempt to submit the expired 3DS token."
+          expected_results:
+            - "Backend rejects the stale token."
+            - "A new 3DS session is initiated."
+            - "User is not charged with the expired session."
+
+        - id: "3DS-06"
+          title: "User switches to a non-3DS payment method after 3DS failure"
+          preconditions:
+            - "Order is in AWAITING_3DS_AUTH."
+          steps:
+            - "Select a different payment method (e.g., PayPal, bank transfer)."
+            - "Complete payment."
+          expected_results:
+            - "Payment succeeds via the alternate method."
+            - "Order transitions to PAYMENT_CONFIRMED."
+            - "Original 3DS authorization is voided."
+            - "No charge on the original card."
+
+    # ---- 5. Fraud Check Rejection ----
+    - id: FRAUD_CHECK_REJECTION
+      internal_code: "risk_engine:high_risk"
+      description: >
+        The internal fraud/risk engine or the gateway's fraud detection
+        rejects the transaction. The user must NOT be told that fraud
+        detection triggered the rejection.
+
+      user_visible_message: >
+        We were unable to process your payment at this time. Our support
+        team will follow up with you shortly. You have not been charged.
+
+      user_visible_message_constraints:
+        - "MUST NOT contain the words: fraud, suspicious, risk, flagged, blocked."
+        - "MUST NOT differ from the message shown for other generic failures in a way that reveals fraud screening."
+
+      backend_actions:
+        - action: "rollback_authorization"
+          detail: "Void any pending authorization immediately."
+        - action: "flag_order_for_manual_review"
+          detail: >
+            Create a review task in the fraud-ops queue with full transaction
+            details, risk score, triggered rules, device fingerprint, and
+            IP geolocation.
+        - action: "lock_payment_retries"
+          detail: >
+            Prevent the user from retrying payment on this order until the
+            manual review is resolved.
+        - action: "send_internal_alert"
+          detail: "Notify the fraud-ops team via internal channel (Slack/PagerDuty)."
+
+      order_state_transition:
+        from: PAYMENT_PENDING
+        to: MANUAL_REVIEW
+
+      tests:
+        - id: "FRAUD-01"
+          title: "Fraud rejection shows generic message — no fraud indicators exposed"
+          preconditions:
+            - "Risk engine flags the transaction as high risk."
+          steps:
+            - "Submit payment."
+            - "Inspect the UI message, HTML source, and API response body."
+          expected_results:
+            - "User message matches the defined generic text above."
+            - "No mention of 'fraud', 'suspicious', 'risk', 'flagged', or 'blocked' in any user-facing surface."
+            - "HTTP response status is 200 (not 403 or 451) to avoid leaking intent."
+            - "API response body contains a generic error code (e.g., 'payment_failed'), not a fraud-specific code."
+
+        - id: "FRAUD-02"
+          title: "Order is flagged for manual review with full context"
+          preconditions:
+            - "Risk engine rejects the transaction."
+          steps:
+            - "Trigger fraud rejection."
+            - "Check the fraud-ops review queue."
+          expected_results:
+            - "A review task exists with: order_id, risk score, triggered rule names, device fingerprint, IP, card BIN, and timestamp."
+            - "Order state is MANUAL_REVIEW."
+
+        - id: "FRAUD-03"
+          title: "User cannot retry payment while order is in MANUAL_REVIEW"
+          preconditions:
+            - "Order is in MANUAL_REVIEW."
+          steps:
+            - "User attempts to submit payment again (UI or direct API call)."
+          expected_results:
+            - "Request is rejected."
+            - "Message: 'This order is currently under review. Our support team will contact you shortly.'"
+            - "No new payment attempt is sent to the gateway."
+
+        - id: "FRAUD-04"
+          title: "Authorization hold is released immediately upon fraud rejection"
+          preconditions:
+            - "Pre-authorization was placed before fraud check."
+          steps:
+            - "Trigger fraud rejection."
+            - "Check gateway for pending holds."
+          expected_results:
+            - "Authorization is voided."
+            - "Customer is not charged."
+
+        - id: "FRAUD-05"
+          title: "Manual review approval allows order to proceed"
+          preconditions:
+            - "Order is in MANUAL_REVIEW."
+            - "Fraud-ops analyst approves the order."
+          steps:
+            - "Analyst clicks 'Approve' in the review dashboard."
+          expected_results:
+            - "Order transitions from MANUAL_REVIEW to AWAITING_NEW_PAYMENT."
+            - "User is notified that they can now complete their purchase."
+            - "Payment retry is unlocked for this order."
+
+        - id: "FRAUD-06"
+          title: "Manual review rejection cancels the order"
+          preconditions:
+            - "Order is in MANUAL_REVIEW."
+            - "Fraud-ops analyst rejects the order."
+          steps:
+            - "Analyst clicks 'Reject' in the review dashboard."
+          expected_results:
+            - "Order transitions from MANUAL_REVIEW to CANCELLED."
+            - "User is notified: 'Your order has been cancelled. Please contact support if you have questions.'"
+            - "No charge on customer's card."
+
+        - id: "FRAUD-07"
+          title: "Fraud rejection response timing does not leak detection"
+          preconditions:
+            - "Normal decline takes ~500 ms; concern is that fraud check adds visible delay."
+          steps:
+            - "Measure response time for a fraud rejection."
+            - "Compare to response time for a normal decline."
+          expected_results:
+            - "Response times are within the same order of magnitude (< 200 ms difference)."
+            - "No observable timing side-channel that distinguishes fraud from generic decline."
+
+        - id: "FRAUD-08"
+          title: "Internal alert is sent to fraud-ops team"
+          preconditions:
+            - "Risk engine flags transaction."
+          steps:
+            - "Trigger fraud rejection."
+            - "Check the internal alerting channel."
+          expected_results:
+            - "Alert is delivered within 30 seconds."
+            - "Alert contains order ID, risk score, and a link to the review task."
+
+  # ---------------------------------------------------------------------------
+  # Cross-cutting / integration tests
+  # ---------------------------------------------------------------------------
+  cross_cutting_tests:
+    - id: "XCUT-01"
+      title: "Idempotency key prevents double charge across all failure-retry scenarios"
+      description: >
+        For every failure type that involves a retry (network timeout auto-retry,
+        user-initiated retry after decline, 3DS re-auth), verify that the
+        idempotency mechanism prevents duplicate charges.
+      steps:
+        - "For each failure type, simulate the gateway receiving the charge but the response being lost."
+        - "Trigger a retry (automatic or user-initiated)."
+        - "Verify only one charge is captured."
+      expected_results:
+        - "Exactly one charge per successful payment across all scenarios."
+        - "Gateway idempotency key matches across retried requests."
+
+    - id: "XCUT-02"
+      title: "Order state machine rejects invalid transitions"
+      invalid_transitions:
+        - { from: PAYMENT_CONFIRMED, to: PAYMENT_PENDING, reason: "Cannot re-enter payment flow after confirmation." }
+        - { from: MANUAL_REVIEW, to: PAYMENT_RETRY_PENDING, reason: "Cannot auto-retry while under fraud review." }
+        - { from: CANCELLED, to: PAYMENT_PENDING, reason: "Cannot pay for a cancelled order." }
+        - { from: AWAITING_3DS_AUTH, to: PAYMENT_RETRY_PENDING, reason: "3DS failures are user-driven, not auto-retried." }
+      steps:
+        - "For each invalid transition, attempt to trigger it via the API."
+      expected_results:
+        - "Each attempt is rejected with an appropriate error."
+        - "Order state remains unchanged."
+
+    - id: "XCUT-03"
+      title: "Concurrent payment submissions for the same order are serialized"
+      steps:
+        - "Send two payment requests for the same order simultaneously from different sessions."
+      expected_results:
+        - "Only one request proceeds to the gateway."
+        - "The other receives HTTP 409 Conflict."
+        - "No double charge."
+
+    - id: "XCUT-04"
+      title: "Payment attempt history is fully auditable"
+      steps:
+        - "Trigger multiple failures of different types for a single order."
+        - "Query the payment_attempts table."
+      expected_results:
+        - "Every attempt is logged with: timestamp, attempt_seq, idempotency_key, gateway_code, result, order_state_before, order_state_after."
+        - "Audit trail is complete and chronologically ordered."
+
+    - id: "XCUT-05"
+      title: "Cart contents and pricing are preserved across all failure-recovery paths"
+      steps:
+        - "Add items to cart."
+        - "Trigger a payment failure."
+        - "Retry payment."
+      expected_results:
+        - "Cart items, quantities, prices, discounts, and totals are identical on retry."
+        - "No stale-price vulnerability where a price drop/increase between attempts changes the charge amount without user consent."
+
+    - id: "XCUT-06"
+      title: "Session expiry during failure recovery is handled gracefully"
+      steps:
+        - "Trigger a payment failure."
+        - "Wait for the user session to expire."
+        - "User logs back in and navigates to the order."
+      expected_results:
+        - "Order is in the correct failure state (not lost or stuck in PAYMENT_PENDING)."
+        - "User can resume the recovery flow (retry payment or select a new method)."
+
+    - id: "XCUT-07"
+      title: "Webhook reconciliation catches gateway-backend state mismatches"
+      steps:
+        - "Simulate a scenario where the backend thinks payment failed but the gateway actually captured it."
+        - "Gateway sends a charge.succeeded webhook."
+      expected_results:
+        - "Backend processes the webhook and transitions order to PAYMENT_CONFIRMED."
+        - "No duplicate charge is created."
+        - "Reconciliation log records the mismatch and resolution."
+
+    - id: "XCUT-08"
+      title: "Rollback releases inventory reservation on terminal failure"
+      steps:
+        - "Reserve inventory during checkout."
+        - "Trigger a terminal payment failure (all retries exhausted or order cancelled)."
+      expected_results:
+        - "Inventory reservation is released."
+        - "Items become available for other customers."
+
+  # ---------------------------------------------------------------------------
+  # Non-functional / performance tests
+  # ---------------------------------------------------------------------------
+  non_functional_tests:
+    - id: "PERF-01"
+      title: "Payment failure handling completes within SLA"
+      sla:
+        rollback_completion: "< 2 seconds"
+        user_notification: "< 3 seconds from gateway response"
+        retry_initiation: "within backoff schedule + 500 ms tolerance"
+
+    - id: "PERF-02"
+      title: "System handles burst of simultaneous payment failures"
+      steps:
+        - "Simulate 500 concurrent payment failures (mixed types)."
+      expected_results:
+        - "All failures are handled correctly with no data corruption."
+        - "No deadlocks on order or payment tables."
+        - "Retry queue processes within acceptable latency."
+
+    - id: "SEC-01"
+      title: "Sensitive card data is not logged during failure handling"
+      steps:
+        - "Trigger each failure type."
+        - "Search all application logs, error tracking systems, and audit tables."
+      expected_results:
+        - "No full card numbers (PAN), CVV, or raw 3DS authentication data appear in logs."
+        - "Only tokenized references and masked card numbers (last 4 digits) are logged."
+
+    - id: "SEC-02"
+      title: "Failure API responses do not leak internal system details"
+      steps:
+        - "Trigger each failure type."
+        - "Inspect the full HTTP response (headers + body)."
+      expected_results:
+        - "No stack traces, internal error codes, gateway vendor names, or infrastructure details are exposed."
+        - "Response headers do not reveal backend technology stack."

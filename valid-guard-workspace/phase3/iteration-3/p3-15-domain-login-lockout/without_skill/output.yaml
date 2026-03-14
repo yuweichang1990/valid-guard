@@ -1,0 +1,506 @@
+test_suite:
+  name: Login Page Authentication Test Cases
+  description: >
+    Test cases covering valid login, invalid credentials, account lockout
+    after failed attempts, and generic error messages that prevent username enumeration.
+
+  test_cases:
+    # ---------------------------------------------------------------------------
+    # 1. Valid Login
+    # ---------------------------------------------------------------------------
+    - id: TC-LOGIN-001
+      title: Successful login with valid username and password
+      category: Valid Login
+      priority: Critical
+      preconditions:
+        - A registered user account exists with known valid credentials
+        - The account is in an active, unlocked state
+      steps:
+        - Navigate to the login page
+        - Enter a valid username in the username field
+        - Enter the correct password in the password field
+        - Click the "Login" or "Sign In" button
+      expected_result: >
+        User is authenticated and redirected to the dashboard or home page.
+        A valid session token or cookie is created.
+      security_notes:
+        - Session token must be generated server-side and be cryptographically random
+        - Password must not appear in URL, logs, or client-side storage
+
+    - id: TC-LOGIN-002
+      title: Successful login with valid email and password
+      category: Valid Login
+      priority: Critical
+      preconditions:
+        - A registered user account exists with a verified email address
+      steps:
+        - Navigate to the login page
+        - Enter the registered email address in the username/email field
+        - Enter the correct password
+        - Click the "Login" button
+      expected_result: >
+        User is authenticated successfully regardless of whether they used
+        username or email as their identifier.
+
+    - id: TC-LOGIN-003
+      title: Successful login is case-insensitive for username/email
+      category: Valid Login
+      priority: High
+      preconditions:
+        - A registered user account exists (e.g., user@example.com)
+      steps:
+        - Navigate to the login page
+        - Enter the username/email with different casing (e.g., User@Example.COM)
+        - Enter the correct password (case-sensitive)
+        - Click the "Login" button
+      expected_result: >
+        User is authenticated successfully. Username/email comparison is
+        case-insensitive while password comparison remains case-sensitive.
+
+    - id: TC-LOGIN-004
+      title: Session is created securely after valid login
+      category: Valid Login
+      priority: Critical
+      preconditions:
+        - Valid user credentials are available
+      steps:
+        - Log in with valid credentials
+        - Inspect the response headers and cookies
+      expected_result: >
+        A session cookie is set with Secure, HttpOnly, and SameSite attributes.
+        The session ID is sufficiently long and random. No sensitive data is
+        stored in the session cookie value itself.
+
+    - id: TC-LOGIN-005
+      title: Previous session is invalidated on new login
+      category: Valid Login
+      priority: High
+      preconditions:
+        - User is already logged in from another browser or device
+      steps:
+        - Log in with valid credentials from a new browser session
+        - Attempt to use the old session
+      expected_result: >
+        The old session is invalidated or the system enforces a concurrent
+        session policy (e.g., only one active session allowed, or user is
+        warned about multiple sessions).
+
+    # ---------------------------------------------------------------------------
+    # 2. Invalid Credentials
+    # ---------------------------------------------------------------------------
+    - id: TC-LOGIN-006
+      title: Login fails with valid username and incorrect password
+      category: Invalid Credentials
+      priority: Critical
+      preconditions:
+        - A registered user account exists
+      steps:
+        - Navigate to the login page
+        - Enter a valid username
+        - Enter an incorrect password
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected. A generic error message is displayed such as
+        "Invalid username or password." The response does not indicate
+        whether the username exists.
+
+    - id: TC-LOGIN-007
+      title: Login fails with non-existent username
+      category: Invalid Credentials
+      priority: Critical
+      preconditions:
+        - The username used does not exist in the system
+      steps:
+        - Navigate to the login page
+        - Enter a username that does not exist (e.g., nonexistentuser99)
+        - Enter any password
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected. The same generic error message is displayed as
+        when the password is wrong: "Invalid username or password." The
+        response must be indistinguishable from TC-LOGIN-006 to prevent
+        username enumeration.
+
+    - id: TC-LOGIN-008
+      title: Login fails with empty username field
+      category: Invalid Credentials
+      priority: High
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Navigate to the login page
+        - Leave the username field empty
+        - Enter any password
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected with a validation message such as "Please enter
+        your username and password." Client-side validation should prevent
+        the request from being sent, but server-side validation must also
+        reject it.
+
+    - id: TC-LOGIN-009
+      title: Login fails with empty password field
+      category: Invalid Credentials
+      priority: High
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Navigate to the login page
+        - Enter a valid username
+        - Leave the password field empty
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected with a validation message. The message must not
+        reveal whether the username is valid.
+
+    - id: TC-LOGIN-010
+      title: Login fails with both fields empty
+      category: Invalid Credentials
+      priority: Medium
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Navigate to the login page
+        - Leave both username and password fields empty
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected with a validation message prompting the user to
+        enter credentials.
+
+    - id: TC-LOGIN-011
+      title: Login fails with SQL injection attempt in username
+      category: Invalid Credentials
+      priority: Critical
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Navigate to the login page
+        - Enter a SQL injection payload in the username field (e.g., "' OR '1'='1' --")
+        - Enter any value in the password field
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected with the standard generic error message. The
+        application does not execute injected SQL. No database errors are
+        exposed to the user.
+
+    - id: TC-LOGIN-012
+      title: Login fails with XSS payload in username field
+      category: Invalid Credentials
+      priority: High
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Navigate to the login page
+        - Enter an XSS payload in the username field (e.g., "<script>alert('xss')</script>")
+        - Enter any password
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected. The XSS payload is not rendered or executed.
+        Input is properly sanitized or encoded in the response.
+
+    - id: TC-LOGIN-013
+      title: Login fails with excessively long username
+      category: Invalid Credentials
+      priority: Medium
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Navigate to the login page
+        - Enter a username exceeding the maximum allowed length (e.g., 10000 characters)
+        - Enter any password
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected gracefully. The application does not crash or
+        expose stack traces. Input is truncated or rejected with the
+        standard generic error message.
+
+    - id: TC-LOGIN-014
+      title: Login fails with excessively long password
+      category: Invalid Credentials
+      priority: Medium
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Navigate to the login page
+        - Enter a valid username
+        - Enter a password exceeding reasonable length (e.g., 10000 characters)
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected gracefully. The application does not hang or
+        cause denial of service due to hashing a very long password.
+
+    # ---------------------------------------------------------------------------
+    # 3. Account Lockout After Failed Attempts
+    # ---------------------------------------------------------------------------
+    - id: TC-LOGIN-015
+      title: Account is locked after exceeding maximum failed login attempts
+      category: Account Lockout
+      priority: Critical
+      preconditions:
+        - A registered user account exists
+        - The lockout threshold is configured (e.g., 5 failed attempts)
+      steps:
+        - Navigate to the login page
+        - Enter the valid username with an incorrect password
+        - Repeat the failed login attempt until the threshold is reached (e.g., 5 times)
+        - Attempt to log in once more with incorrect credentials
+      expected_result: >
+        After the configured number of failed attempts, the account is
+        locked. A generic message is displayed such as "Your account has
+        been temporarily locked due to multiple failed login attempts.
+        Please try again later or contact support." The message must not
+        confirm that the username exists -- see TC-LOGIN-020 for details.
+
+    - id: TC-LOGIN-016
+      title: Locked account rejects login even with correct password
+      category: Account Lockout
+      priority: Critical
+      preconditions:
+        - The user account has been locked due to failed attempts
+      steps:
+        - Navigate to the login page
+        - Enter the locked account's valid username
+        - Enter the correct password
+        - Click the "Login" button
+      expected_result: >
+        Login is rejected even though the credentials are correct. The
+        same generic error message is shown. The system does not reveal
+        that the account is locked vs. the credentials being wrong to
+        prevent username enumeration.
+
+    - id: TC-LOGIN-017
+      title: Account lockout counter resets after successful login
+      category: Account Lockout
+      priority: High
+      preconditions:
+        - A registered user account exists
+        - The lockout threshold is 5 failed attempts
+        - The user has made 3 failed attempts (below threshold)
+      steps:
+        - Log in successfully with correct credentials
+        - Log out
+        - Attempt to log in with an incorrect password 3 more times
+      expected_result: >
+        The failed attempt counter is reset to zero after the successful
+        login. The 3 new failed attempts do not cause a lockout because
+        the counter was reset.
+
+    - id: TC-LOGIN-018
+      title: Account lockout expires after configured duration
+      category: Account Lockout
+      priority: High
+      preconditions:
+        - The user account has been locked
+        - The lockout duration is configured (e.g., 15 or 30 minutes)
+      steps:
+        - Trigger account lockout by exceeding the failed attempt threshold
+        - Wait for the lockout duration to elapse
+        - Attempt to log in with correct credentials
+      expected_result: >
+        After the lockout period has elapsed, the account is automatically
+        unlocked and the user can log in with valid credentials. The
+        failed attempt counter is reset.
+
+    - id: TC-LOGIN-019
+      title: Lockout applies per-account, not per-IP or per-session
+      category: Account Lockout
+      priority: High
+      preconditions:
+        - A registered user account exists
+        - The lockout threshold is configured
+      steps:
+        - From IP address A, make failed login attempts for UserX up to threshold
+        - From IP address B, attempt to log in as UserX with correct credentials
+      expected_result: >
+        The account is locked regardless of the source IP address. Lockout
+        is tracked per user account, not per IP or session, to prevent
+        attackers from bypassing lockout by switching IPs.
+
+    - id: TC-LOGIN-020
+      title: Lockout message for non-existent account is indistinguishable
+      category: Account Lockout
+      priority: Critical
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Make repeated failed login attempts using a non-existent username
+          (same number as the lockout threshold)
+        - Compare the response (message, HTTP status code, response time)
+          with the lockout response for a real account
+      expected_result: >
+        The behavior for a non-existent account must be indistinguishable
+        from a real locked account. Response messages, HTTP status codes,
+        and response times must be consistent to prevent username
+        enumeration via lockout behavior differences.
+
+    - id: TC-LOGIN-021
+      title: Rate limiting is applied to login endpoint
+      category: Account Lockout
+      priority: High
+      preconditions:
+        - Login endpoint is accessible
+      steps:
+        - Send a large number of login requests in rapid succession
+          (e.g., 100 requests per second) using various usernames
+        - Observe the server response
+      expected_result: >
+        The server applies rate limiting at the IP or session level,
+        returning HTTP 429 (Too Many Requests) after the rate limit is
+        exceeded. This protects against credential stuffing attacks that
+        target many accounts simultaneously.
+
+    - id: TC-LOGIN-022
+      title: Progressive delay is applied after failed attempts
+      category: Account Lockout
+      priority: Medium
+      preconditions:
+        - A registered user account exists
+      steps:
+        - Make a first failed login attempt and measure response time
+        - Make a second failed login attempt and measure response time
+        - Continue for several attempts, measuring each response time
+      expected_result: >
+        Response times increase progressively after each failed attempt
+        (e.g., 1s, 2s, 4s, 8s). This slows down brute-force attacks
+        without fully locking the account prematurely.
+
+    # ---------------------------------------------------------------------------
+    # 4. Generic Error Messages (Username Enumeration Prevention)
+    # ---------------------------------------------------------------------------
+    - id: TC-LOGIN-023
+      title: Error message is identical for wrong password vs. non-existent user
+      category: Username Enumeration Prevention
+      priority: Critical
+      preconditions:
+        - A registered user account exists (e.g., realuser)
+        - A non-existent username is chosen (e.g., fakeuser)
+      steps:
+        - Attempt to log in with "realuser" and an incorrect password
+        - Record the exact error message, HTTP status code, and response headers
+        - Attempt to log in with "fakeuser" and any password
+        - Record the exact error message, HTTP status code, and response headers
+        - Compare both responses
+      expected_result: >
+        Both responses are identical in every observable aspect: same error
+        message text, same HTTP status code, same response headers (no
+        extra headers for one case), and same general response structure.
+        The message should be generic, e.g., "Invalid username or password."
+
+    - id: TC-LOGIN-024
+      title: Response time is consistent for valid vs. invalid usernames
+      category: Username Enumeration Prevention
+      priority: Critical
+      preconditions:
+        - A registered user account exists
+      steps:
+        - Send 20 login requests with a valid username and wrong password,
+          recording the response time for each
+        - Send 20 login requests with a non-existent username and any
+          password, recording the response time for each
+        - Calculate the average response time for each set
+      expected_result: >
+        The average response times for both sets are statistically similar
+        (within an acceptable margin, e.g., less than 50ms difference).
+        The server must perform equivalent work for both cases (e.g.,
+        always hash the submitted password) to prevent timing-based
+        username enumeration.
+      security_notes:
+        - If the system skips password hashing for non-existent users,
+          the faster response reveals that the username does not exist
+        - A constant-time comparison or dummy hash operation should be used
+
+    - id: TC-LOGIN-025
+      title: Password reset flow does not reveal account existence
+      category: Username Enumeration Prevention
+      priority: High
+      preconditions:
+        - Login page has a "Forgot Password" link
+      steps:
+        - Click "Forgot Password"
+        - Enter a registered email address and submit
+        - Record the displayed message
+        - Enter a non-existent email address and submit
+        - Record the displayed message
+      expected_result: >
+        Both responses show the same message, e.g., "If an account with
+        that email exists, a password reset link has been sent." The
+        response must not confirm or deny the existence of the account.
+
+    - id: TC-LOGIN-026
+      title: Registration flow does not reveal existing usernames via login error
+      category: Username Enumeration Prevention
+      priority: High
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Attempt to register with an already-taken username/email
+        - Observe the error message returned
+      expected_result: >
+        The registration flow either uses a generic message like "If this
+        email is not already registered, a verification link has been sent"
+        or handles the flow in a way that does not directly confirm that
+        the username/email is already in use to an unauthenticated user.
+
+    - id: TC-LOGIN-027
+      title: HTTP response codes are consistent across login failures
+      category: Username Enumeration Prevention
+      priority: High
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Submit login with a valid username and wrong password; note HTTP status
+        - Submit login with an invalid username and any password; note HTTP status
+        - Submit login with empty credentials; note HTTP status
+        - Submit login with a locked account; note HTTP status
+      expected_result: >
+        All failed login attempts return the same HTTP status code (e.g.,
+        401 Unauthorized or 200 with error in body). Different failure
+        reasons must not produce different HTTP status codes that could
+        be used to distinguish between them.
+
+    - id: TC-LOGIN-028
+      title: Response body size is consistent across login failures
+      category: Username Enumeration Prevention
+      priority: Medium
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Submit login with a valid username and wrong password; note response size
+        - Submit login with an invalid username and any password; note response size
+      expected_result: >
+        Response body sizes are identical or vary only by negligible
+        amounts (e.g., due to CSRF token changes). A significantly
+        different response size could indicate username enumeration
+        via response length analysis.
+
+    - id: TC-LOGIN-029
+      title: No username disclosure in page source, headers, or cookies
+      category: Username Enumeration Prevention
+      priority: High
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Submit a failed login attempt with a valid username
+        - Inspect the full HTTP response including headers, cookies,
+          HTML source, and any JavaScript variables
+      expected_result: >
+        The valid username does not appear anywhere in the response body,
+        headers, cookies, or embedded JavaScript. The username field may
+        be pre-filled for usability but must not appear in hidden fields,
+        comments, or metadata that could confirm account existence.
+
+    - id: TC-LOGIN-030
+      title: Login error messages do not provide password policy hints
+      category: Username Enumeration Prevention
+      priority: Medium
+      preconditions:
+        - Login page is accessible
+      steps:
+        - Attempt login with a valid username and a short password (e.g., "a")
+        - Attempt login with a valid username and a password missing special characters
+      expected_result: >
+        The error message does not include password policy hints such as
+        "Password must be at least 8 characters." The login page should
+        only show the generic "Invalid username or password" message.
+        Password policy details should only be shown during registration
+        or password change flows.

@@ -1,0 +1,508 @@
+# Valid Guard Analysis — Weak Assertion Detection & Codegen Fix
+# Generated: 2026-03-14T00:00:00Z
+# Source: user-provided test code (natural language)
+
+feature: "Calculator Add Function — Test Effectiveness Analysis"
+
+feature_description: >
+  User has a test for a calculator's add function that asserts only that the result
+  is not null (assertTrue(result != null)). Despite 100% line coverage, this test is
+  ineffective because it cannot detect the majority of possible defects. This analysis
+  identifies the anti-pattern, explains why coverage metrics are misleading, and provides
+  corrected test code.
+
+risk_level: high
+
+entry_point: brownfield
+
+source:
+  type: code_analysis
+  path: "user-provided test snippet"
+
+# ─────────────────────────────────────────────────────────────
+# Anti-pattern Detection
+# ─────────────────────────────────────────────────────────────
+anti_pattern_detected:
+  name: "The Test That Cried Wolf (Weak/Tautological Assertion)"
+  reference: "Valid Guard Anti-pattern #9 — assertions so loose they always pass"
+  severity: critical
+  description: >
+    The test `assertTrue(result != null)` is a tautological assertion. It only verifies
+    that the add function returns a non-null value. It does NOT verify the correctness
+    of the computation. The function could return 0, -1, 999, or any arbitrary non-null
+    value and the test would still pass. This is a textbook example of a test that
+    provides false confidence — it exercises the code (achieving line coverage) but
+    validates nothing meaningful about the behavior.
+
+  original_test_code: |
+    // INEFFECTIVE — Anti-pattern: The Test That Cried Wolf
+    result = calculator.add(2, 3);
+    assertTrue(result != null);  // Only checks existence, not correctness
+
+  why_100_percent_coverage_is_misleading: >
+    Line coverage (statement coverage) only measures whether each line of code was
+    executed during testing. It says nothing about whether the test can detect faults.
+    This test executes the add function (achieving 100% line coverage) but its assertion
+    is so weak that it would pass even if the function returned a wrong answer. Line
+    coverage is a necessary but NOT sufficient condition for test quality. Scenario
+    coverage weighted by risk, combined with mutation testing, provides a far more
+    accurate picture of test effectiveness.
+
+  mutation_testing_analysis:
+    description: >
+      Mutation testing is the definitive technique for evaluating assertion strength.
+      It introduces small, systematic changes (mutants) to the production code and
+      checks whether existing tests detect (kill) those changes. A test with weak
+      assertions will fail to kill most mutants, exposing its ineffectiveness even
+      when line coverage is 100%.
+    mutants_that_survive:
+      - mutant: "Replace a + b with a - b (arithmetic operator replacement)"
+        original: "return a + b;"
+        mutated: "return a - b;"
+        result_with_weak_test: "SURVIVES — calculator.add(2, 3) returns -1, which is not null, so assertTrue(result != null) still passes"
+        result_with_strong_test: "KILLED — assertEquals(5, result) fails because -1 != 5"
+      - mutant: "Replace a + b with a * b (arithmetic operator replacement)"
+        original: "return a + b;"
+        mutated: "return a * b;"
+        result_with_weak_test: "SURVIVES — calculator.add(2, 3) returns 6, which is not null, so assertTrue(result != null) still passes"
+        result_with_strong_test: "KILLED — assertEquals(5, result) fails because 6 != 5"
+      - mutant: "Replace a + b with 0 (return value replacement)"
+        original: "return a + b;"
+        mutated: "return 0;"
+        result_with_weak_test: "SURVIVES — 0 is not null (in languages where 0 is a valid non-null integer)"
+        result_with_strong_test: "KILLED — assertEquals(5, result) fails because 0 != 5"
+      - mutant: "Replace a + b with a (first operand only)"
+        original: "return a + b;"
+        mutated: "return a;"
+        result_with_weak_test: "SURVIVES — calculator.add(2, 3) returns 2, which is not null"
+        result_with_strong_test: "KILLED — assertEquals(5, result) fails because 2 != 5"
+      - mutant: "Replace a + b with b (second operand only)"
+        original: "return a + b;"
+        mutated: "return b;"
+        result_with_weak_test: "SURVIVES — calculator.add(2, 3) returns 3, which is not null"
+        result_with_strong_test: "KILLED — assertEquals(5, result) fails because 3 != 5"
+    estimated_mutation_score:
+      weak_test: "~0% — nearly all arithmetic and return-value mutants survive"
+      strong_test: ">90% — precise value assertions kill almost all mutants"
+    conclusion: >
+      The weak assertion achieves an estimated mutation score of approximately 0%,
+      meaning it detects virtually no injected faults. A properly written test with
+      exact value assertions would achieve >90% mutation score for the same code.
+      This proves that 100% line coverage with weak assertions is effectively worthless
+      for fault detection.
+
+# ─────────────────────────────────────────────────────────────
+# Risk Assessment
+# ─────────────────────────────────────────────────────────────
+risk_assessment:
+  impact: 3
+  frequency: 3
+  consequence: 2
+  detectability: 1
+  average: 2.25
+  level: medium
+  rationale: >
+    Impact: 3 — Arithmetic operations are core business logic in a calculator;
+    incorrect results directly affect data integrity for any downstream consumer.
+    Frequency: 3 — The add function is likely the most commonly invoked operation.
+    Consequence: 2 — Incorrect addition results cause wrong answers but the user
+    can verify manually; no data loss or security breach.
+    Detectability: 1 — A wrong addition result is immediately visible to the user
+    (they can mentally verify 2+3=5).
+    Average: (3+3+2+1)/4 = 2.25 -> medium risk.
+    However, the principle demonstrated (weak assertions masking faults) applies to
+    ALL tests, including high-risk ones where detectability is low. The teaching
+    value of fixing this pattern is high-risk.
+
+# ─────────────────────────────────────────────────────────────
+# Corrected Test Code
+# ─────────────────────────────────────────────────────────────
+corrected_test:
+  language: java
+  framework: "JUnit (inferred from assertTrue syntax)"
+  explanation: >
+    The corrected tests replace the weak null-check assertion with exact value
+    assertions. Multiple scenarios are provided covering: basic happy path,
+    identity property (adding zero), commutativity, negative numbers, boundary
+    values, and overflow. Each test asserts the EXACT expected result, ensuring
+    that any mutation to the add function's logic will be detected.
+
+  code: |
+    import static org.junit.jupiter.api.Assertions.*;
+    import org.junit.jupiter.api.Test;
+    import org.junit.jupiter.params.ParameterizedTest;
+    import org.junit.jupiter.params.provider.CsvSource;
+
+    class CalculatorAddTest {
+
+        private final Calculator calculator = new Calculator();
+
+        // ── Happy Path: Basic Addition ──────────────────────────
+        @Test
+        void add_twoPositiveIntegers_returnsCorrectSum() {
+            // Arrange & Act
+            int result = calculator.add(2, 3);
+
+            // Assert — exact value, NOT null check
+            assertEquals(5, result);
+        }
+
+        // ── Parameterized: Multiple Input Combinations ─────────
+        @ParameterizedTest(name = "add({0}, {1}) should equal {2}")
+        @CsvSource({
+            "0, 0, 0",        // identity: zero + zero
+            "0, 5, 5",        // identity: zero + positive
+            "5, 0, 5",        // identity: positive + zero
+            "2, 3, 5",        // basic positive + positive
+            "3, 2, 5",        // commutativity check
+            "-1, -1, -2",     // negative + negative
+            "-3, 5, 2",       // negative + positive
+            "5, -3, 2",       // positive + negative
+            "100, 200, 300",  // larger values
+        })
+        void add_variousInputCombinations_returnsExpectedSum(
+                int a, int b, int expectedSum) {
+            assertEquals(expectedSum, calculator.add(a, b));
+        }
+
+        // ── Boundary: Integer Limits ───────────────────────────
+        @Test
+        void add_maxIntPlusZero_returnsMaxInt() {
+            assertEquals(Integer.MAX_VALUE,
+                calculator.add(Integer.MAX_VALUE, 0));
+        }
+
+        @Test
+        void add_minIntPlusZero_returnsMinInt() {
+            assertEquals(Integer.MIN_VALUE,
+                calculator.add(Integer.MIN_VALUE, 0));
+        }
+
+        // ── Boundary: Overflow Behavior ────────────────────────
+        // Note: Define expected overflow behavior per your spec.
+        // If overflow should throw, test for the exception.
+        // If overflow wraps around (default Java), test for wrapped value.
+        @Test
+        void add_maxIntPlusOne_overflowBehavior() {
+            // Java integer overflow wraps around
+            assertEquals(Integer.MIN_VALUE,
+                calculator.add(Integer.MAX_VALUE, 1));
+        }
+    }
+
+  key_improvements:
+    - description: "Exact value assertions"
+      before: "assertTrue(result != null)"
+      after: "assertEquals(5, result)"
+      impact: "Every mutant that changes the arithmetic operation is now killed"
+
+    - description: "Parameterized test for multiple equivalence classes"
+      before: "Single test case with a single input pair"
+      after: "9 input combinations covering zero, positive, negative, and commutativity"
+      impact: "Covers all equivalence partitions with minimal code duplication"
+
+    - description: "Boundary value analysis"
+      before: "No boundary tests"
+      after: "Tests for Integer.MAX_VALUE, Integer.MIN_VALUE, and overflow"
+      impact: "Detects off-by-one errors and undefined overflow behavior"
+
+    - description: "Descriptive test names"
+      before: "Implied single unnamed test"
+      after: "method_condition_expectedOutcome naming pattern"
+      impact: "Failure messages immediately identify what behavior is broken"
+
+# ─────────────────────────────────────────────────────────────
+# Technique Rationale
+# ─────────────────────────────────────────────────────────────
+technique_rationale:
+  applied_techniques:
+    - technique: equivalence_partitioning
+      abbreviation: EP
+      rationale: >
+        The add function's input domain partitions into distinct classes based on
+        the signs of the operands: (positive, positive), (positive, negative),
+        (negative, positive), (negative, negative), (zero, any), (any, zero).
+        Each class exercises different code paths (or should). The parameterized
+        test covers all these partitions.
+
+    - technique: boundary_value_analysis
+      abbreviation: BVA
+      rationale: >
+        Integer addition has natural boundaries at Integer.MAX_VALUE and
+        Integer.MIN_VALUE. Boundary tests check behavior at the edges of the
+        input domain, including overflow conditions. These are the most likely
+        places for unexpected behavior.
+
+    - technique: error_guessing
+      abbreviation: EG
+      rationale: >
+        Common defects in addition functions include: incorrect operator
+        (subtraction instead of addition), operand order sensitivity, integer
+        overflow, and ignoring one operand. The corrected test suite targets
+        each of these known fault patterns. The commutativity check (add(2,3)
+        vs add(3,2)) specifically guards against operand order bugs.
+
+  mutation_testing_as_quality_gate: >
+    Mutation testing (tools: PIT/pitest for Java, Stryker for JS/TS/C#, mutmut
+    for Python) should be used as a quality gate to verify that the corrected
+    tests achieve a mutation score >= 90%. Any surviving mutant indicates a gap
+    in assertion strength that needs an additional or stronger test case. This
+    is the most rigorous way to validate that 100% line coverage actually means
+    something.
+
+# ─────────────────────────────────────────────────────────────
+# Example Mapping
+# ─────────────────────────────────────────────────────────────
+example_mapping:
+  story: "As a user, I want to add two numbers so that I get the correct sum."
+  rules:
+    - rule_name: "Basic arithmetic correctness"
+      examples:
+        - "add(2, 3) returns exactly 5"
+        - "add(100, 200) returns exactly 300"
+
+    - rule_name: "Identity property — adding zero changes nothing"
+      examples:
+        - "add(0, 0) returns 0"
+        - "add(0, 5) returns 5"
+        - "add(5, 0) returns 5"
+
+    - rule_name: "Commutativity — order of operands does not matter"
+      examples:
+        - "add(2, 3) returns the same as add(3, 2)"
+
+    - rule_name: "Negative number handling"
+      examples:
+        - "add(-1, -1) returns -2"
+        - "add(-3, 5) returns 2"
+        - "add(5, -3) returns 2"
+
+    - rule_name: "Boundary behavior at integer limits"
+      examples:
+        - "add(MAX_INT, 0) returns MAX_INT"
+        - "add(MIN_INT, 0) returns MIN_INT"
+        - "add(MAX_INT, 1) — overflow behavior must be defined and tested"
+
+  questions:
+    - "What should happen on integer overflow? Throw an exception, wrap around, or return a larger type?"
+    - "Should the add function support floating-point inputs as well as integers?"
+    - "Is there a maximum allowed input value defined by business requirements?"
+
+# ─────────────────────────────────────────────────────────────
+# Scenarios (derived from example mapping)
+# ─────────────────────────────────────────────────────────────
+scenarios:
+  - name: "Basic addition of two positive integers"
+    description: "Verifies that add(2, 3) returns exactly 5, not just a non-null value."
+    type: happy_path
+    risk: medium
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 2, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Positive + positive is the primary equivalence class for addition."
+    preconditions:
+      - "Calculator instance is initialized"
+    examples:
+      - input:
+          a: 2
+          b: 3
+        expected:
+          sum: 5
+        description: "Two positive integers produce their arithmetic sum."
+    test_ref: "CalculatorAddTest::add_twoPositiveIntegers_returnsCorrectSum"
+    status: covered
+    priority: 1
+    tags:
+      - "happy-path"
+      - "assertion-fix"
+
+  - name: "Identity property — adding zero"
+    description: "Verifies that adding zero to any number returns that number unchanged."
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 2, Detectability: 1. Average: 2.0 -> medium."
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+    technique_rationale: "Zero is both an equivalence class boundary and the additive identity — it must be tested explicitly."
+    preconditions:
+      - "Calculator instance is initialized"
+    examples:
+      - input:
+          a: 0
+          b: 0
+        expected:
+          sum: 0
+        description: "Zero plus zero equals zero."
+      - input:
+          a: 0
+          b: 5
+        expected:
+          sum: 5
+        description: "Zero plus positive equals the positive number."
+      - input:
+          a: 5
+          b: 0
+        expected:
+          sum: 5
+        description: "Positive plus zero equals the positive number."
+    test_ref: "CalculatorAddTest::add_variousInputCombinations_returnsExpectedSum (rows 1-3)"
+    status: covered
+    priority: 2
+    tags:
+      - "identity-property"
+      - "edge-case"
+
+  - name: "Commutativity — operand order independence"
+    description: "Verifies add(a, b) == add(b, a) for the same inputs."
+    type: happy_path
+    risk: medium
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 2, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: "Commutativity is a mathematical invariant. Error guessing targets the common bug where operand order matters due to incorrect implementation."
+    preconditions:
+      - "Calculator instance is initialized"
+    examples:
+      - input:
+          a: 2
+          b: 3
+        expected:
+          sum: 5
+        description: "add(2, 3) equals 5."
+      - input:
+          a: 3
+          b: 2
+        expected:
+          sum: 5
+        description: "add(3, 2) also equals 5 — confirming commutativity."
+    test_ref: "CalculatorAddTest::add_variousInputCombinations_returnsExpectedSum (rows 4-5)"
+    status: covered
+    priority: 2
+    tags:
+      - "commutativity"
+      - "mathematical-property"
+
+  - name: "Negative number addition"
+    description: "Verifies correct behavior when one or both operands are negative."
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 2, Detectability: 1. Average: 2.0 -> medium."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Negative numbers form distinct equivalence classes: (neg, neg), (neg, pos), (pos, neg)."
+    preconditions:
+      - "Calculator instance is initialized"
+    examples:
+      - input:
+          a: -1
+          b: -1
+        expected:
+          sum: -2
+        description: "Negative plus negative yields more negative."
+      - input:
+          a: -3
+          b: 5
+        expected:
+          sum: 2
+        description: "Negative plus larger positive yields positive."
+      - input:
+          a: 5
+          b: -3
+        expected:
+          sum: 2
+        description: "Positive plus negative yields correct difference."
+    test_ref: "CalculatorAddTest::add_variousInputCombinations_returnsExpectedSum (rows 6-8)"
+    status: covered
+    priority: 2
+    tags:
+      - "negative-numbers"
+      - "equivalence-class"
+
+  - name: "Integer boundary — MAX_VALUE and MIN_VALUE"
+    description: "Verifies behavior at the extreme edges of the integer range."
+    type: boundary
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.25 -> medium, elevated to high due to silent data corruption risk at boundaries."
+    techniques:
+      - boundary_value
+    technique_rationale: "BVA is the primary technique for testing at the extreme limits of numeric input domains."
+    preconditions:
+      - "Calculator instance is initialized"
+    examples:
+      - input:
+          a: 2147483647
+          b: 0
+        expected:
+          sum: 2147483647
+        description: "MAX_VALUE + 0 should return MAX_VALUE."
+      - input:
+          a: -2147483648
+          b: 0
+        expected:
+          sum: -2147483648
+        description: "MIN_VALUE + 0 should return MIN_VALUE."
+    test_ref: "CalculatorAddTest::add_maxIntPlusZero_returnsMaxInt, add_minIntPlusZero_returnsMinInt"
+    status: covered
+    priority: 1
+    tags:
+      - "boundary"
+      - "integer-limits"
+
+  - name: "Integer overflow behavior"
+    description: "Verifies defined behavior when addition causes integer overflow."
+    type: boundary
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 -> high. Silent overflow produces wrong results without any error signal."
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: "BVA tests the boundary at MAX_VALUE+1. Error guessing anticipates that overflow is a common source of silent data corruption."
+    preconditions:
+      - "Calculator instance is initialized"
+      - "Overflow behavior is defined (wrap-around vs exception)"
+    examples:
+      - input:
+          a: 2147483647
+          b: 1
+        expected:
+          behavior: "wrap-around to MIN_VALUE (Java default) OR throw ArithmeticException"
+        description: "MAX_VALUE + 1 must exhibit the documented overflow behavior."
+    test_ref: "CalculatorAddTest::add_maxIntPlusOne_overflowBehavior"
+    status: covered
+    priority: 1
+    tags:
+      - "overflow"
+      - "boundary"
+      - "high-risk"
+
+# ─────────────────────────────────────────────────────────────
+# Summary
+# ─────────────────────────────────────────────────────────────
+summary:
+  verdict: "INEFFECTIVE — the original test is a tautological assertion (anti-pattern #9)"
+  original_fault_detection: "~0% (virtually no mutations killed)"
+  corrected_fault_detection: ">90% (with exact value assertions and multiple equivalence classes)"
+  key_insight: >
+    100% line coverage does NOT mean the code is well-tested. Line coverage measures
+    execution, not verification. The original test executes the add function but
+    verifies nothing about its correctness. Mutation testing is the gold standard
+    for measuring assertion quality — it would immediately reveal that the original
+    test kills 0% of injected faults.
+  recommendations:
+    - "Replace all null/existence-check assertions with exact value assertions"
+    - "Add parameterized tests covering all equivalence partitions"
+    - "Add boundary value tests for integer limits and overflow"
+    - "Run mutation testing (PIT for Java) to validate assertion strength — target >= 90% mutation score"
+    - "Track scenario coverage (weighted by risk) alongside line coverage"
+
+# ─────────────────────────────────────────────────────────────
+# Metadata
+# ─────────────────────────────────────────────────────────────
+metadata:
+  created_at: "2026-03-14T00:00:00Z"
+  updated_at: "2026-03-14T00:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "java"
+  test_framework: "junit5"

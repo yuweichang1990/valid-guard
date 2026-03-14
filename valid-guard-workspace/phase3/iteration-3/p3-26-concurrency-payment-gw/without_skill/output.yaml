@@ -1,0 +1,1136 @@
+---
+# =============================================================================
+# Payment Gateway Concurrency & Reliability Test Plan
+# =============================================================================
+# System Under Test: Payment Gateway processing concurrent transactions
+# SLA Target: p99 latency < 500ms
+# Design Constraints: Data consistency, no double-charges, graceful degradation
+# =============================================================================
+
+test_plan:
+  name: "Payment Gateway Concurrency and Reliability Test Plan"
+  version: "1.0.0"
+  created: "2026-03-14"
+  system_under_test: "Payment Gateway Service"
+  sla_requirements:
+    p99_latency_ms: 500
+    p95_latency_ms: 300
+    p50_latency_ms: 100
+    availability: "99.95%"
+    max_error_rate_percent: 0.1
+    max_duplicate_charge_rate: 0.0  # zero tolerance
+
+  environment:
+    gateway_instances: 3
+    database: "PostgreSQL 16 with read replicas"
+    connection_pool:
+      min_size: 20
+      max_size: 100
+      idle_timeout_ms: 30000
+    message_queue: "Kafka (3-broker cluster)"
+    cache: "Redis Sentinel (3 nodes)"
+    load_balancer: "Layer 7 with sticky sessions disabled"
+    external_dependencies:
+      - name: "Bank Acquirer API"
+        simulated: true
+        base_latency_ms: 80
+      - name: "Fraud Detection Service"
+        simulated: true
+        base_latency_ms: 30
+      - name: "Notification Service"
+        simulated: true
+        base_latency_ms: 15
+
+  load_profiles:
+    baseline:
+      label: "Normal steady-state traffic"
+      concurrent_users: 50
+      requests_per_second: 100
+      duration_minutes: 10
+      purpose: "Establish performance baselines for all metrics"
+
+    moderate:
+      label: "Elevated traffic (2x normal)"
+      concurrent_users: 150
+      requests_per_second: 250
+      duration_minutes: 15
+      purpose: "Verify system handles typical peak periods"
+
+    high:
+      label: "Peak traffic (5x normal)"
+      concurrent_users: 500
+      requests_per_second: 600
+      duration_minutes: 20
+      purpose: "Stress test at contractual capacity ceiling"
+
+    spike:
+      label: "Flash sale / sudden burst"
+      concurrent_users: 1000
+      requests_per_second: 1200
+      ramp_up_seconds: 5
+      duration_minutes: 5
+      purpose: "Validate behavior under instantaneous surge"
+
+    soak:
+      label: "Sustained high load"
+      concurrent_users: 300
+      requests_per_second: 400
+      duration_hours: 4
+      purpose: "Detect memory leaks, connection leaks, resource exhaustion over time"
+
+  # ===========================================================================
+  # SCENARIO 1: 500 Concurrent Payment Submissions
+  # ===========================================================================
+  scenarios:
+    - id: "SC-01"
+      name: "500 Concurrent Payment Submissions"
+      category: "concurrency"
+      priority: "critical"
+      description: >
+        Verify the payment gateway correctly processes 500 simultaneous payment
+        requests without data loss, duplication, or corruption. Every submitted
+        payment must result in exactly one charge and one persisted record.
+
+      preconditions:
+        - "All gateway instances are healthy and accepting traffic"
+        - "Database connection pool is at idle state (no active connections)"
+        - "Idempotency key cache is empty"
+        - "Monitoring dashboards are live and recording"
+        - "Bank acquirer simulator configured with 80ms base latency"
+
+      test_cases:
+        - id: "SC-01-TC-01"
+          name: "Simultaneous submission of 500 unique payments"
+          load_profile: "high"
+          steps:
+            - "Prepare 500 unique payment requests each with a distinct idempotency key, unique customer ID, and randomized amounts between $1.00 and $9999.99"
+            - "Open 500 concurrent HTTP/2 connections to the gateway"
+            - "Send all 500 requests within a 100ms window using a countdown latch / barrier"
+            - "Collect all 500 responses with timestamps"
+            - "Query the transaction database for all 500 idempotency keys"
+            - "Query the bank acquirer simulator logs for all outbound authorization requests"
+          assertions:
+            - metric: "total_successful_responses"
+              operator: "equals"
+              expected: 500
+              tolerance: 0
+              rationale: "Every valid payment must succeed under rated capacity"
+            - metric: "database_records_created"
+              operator: "equals"
+              expected: 500
+              tolerance: 0
+              rationale: "Exactly one transaction record per payment"
+            - metric: "bank_authorization_calls"
+              operator: "equals"
+              expected: 500
+              tolerance: 0
+              rationale: "No duplicate bank calls, no missing calls"
+            - metric: "p99_response_time_ms"
+              operator: "less_than"
+              expected: 500
+              rationale: "SLA compliance even at peak concurrency"
+            - metric: "p95_response_time_ms"
+              operator: "less_than"
+              expected: 300
+            - metric: "duplicate_charges"
+              operator: "equals"
+              expected: 0
+              tolerance: 0
+              rationale: "Zero tolerance for double-charges"
+
+        - id: "SC-01-TC-02"
+          name: "500 concurrent submissions with duplicate idempotency keys"
+          load_profile: "high"
+          steps:
+            - "Prepare 250 unique payment requests with distinct idempotency keys"
+            - "Clone each request to produce 500 total requests (250 originals + 250 duplicates)"
+            - "Shuffle the 500 requests randomly"
+            - "Submit all 500 concurrently via barrier synchronization"
+            - "Collect all responses"
+            - "Verify database and bank acquirer state"
+          assertions:
+            - metric: "total_responses"
+              operator: "equals"
+              expected: 500
+              rationale: "All requests must receive a response"
+            - metric: "successful_unique_charges"
+              operator: "equals"
+              expected: 250
+              rationale: "Only 250 unique payments should be charged"
+            - metric: "idempotent_replay_responses"
+              operator: "equals"
+              expected: 250
+              rationale: "Duplicate keys return the original result, not a new charge"
+            - metric: "bank_authorization_calls"
+              operator: "equals"
+              expected: 250
+              rationale: "Idempotent duplicates must not reach the bank"
+            - metric: "duplicate_charges"
+              operator: "equals"
+              expected: 0
+
+        - id: "SC-01-TC-03"
+          name: "500 concurrent submissions with mixed payment methods"
+          load_profile: "high"
+          steps:
+            - "Prepare 500 requests: 200 credit card, 150 debit card, 100 digital wallet, 50 ACH/bank transfer"
+            - "Submit all 500 concurrently"
+            - "Verify each payment was routed to the correct processor"
+            - "Verify response times by payment method"
+          assertions:
+            - metric: "correct_routing_rate"
+              operator: "equals"
+              expected: 1.0
+              rationale: "All payments must be routed to the correct processor"
+            - metric: "p99_response_time_ms"
+              operator: "less_than"
+              expected: 500
+            - metric: "total_successful_responses"
+              operator: "greater_than_or_equal"
+              expected: 495
+              rationale: "At least 99% success rate across all payment methods"
+
+    # =========================================================================
+    # SCENARIO 2: Transaction Isolation Under Load
+    # =========================================================================
+    - id: "SC-02"
+      name: "Transaction Isolation Under Load"
+      category: "data_consistency"
+      priority: "critical"
+      description: >
+        Verify that concurrent transactions do not interfere with each other.
+        No dirty reads, non-repeatable reads, phantom reads, or lost updates
+        may occur. This validates that the database isolation level (expected:
+        SERIALIZABLE or at minimum REPEATABLE READ for financial operations)
+        holds under heavy concurrent access.
+
+      preconditions:
+        - "Database isolation level confirmed as SERIALIZABLE for payment tables"
+        - "Audit logging enabled on all transaction state changes"
+        - "Customer accounts seeded with known balances"
+
+      test_cases:
+        - id: "SC-02-TC-01"
+          name: "Concurrent charges against the same customer account"
+          load_profile: "moderate"
+          steps:
+            - "Create a single customer account with a $10,000 balance and a $10,000 credit limit"
+            - "Generate 100 concurrent payment requests of $150 each against this single account"
+            - "Submit all 100 simultaneously"
+            - "Record which payments succeed and which are declined (over-limit)"
+            - "Query final account balance and sum of successful charges"
+          assertions:
+            - metric: "final_balance_correct"
+              operator: "equals"
+              expected: true
+              rationale: "Balance must equal initial_balance minus sum(successful_charges)"
+            - metric: "overdraft_occurred"
+              operator: "equals"
+              expected: false
+              rationale: "Account must never go below zero or exceed credit limit"
+            - metric: "lost_updates"
+              operator: "equals"
+              expected: 0
+              rationale: "No charge may silently disappear due to concurrent writes"
+            - metric: "successful_charges_times_amount"
+              operator: "less_than_or_equal"
+              expected: 10000
+              rationale: "Total charged must not exceed available balance"
+
+        - id: "SC-02-TC-02"
+          name: "Interleaved charge and refund on the same transaction"
+          load_profile: "moderate"
+          steps:
+            - "Process 200 payments successfully"
+            - "Immediately submit refund requests for all 200 payments concurrently while 200 new payments are also being processed"
+            - "Verify that refunds apply only to completed (not pending) transactions"
+            - "Verify that no refund creates a negative charge or corrupts a new payment"
+          assertions:
+            - metric: "refund_applied_to_wrong_transaction"
+              operator: "equals"
+              expected: 0
+            - metric: "negative_balance_from_refund"
+              operator: "equals"
+              expected: false
+            - metric: "transaction_state_integrity"
+              operator: "equals"
+              expected: true
+              rationale: "Every transaction must be in a valid terminal state: completed, refunded, or failed"
+
+        - id: "SC-02-TC-03"
+          name: "Read-your-own-write consistency under load"
+          load_profile: "high"
+          steps:
+            - "Submit a payment and immediately query its status in a tight loop (within 5ms)"
+            - "Repeat for 500 payments concurrently"
+            - "Record how many status queries returned 'not found' for a payment that was accepted"
+          assertions:
+            - metric: "stale_read_count"
+              operator: "equals"
+              expected: 0
+              rationale: "Writes must be visible to subsequent reads on the same session"
+            - metric: "eventual_consistency_window_ms"
+              operator: "less_than"
+              expected: 50
+              rationale: "Cross-replica reads must converge within 50ms"
+
+        - id: "SC-02-TC-04"
+          name: "Phantom read prevention during balance aggregation"
+          load_profile: "moderate"
+          steps:
+            - "Start a long-running balance aggregation query (SELECT SUM) across all transactions for a merchant"
+            - "While the aggregation is running, insert 50 new transactions for the same merchant concurrently"
+            - "Compare the aggregation result to a post-insert recalculation"
+          assertions:
+            - metric: "phantom_read_detected"
+              operator: "equals"
+              expected: false
+              rationale: "The aggregation must see a consistent snapshot, either all 50 new rows or none"
+
+    # =========================================================================
+    # SCENARIO 3: Response Time Degradation Patterns
+    # =========================================================================
+    - id: "SC-03"
+      name: "Response Time Degradation Patterns"
+      category: "performance"
+      priority: "critical"
+      description: >
+        Characterize how response times degrade as load increases from baseline
+        to beyond capacity. Identify the inflection point where p99 breaches
+        the 500ms SLA, and verify that degradation is gradual (linear or
+        sub-exponential) rather than a cliff.
+
+      preconditions:
+        - "System warmed up for 5 minutes at baseline load"
+        - "JIT compilation and connection pool priming completed"
+        - "GC tuning applied (if JVM-based)"
+        - "APM traces enabled at 100% sampling during test"
+
+      test_cases:
+        - id: "SC-03-TC-01"
+          name: "Stepped load ramp from baseline to 3x capacity"
+          load_profile: "custom_ramp"
+          custom_profile:
+            stages:
+              - name: "warmup"
+                rps: 100
+                duration_minutes: 5
+                expected_p99_ms: "<100"
+              - name: "baseline"
+                rps: 100
+                duration_minutes: 10
+                expected_p99_ms: "<100"
+              - name: "1.5x"
+                rps: 150
+                duration_minutes: 10
+                expected_p99_ms: "<150"
+              - name: "2x"
+                rps: 200
+                duration_minutes: 10
+                expected_p99_ms: "<200"
+              - name: "3x"
+                rps: 300
+                duration_minutes: 10
+                expected_p99_ms: "<350"
+              - name: "4x"
+                rps: 400
+                duration_minutes: 10
+                expected_p99_ms: "<450"
+              - name: "5x_at_capacity"
+                rps: 500
+                duration_minutes: 10
+                expected_p99_ms: "<500"
+              - name: "6x_over_capacity"
+                rps: 600
+                duration_minutes: 10
+                expected_p99_ms: "may_exceed_sla"
+              - name: "8x_stress"
+                rps: 800
+                duration_minutes: 5
+                expected_p99_ms: "expected_to_exceed_sla"
+              - name: "cooldown"
+                rps: 100
+                duration_minutes: 10
+                expected_p99_ms: "<100 (recovery)"
+          steps:
+            - "Execute each stage sequentially, holding steady for the specified duration"
+            - "Collect p50, p90, p95, p99, max latency, and throughput at each stage"
+            - "Record error rates at each stage"
+            - "Plot latency vs throughput curve"
+            - "Identify the saturation point (knee of the curve)"
+            - "Verify system recovers to baseline performance during cooldown"
+          assertions:
+            - metric: "p99_at_5x_capacity"
+              operator: "less_than"
+              expected: 500
+              rationale: "Must meet SLA at rated capacity"
+            - metric: "degradation_pattern"
+              operator: "matches"
+              expected: "linear_or_sublinear"
+              rationale: "Latency must not exhibit exponential blowup"
+            - metric: "error_rate_at_5x"
+              operator: "less_than"
+              expected: 0.001
+              rationale: "Less than 0.1% errors at rated capacity"
+            - metric: "cooldown_p99_recovery_ms"
+              operator: "less_than"
+              expected: 100
+              rationale: "System must fully recover after overload is removed"
+            - metric: "cooldown_recovery_time_seconds"
+              operator: "less_than"
+              expected: 60
+              rationale: "Recovery must happen within 60 seconds of load reduction"
+
+        - id: "SC-03-TC-02"
+          name: "Latency distribution analysis under sustained load"
+          load_profile: "soak"
+          steps:
+            - "Run at 400 RPS for 4 hours continuously"
+            - "Sample latency every second (14,400 data points)"
+            - "Compute rolling p99 over 1-minute windows"
+            - "Identify any latency spikes and correlate with GC pauses, connection pool events, or external dependency slowdowns"
+          assertions:
+            - metric: "p99_sla_violation_windows"
+              operator: "less_than"
+              expected: 5
+              rationale: "Fewer than 5 one-minute windows may breach p99 over 4 hours"
+            - metric: "latency_trend_slope"
+              operator: "less_than"
+              expected: 0.5
+              unit: "ms_per_minute"
+              rationale: "Latency must not steadily creep upward (leak indicator)"
+            - metric: "max_latency_spike_ms"
+              operator: "less_than"
+              expected: 2000
+              rationale: "Even outlier spikes should be bounded"
+
+        - id: "SC-03-TC-03"
+          name: "Tail latency under bursty traffic patterns"
+          load_profile: "custom_burst"
+          custom_profile:
+            pattern: "sinusoidal_with_spikes"
+            base_rps: 200
+            peak_rps: 800
+            spike_duration_seconds: 10
+            spike_interval_seconds: 120
+            total_duration_minutes: 30
+          steps:
+            - "Generate traffic following a sinusoidal wave between 200-400 RPS"
+            - "Inject 10-second spikes to 800 RPS every 2 minutes"
+            - "Measure latency during spikes vs steady-state"
+            - "Measure queue depth during spikes"
+          assertions:
+            - metric: "p99_during_spike"
+              operator: "less_than"
+              expected: 800
+              rationale: "Spikes may temporarily exceed SLA but must be bounded"
+            - metric: "p99_between_spikes"
+              operator: "less_than"
+              expected: 300
+              rationale: "System must recover between spikes"
+            - metric: "request_queue_max_depth"
+              operator: "less_than"
+              expected: 1000
+              rationale: "Queue must not grow unbounded during spikes"
+
+    # =========================================================================
+    # SCENARIO 4: Connection Pool Exhaustion
+    # =========================================================================
+    - id: "SC-04"
+      name: "Connection Pool Exhaustion"
+      category: "resource_management"
+      priority: "high"
+      description: >
+        Verify that the system handles connection pool exhaustion gracefully
+        by queuing requests, shedding load with appropriate HTTP status codes,
+        and recovering automatically when connections are returned. No silent
+        failures, hung requests, or connection leaks.
+
+      preconditions:
+        - "Connection pool max size set to 100"
+        - "Connection acquisition timeout set to 5000ms"
+        - "Connection pool metrics exposed via prometheus/metrics endpoint"
+        - "Bank acquirer simulator latency increased to 200ms to hold connections longer"
+
+      test_cases:
+        - id: "SC-04-TC-01"
+          name: "Gradual pool saturation and queuing behavior"
+          load_profile: "custom_ramp"
+          custom_profile:
+            stages:
+              - rps: 50
+                duration_minutes: 2
+                expected_pool_utilization: "50%"
+              - rps: 100
+                duration_minutes: 2
+                expected_pool_utilization: "80-90%"
+              - rps: 150
+                duration_minutes: 5
+                expected_pool_utilization: "100% with queuing"
+              - rps: 50
+                duration_minutes: 5
+                expected_pool_utilization: "recovery to 50%"
+          steps:
+            - "Ramp load through each stage while monitoring pool metrics"
+            - "Record active connections, idle connections, pending acquisitions at 1-second intervals"
+            - "Measure time-to-acquire-connection at each stage"
+            - "Verify behavior when all 100 connections are active"
+            - "Confirm recovery when load decreases"
+          assertions:
+            - metric: "max_active_connections"
+              operator: "less_than_or_equal"
+              expected: 100
+              rationale: "Pool must never exceed configured maximum"
+            - metric: "connection_leak_count"
+              operator: "equals"
+              expected: 0
+              rationale: "All connections must be returned after transaction completes"
+            - metric: "pool_exhaustion_response_code"
+              operator: "equals"
+              expected: 503
+              rationale: "Service Unavailable when pool is exhausted, not a hang or 500"
+            - metric: "requests_completed_during_exhaustion"
+              operator: "greater_than"
+              expected: 0
+              rationale: "System must still process requests as connections are freed"
+            - metric: "recovery_time_to_normal_pool_seconds"
+              operator: "less_than"
+              expected: 30
+
+        - id: "SC-04-TC-02"
+          name: "Connection leak detection under error conditions"
+          load_profile: "moderate"
+          steps:
+            - "Configure bank acquirer simulator to return errors for 30% of requests"
+            - "Run 150 concurrent requests for 15 minutes"
+            - "Monitor connection pool size over time"
+            - "Check for connections not returned due to error-path bugs"
+          assertions:
+            - metric: "connection_pool_size_drift"
+              operator: "equals"
+              expected: 0
+              rationale: "Pool size must return to baseline between request batches"
+            - metric: "unreturned_connections_after_error"
+              operator: "equals"
+              expected: 0
+              rationale: "Error paths must always release connections via finally/defer"
+            - metric: "connection_pool_size_at_end"
+              operator: "equals"
+              expected: "same_as_start"
+
+        - id: "SC-04-TC-03"
+          name: "Connection pool behavior during database failover"
+          load_profile: "moderate"
+          steps:
+            - "Run steady 150 RPS load"
+            - "At t=5min, simulate primary database failover (kill primary, promote replica)"
+            - "Monitor connection pool invalidation and reconnection"
+            - "Measure how many in-flight transactions are affected"
+            - "Verify pool replenishes with connections to new primary"
+          assertions:
+            - metric: "stale_connection_usage_after_failover"
+              operator: "equals"
+              expected: 0
+              rationale: "Stale connections must be evicted, not reused"
+            - metric: "pool_recovery_time_seconds"
+              operator: "less_than"
+              expected: 15
+              rationale: "Connection pool must reconnect within 15 seconds"
+            - metric: "transactions_failed_during_failover"
+              operator: "less_than"
+              expected: 50
+              rationale: "Only in-flight transactions at moment of failover should fail"
+            - metric: "data_corruption_from_failover"
+              operator: "equals"
+              expected: 0
+
+        - id: "SC-04-TC-04"
+          name: "Connection acquisition timeout behavior"
+          load_profile: "high"
+          steps:
+            - "Set connection acquisition timeout to 3000ms"
+            - "Saturate the pool by holding 100 connections with slow queries (500ms each)"
+            - "Submit 200 additional requests that must wait for a connection"
+            - "Verify requests that cannot acquire a connection within 3000ms receive a timeout error"
+          assertions:
+            - metric: "timeout_response_time_ms"
+              operator: "approximately"
+              expected: 3000
+              tolerance_ms: 500
+              rationale: "Requests must fail at timeout, not hang indefinitely"
+            - metric: "timeout_response_code"
+              operator: "equals"
+              expected: 503
+            - metric: "timeout_response_body"
+              operator: "contains"
+              expected: "service_temporarily_unavailable"
+              rationale: "Client must receive an actionable error message"
+
+    # =========================================================================
+    # SCENARIO 5: Deadlock Detection and Recovery
+    # =========================================================================
+    - id: "SC-05"
+      name: "Deadlock Detection and Recovery"
+      category: "data_consistency"
+      priority: "critical"
+      description: >
+        Verify the system detects database deadlocks, automatically retries
+        affected transactions, logs the event for diagnosis, and does not
+        produce duplicate charges or data corruption as a result of retry.
+
+      preconditions:
+        - "Database deadlock detection timeout set to 1000ms"
+        - "Application-level retry configured: max 3 attempts with exponential backoff (100ms, 200ms, 400ms)"
+        - "Deadlock monitoring alerts configured"
+        - "All retry attempts use the same idempotency key"
+
+      test_cases:
+        - id: "SC-05-TC-01"
+          name: "Induced deadlock between two concurrent updates"
+          load_profile: "baseline"
+          steps:
+            - "Create two customer accounts A and B"
+            - "Simultaneously submit: Transfer $100 from A to B, and Transfer $100 from B to A"
+            - "These operations acquire locks in opposite order, inducing a deadlock"
+            - "Repeat this pattern 100 times concurrently"
+            - "Verify deadlock detection, retry, and final consistency"
+          assertions:
+            - metric: "deadlocks_detected"
+              operator: "greater_than"
+              expected: 0
+              rationale: "Deadlocks should actually occur to validate detection"
+            - metric: "deadlocks_resolved_by_retry"
+              operator: "equals_percentage_of"
+              reference: "deadlocks_detected"
+              expected: 100
+              rationale: "All deadlocks must be resolved via retry"
+            - metric: "final_balance_a_plus_b"
+              operator: "equals"
+              expected: "initial_balance_a_plus_b"
+              rationale: "Conservation of funds: total money in system unchanged"
+            - metric: "duplicate_charges_from_retry"
+              operator: "equals"
+              expected: 0
+              rationale: "Retries must be idempotent"
+            - metric: "deadlock_alert_fired"
+              operator: "equals"
+              expected: true
+
+        - id: "SC-05-TC-02"
+          name: "Multi-row deadlock under high contention"
+          load_profile: "moderate"
+          steps:
+            - "Create 10 merchant accounts"
+            - "Submit 200 concurrent payments that each update a merchant balance and a global settlement ledger"
+            - "Randomize the order of lock acquisition across requests"
+            - "Monitor for deadlocks and measure retry success rate"
+          assertions:
+            - metric: "transaction_success_rate_after_retries"
+              operator: "greater_than_or_equal"
+              expected: 0.99
+              rationale: "At least 99% success after retries"
+            - metric: "max_retry_count_per_transaction"
+              operator: "less_than_or_equal"
+              expected: 3
+              rationale: "No transaction should need more than 3 retries"
+            - metric: "ledger_balance_reconciliation"
+              operator: "equals"
+              expected: "balanced"
+              rationale: "Ledger debits must equal credits after all retries complete"
+
+        - id: "SC-05-TC-03"
+          name: "Deadlock retry does not cause double-charge"
+          load_profile: "baseline"
+          steps:
+            - "Submit a payment that acquires a lock on the customer row and the transaction log"
+            - "Simultaneously submit another payment for the same customer that acquires locks in reverse order"
+            - "Force a deadlock and ensure the retried transaction does not result in two charges"
+            - "Verify the bank acquirer received exactly one authorization per payment"
+            - "Repeat 500 times to build statistical confidence"
+          assertions:
+            - metric: "double_charge_incidents"
+              operator: "equals"
+              expected: 0
+              tolerance: 0
+              rationale: "Absolute zero tolerance across all 500 iterations"
+            - metric: "bank_authorizations_per_payment"
+              operator: "equals"
+              expected: 1
+              rationale: "Retry must check idempotency before calling bank"
+            - metric: "customer_charge_count"
+              operator: "equals"
+              expected: "expected_unique_payments"
+
+    # =========================================================================
+    # SCENARIO 6: Partial Failure Handling (Gateway Up, Bank Down)
+    # =========================================================================
+    - id: "SC-06"
+      name: "Partial Failure Handling - Gateway Up, Bank Down"
+      category: "fault_tolerance"
+      priority: "critical"
+      description: >
+        Verify system behavior when the payment gateway is operational but
+        the downstream bank acquirer API is degraded or unavailable. The
+        system must not lose transactions, must not charge customers without
+        bank confirmation, and must provide clear status to clients.
+
+      preconditions:
+        - "Bank acquirer simulator supports configurable failure modes"
+        - "Circuit breaker configured: threshold 5 failures in 10 seconds, half-open after 30 seconds"
+        - "Dead letter queue configured for failed transactions"
+        - "Retry policy: 3 attempts with 1s, 2s, 4s backoff for retryable errors"
+
+      test_cases:
+        - id: "SC-06-TC-01"
+          name: "Complete bank outage during active traffic"
+          load_profile: "moderate"
+          steps:
+            - "Run at 250 RPS with bank simulator healthy for 5 minutes (establish baseline)"
+            - "At t=5min, make bank simulator return HTTP 503 for all requests"
+            - "Continue sending traffic for 10 minutes during outage"
+            - "At t=15min, restore bank simulator to healthy"
+            - "Continue for 10 minutes and verify recovery"
+          assertions:
+            - metric: "payments_falsely_confirmed_during_outage"
+              operator: "equals"
+              expected: 0
+              rationale: "Never confirm a payment without bank authorization"
+            - metric: "circuit_breaker_opened"
+              operator: "equals"
+              expected: true
+              rationale: "Circuit breaker must open to stop hammering failed bank"
+            - metric: "client_response_during_outage"
+              operator: "equals"
+              expected: "payment_pending_or_declined"
+              rationale: "Client must receive clear status, not ambiguous error"
+            - metric: "queued_for_retry_count"
+              operator: "greater_than"
+              expected: 0
+              rationale: "Retryable transactions must be queued, not dropped"
+            - metric: "successful_retry_after_recovery"
+              operator: "greater_than"
+              expected: 0
+              rationale: "Queued transactions must be retried when bank recovers"
+            - metric: "gateway_remains_responsive"
+              operator: "equals"
+              expected: true
+              rationale: "Gateway must not hang or crash due to downstream failure"
+            - metric: "gateway_p99_during_outage_ms"
+              operator: "less_than"
+              expected: 1000
+              rationale: "Fast failure is better than slow timeout"
+
+        - id: "SC-06-TC-02"
+          name: "Intermittent bank failures (50% error rate)"
+          load_profile: "moderate"
+          steps:
+            - "Configure bank simulator to fail 50% of requests randomly with HTTP 500"
+            - "Run 250 RPS for 15 minutes"
+            - "Track which payments succeeded on first attempt vs retry"
+            - "Verify no payment was charged twice due to ambiguous failures"
+          assertions:
+            - metric: "eventual_success_rate"
+              operator: "greater_than"
+              expected: 0.90
+              rationale: "With retries, most payments should eventually succeed"
+            - metric: "double_charge_count"
+              operator: "equals"
+              expected: 0
+              rationale: "Ambiguous responses must be resolved before retry"
+            - metric: "orphaned_authorizations"
+              operator: "equals"
+              expected: 0
+              rationale: "Authorizations without matching transaction records must be voided"
+
+        - id: "SC-06-TC-03"
+          name: "Bank timeout (slow responses, not errors)"
+          load_profile: "moderate"
+          steps:
+            - "Configure bank simulator to respond with 10-second delay (exceeding 5-second timeout)"
+            - "Submit 250 RPS for 10 minutes"
+            - "Monitor thread pool, connection pool, and memory usage"
+            - "Verify timeout handling does not leak resources"
+          assertions:
+            - metric: "gateway_thread_pool_exhaustion"
+              operator: "equals"
+              expected: false
+              rationale: "Timeouts must release threads, not block them"
+            - metric: "gateway_memory_growth_mb"
+              operator: "less_than"
+              expected: 100
+              rationale: "Pending timeouts must not accumulate unbounded memory"
+            - metric: "client_timeout_response_ms"
+              operator: "approximately"
+              expected: 5000
+              tolerance_ms: 500
+              rationale: "Clients must receive timeout within configured window"
+            - metric: "bank_authorization_status_check"
+              operator: "equals"
+              expected: "implemented"
+              rationale: "System must check if timed-out authorization actually went through"
+
+        - id: "SC-06-TC-04"
+          name: "Bank returns success but gateway crashes before persisting"
+          load_profile: "baseline"
+          steps:
+            - "Instrument gateway to crash (kill process) after receiving bank success but before committing to database"
+            - "Submit 10 payments that trigger this crash scenario"
+            - "Restart gateway"
+            - "Run reconciliation process"
+            - "Verify all 10 payments are correctly reconciled (either voided at bank or committed locally)"
+          assertions:
+            - metric: "unreconciled_transactions"
+              operator: "equals"
+              expected: 0
+              rationale: "Every bank authorization must have a matching local record after reconciliation"
+            - metric: "customer_charged_without_record"
+              operator: "equals"
+              expected: 0
+              rationale: "Ghost charges are unacceptable"
+            - metric: "reconciliation_completed"
+              operator: "equals"
+              expected: true
+
+        - id: "SC-06-TC-05"
+          name: "Cascading failure prevention - bank failure does not crash gateway"
+          load_profile: "high"
+          steps:
+            - "Run at 500 RPS"
+            - "Abruptly make bank simulator drop all TCP connections (connection reset)"
+            - "Verify gateway does not crash, OOM, or become unresponsive"
+            - "Verify health check endpoint remains responsive"
+            - "Verify non-payment endpoints (status checks, refund lookups) remain functional"
+          assertions:
+            - metric: "gateway_process_alive"
+              operator: "equals"
+              expected: true
+            - metric: "health_check_responsive"
+              operator: "equals"
+              expected: true
+            - metric: "non_payment_endpoints_functional"
+              operator: "equals"
+              expected: true
+            - metric: "oom_killed"
+              operator: "equals"
+              expected: false
+
+    # =========================================================================
+    # SCENARIO 7: Graceful Degradation When Approaching Capacity
+    # =========================================================================
+    - id: "SC-07"
+      name: "Graceful Degradation When Approaching Capacity"
+      category: "resilience"
+      priority: "critical"
+      description: >
+        Verify the system degrades gracefully as it approaches and exceeds its
+        rated capacity. The system should employ load shedding, request queuing
+        with bounded depth, priority-based processing, and clear backpressure
+        signals rather than catastrophic failure.
+
+      preconditions:
+        - "Rate limiter configured: 600 RPS global, 50 RPS per-merchant"
+        - "Request queue max depth: 500"
+        - "Priority tiers defined: critical (refunds), high (payments), low (status queries)"
+        - "Auto-scaling policy: scale out at 70% CPU, max 6 instances"
+        - "Bulkhead pattern: separate thread pools for payments vs queries"
+
+      test_cases:
+        - id: "SC-07-TC-01"
+          name: "Load shedding activation and fairness"
+          load_profile: "spike"
+          steps:
+            - "Ramp from 100 to 1200 RPS over 5 seconds"
+            - "Maintain 1200 RPS for 5 minutes (2x rated capacity)"
+            - "Monitor which requests are shed (rejected with 429 or 503)"
+            - "Verify load shedding activates before system becomes unresponsive"
+            - "Verify shed requests receive fast failure (not timeout)"
+          assertions:
+            - metric: "load_shedding_activated"
+              operator: "equals"
+              expected: true
+            - metric: "shed_response_time_ms"
+              operator: "less_than"
+              expected: 50
+              rationale: "Rejected requests must fail fast, not consume resources"
+            - metric: "shed_response_code"
+              operator: "in"
+              expected: [429, 503]
+            - metric: "accepted_request_success_rate"
+              operator: "greater_than"
+              expected: 0.99
+              rationale: "Requests that are accepted must still succeed"
+            - metric: "accepted_request_p99_ms"
+              operator: "less_than"
+              expected: 500
+              rationale: "SLA must hold for accepted requests even during overload"
+            - metric: "shed_requests_include_retry_after_header"
+              operator: "equals"
+              expected: true
+              rationale: "Clients must know when to retry"
+
+        - id: "SC-07-TC-02"
+          name: "Priority-based request processing under overload"
+          load_profile: "spike"
+          steps:
+            - "Generate mixed traffic at 1000 RPS: 10% refunds (critical), 60% payments (high), 30% status queries (low)"
+            - "Verify priority queue orders processing correctly"
+            - "Measure completion rate by priority tier"
+          assertions:
+            - metric: "critical_tier_success_rate"
+              operator: "greater_than"
+              expected: 0.99
+              rationale: "Refunds must almost never be shed"
+            - metric: "high_tier_success_rate"
+              operator: "greater_than"
+              expected: 0.80
+              rationale: "Payments should be shed before refunds"
+            - metric: "low_tier_success_rate"
+              operator: "greater_than"
+              expected: 0.50
+              rationale: "Status queries are shed first"
+            - metric: "low_tier_shed_before_high_tier"
+              operator: "equals"
+              expected: true
+              rationale: "Shedding order must respect priority"
+
+        - id: "SC-07-TC-03"
+          name: "Per-merchant rate limiting prevents noisy neighbor"
+          load_profile: "high"
+          steps:
+            - "Configure 10 merchants"
+            - "Merchant A sends 400 RPS (abusive), Merchants B-J send 20 RPS each (normal)"
+            - "Total system load: 580 RPS (within capacity)"
+            - "Verify Merchant A is rate-limited while B-J are unaffected"
+          assertions:
+            - metric: "merchant_a_accepted_rps"
+              operator: "approximately"
+              expected: 50
+              tolerance: 10
+              rationale: "Merchant A must be capped at per-merchant limit"
+            - metric: "merchants_b_to_j_success_rate"
+              operator: "greater_than"
+              expected: 0.99
+              rationale: "Normal merchants must not be impacted by noisy neighbor"
+            - metric: "merchant_a_429_responses"
+              operator: "greater_than"
+              expected: 0
+              rationale: "Excess requests from Merchant A must be rejected with 429"
+
+        - id: "SC-07-TC-04"
+          name: "Bounded queue depth prevents memory exhaustion"
+          load_profile: "spike"
+          steps:
+            - "Set request queue max depth to 500"
+            - "Send 1500 RPS for 3 minutes (requests queued faster than processed)"
+            - "Monitor queue depth, memory usage, and rejection count"
+          assertions:
+            - metric: "max_queue_depth"
+              operator: "less_than_or_equal"
+              expected: 500
+              rationale: "Queue must never exceed configured bound"
+            - metric: "requests_rejected_queue_full"
+              operator: "greater_than"
+              expected: 0
+              rationale: "Overflow must be rejected, not silently dropped"
+            - metric: "jvm_heap_usage_percent"
+              operator: "less_than"
+              expected: 85
+              rationale: "Memory must remain bounded even under sustained overload"
+            - metric: "oom_events"
+              operator: "equals"
+              expected: 0
+
+        - id: "SC-07-TC-05"
+          name: "Auto-scaling trigger and stabilization"
+          load_profile: "custom_ramp"
+          custom_profile:
+            stages:
+              - rps: 200
+                duration_minutes: 5
+                expected_instances: 3
+              - rps: 500
+                duration_minutes: 10
+                expected_instances: 4
+              - rps: 700
+                duration_minutes: 10
+                expected_instances: 5-6
+              - rps: 200
+                duration_minutes: 15
+                expected_instances: "scale-in to 3"
+          steps:
+            - "Gradually increase load and monitor auto-scaling decisions"
+            - "Verify new instances receive traffic within 60 seconds of becoming healthy"
+            - "Verify scale-in does not cause request failures (drain before shutdown)"
+            - "Verify no flapping (rapid scale-out/scale-in cycles)"
+          assertions:
+            - metric: "scale_out_triggered"
+              operator: "equals"
+              expected: true
+            - metric: "time_to_healthy_new_instance_seconds"
+              operator: "less_than"
+              expected: 90
+            - metric: "requests_lost_during_scale_in"
+              operator: "equals"
+              expected: 0
+              rationale: "Graceful drain must complete before instance termination"
+            - metric: "scaling_flap_events"
+              operator: "equals"
+              expected: 0
+              rationale: "Cooldown period must prevent oscillation"
+            - metric: "p99_during_scale_out_ms"
+              operator: "less_than"
+              expected: 600
+              rationale: "Slight SLA breach acceptable during scale-out transition"
+
+  # ===========================================================================
+  # Cross-Cutting Validation (applies to all scenarios)
+  # ===========================================================================
+  cross_cutting_validations:
+    - name: "Double-charge prevention (global invariant)"
+      applied_to: "all_scenarios"
+      validation: >
+        After every test run, execute a full reconciliation query:
+        SELECT idempotency_key, COUNT(*) FROM transactions
+        GROUP BY idempotency_key HAVING COUNT(*) > 1.
+        Result must always be empty.
+
+    - name: "Audit trail completeness"
+      applied_to: "all_scenarios"
+      validation: >
+        Every transaction must have a complete audit trail: created, authorized,
+        captured/declined, and settled/voided. No transaction may be in a
+        state not covered by its audit log.
+
+    - name: "Financial reconciliation"
+      applied_to: "all_scenarios"
+      validation: >
+        Sum of all successful charges minus sum of all refunds must equal
+        the total amount settled with the bank acquirer, within rounding
+        tolerance of $0.01 per 1000 transactions.
+
+    - name: "Error response correctness"
+      applied_to: "all_scenarios"
+      validation: >
+        All error responses must include: a machine-readable error code,
+        a human-readable message, a request ID for tracing, and a
+        Retry-After header for rate-limited (429) responses.
+
+    - name: "Observability coverage"
+      applied_to: "all_scenarios"
+      validation: >
+        All test runs must produce: distributed traces (OpenTelemetry),
+        metrics (Prometheus), structured logs with correlation IDs,
+        and alerting thresholds must fire when SLA is breached.
+
+  # ===========================================================================
+  # Tooling and Infrastructure
+  # ===========================================================================
+  tooling:
+    load_generator:
+      primary: "k6 (Grafana)"
+      secondary: "Gatling (for complex scenarios)"
+      configuration:
+        virtual_users_per_load_gen: 500
+        load_gen_instances: 4
+        protocol: "HTTP/2"
+        connection_reuse: true
+
+    monitoring:
+      apm: "Datadog or Elastic APM"
+      metrics: "Prometheus + Grafana"
+      tracing: "Jaeger with OpenTelemetry SDK"
+      logging: "ELK Stack with structured JSON logs"
+      custom_dashboards:
+        - "Transaction throughput and error rates"
+        - "Latency percentiles (p50, p90, p95, p99)"
+        - "Connection pool utilization"
+        - "Circuit breaker state transitions"
+        - "Queue depth and rejection rates"
+        - "Database lock contention and deadlock count"
+
+    simulators:
+      bank_acquirer:
+        tool: "WireMock or custom stub server"
+        capabilities:
+          - "Configurable latency (fixed, random, or distribution-based)"
+          - "Configurable error rates and error types"
+          - "Connection drop simulation"
+          - "Slow response (timeout) simulation"
+          - "Stateful simulation (track authorizations for reconciliation)"
+      fraud_service:
+        tool: "WireMock"
+        capabilities:
+          - "Configurable approval/decline ratio"
+          - "Configurable latency"
+
+    database:
+      primary: "PostgreSQL 16"
+      test_utilities:
+        - "pg_stat_activity for connection monitoring"
+        - "pg_locks for deadlock analysis"
+        - "pg_stat_statements for query performance"
+        - "Custom reconciliation queries"
+
+  # ===========================================================================
+  # Execution Schedule and Reporting
+  # ===========================================================================
+  execution:
+    phases:
+      - phase: 1
+        name: "Baseline and Isolation"
+        scenarios: ["SC-01", "SC-02"]
+        duration: "2 days"
+        purpose: "Establish correctness under concurrency"
+
+      - phase: 2
+        name: "Performance Characterization"
+        scenarios: ["SC-03"]
+        duration: "2 days"
+        purpose: "Map the performance envelope and identify saturation points"
+
+      - phase: 3
+        name: "Resource Exhaustion and Recovery"
+        scenarios: ["SC-04", "SC-05"]
+        duration: "2 days"
+        purpose: "Validate resource management and deadlock handling"
+
+      - phase: 4
+        name: "Fault Tolerance and Degradation"
+        scenarios: ["SC-06", "SC-07"]
+        duration: "3 days"
+        purpose: "Validate resilience under partial failures and overload"
+
+      - phase: 5
+        name: "Endurance"
+        scenarios: ["SC-03-TC-02"]
+        duration: "1 day (4-hour soak test + analysis)"
+        purpose: "Detect slow leaks and long-term stability issues"
+
+    reporting:
+      format: "HTML report with embedded Grafana snapshots"
+      contents:
+        - "Executive summary with pass/fail per scenario"
+        - "Latency percentile charts (time series)"
+        - "Throughput vs latency scatter plots"
+        - "Error rate breakdown by type and scenario"
+        - "Resource utilization trends (CPU, memory, connections, threads)"
+        - "Identified bottlenecks and recommendations"
+        - "Comparison against SLA thresholds"
+      distribution: "Engineering leads, SRE team, product stakeholders"
+
+    exit_criteria:
+      must_pass:
+        - "Zero double-charges across all scenarios (SC-01, SC-02, SC-05)"
+        - "p99 < 500ms at rated capacity of 500 concurrent users (SC-01, SC-03)"
+        - "No data corruption or lost transactions under any failure mode (SC-06)"
+        - "Graceful degradation with clear client feedback under overload (SC-07)"
+        - "Connection pool recovery within 30 seconds (SC-04)"
+        - "All deadlocks resolved via retry with zero duplicate charges (SC-05)"
+      should_pass:
+        - "p99 < 300ms at 2x normal load"
+        - "Auto-scaling triggers within 90 seconds"
+        - "Soak test shows zero latency trend over 4 hours"
+      informational:
+        - "Exact saturation point (RPS at which p99 exceeds SLA)"
+        - "Maximum sustainable throughput before error rate exceeds 1%"
+        - "Time-to-recovery after each failure scenario"

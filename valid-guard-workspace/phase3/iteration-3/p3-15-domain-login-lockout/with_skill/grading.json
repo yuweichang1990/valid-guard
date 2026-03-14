@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-15-domain-login-lockout",
+  "eval_name": "Login authentication with lockout",
+  "category": "domain_specific",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Valid login redirects to dashboard",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('valid', 'credential')"
+    },
+    {
+      "text": "Generic error message (no enumeration)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('generic', 'message')"
+    },
+    {
+      "text": "Account lockout after N failures",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('lock', 'after')"
+    },
+    {
+      "text": "Lockout duration/reset mechanism",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: reset"
+    },
+    {
+      "text": "SQL injection prevention",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: SQL inject"
+    },
+    {
+      "text": "Brute force protection",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: brute-force"
+    },
+    {
+      "text": "Session management",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: session"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: feature:"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Impact"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: technique_rationale:"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: uncovered"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priority: 1"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: test_ref:"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: happy_path"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence_partitioning"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: example_mapping:"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: metadata:"
+    }
+  ],
+  "summary": {
+    "passed": 17,
+    "total": 17,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 1.0
+  }
+}

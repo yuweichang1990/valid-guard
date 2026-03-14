@@ -1,0 +1,318 @@
+# Valid Guard Advisory Response
+# Generated: 2026-03-14T00:00:00Z
+# Mode: Advisory — Reviewing Existing Tests
+
+verdict: "NO — your tests are NOT good enough"
+
+summary: >
+  100% code coverage is giving you a false sense of security. You have two tests covering
+  two execution paths, but your test suite suffers from coverage theater — the illusion of
+  thorough testing created by high line coverage with low scenario coverage. A mutation
+  testing tool (e.g., Stryker for C#, PITest for Java) would confirm that multiple mutants
+  survive your current suite. Code coverage measures which lines executed, not which
+  behaviors were verified. Your tests exercise the happy path and one error path, but miss
+  critical boundaries, edge cases, and mutation-survivable weaknesses.
+
+anti_pattern_identified:
+  name: "Coverage Theater"
+  description: >
+    Achieving 100% line/branch coverage while leaving critical boundaries and edge cases
+    untested. The coverage metric creates a false confidence that the code is well-tested
+    when in fact many fault classes remain undetected. Two tests can cover all lines of a
+    simple method while leaving dozens of real-world failure modes unexposed.
+
+risk_assessment:
+  what_you_are_testing:
+    - scenario: "Happy path — 10% discount on price of 100"
+      risk: low
+      rationale: >
+        Impact: 1, Frequency: 2, Consequence: 1, Detectability: 3. Average: 1.75 -> low.
+        A single interior-point test in the valid partition. This is the easiest case and
+        least likely to harbor defects. Any developer would get this right.
+    - scenario: "Negative price throws exception"
+      risk: medium
+      rationale: >
+        Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 -> medium.
+        Validates input rejection, but only one value in the invalid partition was tested.
+        Does not verify the boundary itself (price=0).
+
+  what_you_should_be_testing:
+    - scenario: "Boundary: price = 0 (the <= to < mutation boundary)"
+      risk: high
+      rationale: >
+        Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> high.
+        If the guard condition is `price <= 0` and a mutation changes it to `price < 0`,
+        price=0 would silently pass validation and produce a $0 result instead of throwing.
+        This is a silent failure — the user gets no error but the business logic is wrong.
+        Your test with price=-10 CANNOT catch this mutation because -10 satisfies both
+        `<= 0` and `< 0`. Only price=0 (the on-point boundary) can distinguish them.
+    - scenario: "Boundary: discountPercent = 0 (no discount)"
+      risk: high
+      rationale: >
+        Impact: 3, Frequency: 3, Consequence: 2, Detectability: 2. Average: 2.5 -> high.
+        0% discount is a common real-world input. If the formula has an off-by-one or
+        the validation incorrectly rejects 0, this fails silently or throws unexpectedly.
+    - scenario: "Boundary: discountPercent = 100 (free item / full discount)"
+      risk: high
+      rationale: >
+        Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> high.
+        100% discount should return 0.00. If validation rejects 100 or the formula
+        produces a negative number, this is a critical business logic failure.
+    - scenario: "Invalid discountPercent values (negative, > 100)"
+      risk: high
+      rationale: >
+        Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1. Average: 2.0 -> high.
+        A discount of -10% or 150% could result in price inflation or negative prices.
+        You have zero tests for invalid discount percentages.
+    - scenario: "Boundary: price just above 0 (e.g., 0.01)"
+      risk: medium
+      rationale: >
+        Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.0 -> medium.
+        Smallest valid price; tests that the valid partition starts correctly.
+    - scenario: "Large price values"
+      risk: medium
+      rationale: >
+        Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 -> medium.
+        Arithmetic overflow or floating-point precision issues with large values.
+    - scenario: "Floating-point precision (e.g., price=10.03, discount=17)"
+      risk: medium
+      rationale: >
+        Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium.
+        Floating-point arithmetic can produce results like 8.3249000000000001.
+        Price calculations demand exact decimal precision.
+    - scenario: "Exception message verification"
+      risk: medium
+      rationale: >
+        Impact: 1, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.5 -> medium.
+        Assert.Throws confirms an exception is thrown but does not verify the message.
+        String mutations (e.g., changing "Price must be positive" to "") survive undetected.
+
+mutation_analysis:
+  description: >
+    Mutation testing systematically injects small faults (mutants) into your code and checks
+    whether your tests detect them. A surviving mutant means your tests have a blind spot.
+    Here are the specific mutations that would SURVIVE your current test suite:
+
+  surviving_mutations:
+    - mutation_type: "Conditional Boundary"
+      original: "if (price <= 0) throw ..."
+      mutated_to: "if (price < 0) throw ..."
+      why_survives: >
+        Your test uses price=-10, which satisfies BOTH `<= 0` and `< 0`. The mutant
+        survives because you never test price=0 — the only value that distinguishes
+        the two conditions. This is the most critical gap in your suite.
+      fix: "Add test: Assert.Throws(() => calculator.CalculatePrice(0, 10))"
+
+    - mutation_type: "Conditional Boundary"
+      original: "if (discountPercent < 0 || discountPercent > 100) throw ..."
+      mutated_to: "if (discountPercent <= 0 || discountPercent >= 100) throw ..."
+      why_survives: >
+        You never test discountPercent=0 or discountPercent=100. If the boundary
+        operators are mutated, your suite cannot detect the change. Both 0% and 100%
+        discount are valid business scenarios that would be incorrectly rejected.
+      fix: >
+        Add tests: Assert.Equal(100.00, calculator.CalculatePrice(100, 0)) and
+        Assert.Equal(0.00, calculator.CalculatePrice(100, 100))
+
+    - mutation_type: "Arithmetic Operator"
+      original: "price * (1 - discountPercent / 100)"
+      mutated_to: "price * (1 + discountPercent / 100)"
+      why_survives: >
+        With your single happy-path assertion (price=100, discount=10, expected=90),
+        swapping - to + produces 110 which would be caught. However, if the mutation
+        is `price * (discountPercent / 100)` (removing the `1 -` part), your test
+        catches it. But you have no test where discountPercent=0 to verify the identity
+        case (price unchanged), or discountPercent=50 to verify symmetry. More test
+        points strengthen arithmetic mutation detection.
+      fix: "Add tests with discountPercent=0 (expect original price) and discountPercent=50 (expect half price)"
+
+    - mutation_type: "String Mutation"
+      original: "throw new ArgumentException(\"Price must be positive\")"
+      mutated_to: "throw new ArgumentException(\"\")"
+      why_survives: >
+        Assert.Throws<ArgumentException> only checks the exception type, not the message.
+        A mutation that empties or alters the error message is completely invisible
+        to your test. In production, this means unhelpful error messages for users
+        or log-based debugging becomes impossible.
+      fix: >
+        Add message verification: var ex = Assert.Throws<ArgumentException>(
+        () => calculator.CalculatePrice(-5, 10));
+        Assert.Contains("Price must be positive", ex.Message);
+
+    - mutation_type: "Return Value"
+      original: "return price * (1 - discountPercent / 100)"
+      mutated_to: "return 0"
+      why_survives: >
+        While your test with (100, 10) -> 90 would catch a `return 0` mutation,
+        if the mutation is `return price` (ignoring discount), you only catch it
+        if discountPercent != 0. You have exactly one data point in the valid
+        partition, giving you minimal triangulation.
+      fix: "Add multiple discount values to triangulate: 0%, 25%, 50%, 100%"
+
+techniques_applied:
+  - technique: "Equivalence Partitioning (EP)"
+    analysis: >
+      Input domain for price: {negative values} = invalid, {zero} = boundary, {positive values} = valid.
+      Input domain for discountPercent: {< 0} = invalid, {0} = boundary, {0-100} = valid, {100} = boundary, {> 100} = invalid.
+      You test exactly ONE value from the valid price partition and ONE value from the
+      invalid price partition. You test ZERO values from the discountPercent boundaries
+      and ZERO values from the invalid discountPercent partitions.
+
+  - technique: "Boundary Value Analysis (BVA)"
+    analysis: >
+      For price with boundary at 0:
+        On-point: 0 (MISSING - this is the critical gap)
+        Off-point: -1 or 0.01 (MISSING - you test -10 which is deep in the invalid partition, not at the boundary)
+        In-point: 100 (covered)
+      For discountPercent with boundaries at 0 and 100:
+        On-point 0: NOT TESTED
+        Off-point -1: NOT TESTED
+        On-point 100: NOT TESTED
+        Off-point 101: NOT TESTED
+        In-point 50: NOT TESTED
+      You are missing ALL boundary values for discountPercent and the critical on-point for price.
+
+  - technique: "Error Guessing (EG)"
+    analysis: >
+      Common defects not covered by your tests:
+        - Floating-point precision errors in currency calculations
+        - Integer overflow with very large price values
+        - Null/undefined inputs (if language allows)
+        - discountPercent as a decimal (e.g., 0.1 instead of 10)
+        - Negative discount percentage (surcharge scenario)
+
+concrete_tests_to_add:
+  description: >
+    The following tests are ordered by risk priority (highest first). Each test targets
+    a specific gap identified above.
+
+  tests:
+    - priority: 1
+      name: "CalculatePrice_ZeroPrice_ThrowsException"
+      code: "Assert.Throws<ArgumentException>(() => calculator.CalculatePrice(0, 10))"
+      rationale: >
+        CRITICAL. This is the single most important missing test. It catches the
+        conditional boundary mutation (<= to <) on the price validation. Without this
+        test, a mutation that changes `price <= 0` to `price < 0` goes completely
+        undetected, allowing zero-priced items through validation.
+      kills_mutation: "Conditional boundary: <= to < on price"
+
+    - priority: 2
+      name: "CalculatePrice_ZeroDiscount_ReturnsOriginalPrice"
+      code: "Assert.Equal(100.00, calculator.CalculatePrice(100, 0))"
+      rationale: >
+        Tests the lower boundary of discountPercent. Verifies that 0% discount returns
+        the original price unchanged. Catches boundary mutations on discount validation
+        and arithmetic mutations that break the identity case.
+      kills_mutation: "Conditional boundary: < 0 to <= 0 on discountPercent; arithmetic mutations on (1 - discount/100)"
+
+    - priority: 3
+      name: "CalculatePrice_FullDiscount_ReturnsZero"
+      code: "Assert.Equal(0.00, calculator.CalculatePrice(100, 100))"
+      rationale: >
+        Tests the upper boundary of discountPercent. Verifies that 100% discount returns
+        zero. Catches boundary mutations on the upper validation and arithmetic errors
+        that could produce negative prices.
+      kills_mutation: "Conditional boundary: > 100 to >= 100 on discountPercent"
+
+    - priority: 4
+      name: "CalculatePrice_NegativeDiscount_ThrowsException"
+      code: "Assert.Throws<ArgumentException>(() => calculator.CalculatePrice(100, -1))"
+      rationale: >
+        You have ZERO validation tests for discountPercent. A negative discount is
+        a surcharge — if not explicitly supported, it must be rejected. Without this
+        test, invalid discounts pass silently.
+      kills_mutation: "Removed validation for negative discountPercent"
+
+    - priority: 5
+      name: "CalculatePrice_DiscountOver100_ThrowsException"
+      code: "Assert.Throws<ArgumentException>(() => calculator.CalculatePrice(100, 101))"
+      rationale: >
+        A discount over 100% would produce a negative price. This must be rejected.
+        Tests the upper boundary off-point for discountPercent validation.
+      kills_mutation: "Removed validation for discountPercent > 100"
+
+    - priority: 6
+      name: "CalculatePrice_NegativePrice_VerifyExceptionMessage"
+      code: |
+        var ex = Assert.Throws<ArgumentException>(() => calculator.CalculatePrice(-5, 10));
+        Assert.Contains("price", ex.Message, StringComparison.OrdinalIgnoreCase);
+      rationale: >
+        Your existing Assert.Throws test only checks the exception type. Adding message
+        verification catches string mutations that empty or alter the error message.
+        This ensures meaningful error reporting is preserved.
+      kills_mutation: "String mutation: error message emptied or altered"
+
+    - priority: 7
+      name: "CalculatePrice_SmallestValidPrice_CalculatesCorrectly"
+      code: "Assert.Equal(0.009, calculator.CalculatePrice(0.01, 10), precision: 3)"
+      rationale: >
+        Tests the off-point just above the price=0 boundary. Validates that the smallest
+        valid price produces a correct result and does not trigger validation.
+      kills_mutation: "Off-by-one in price boundary check"
+
+    - priority: 8
+      name: "CalculatePrice_HalfDiscount_ReturnsHalfPrice"
+      code: "Assert.Equal(50.00, calculator.CalculatePrice(100, 50))"
+      rationale: >
+        Additional triangulation point in the valid partition. Combined with the 10%
+        test, this strengthens detection of arithmetic operator mutations by providing
+        a second verification point with a different expected value.
+      kills_mutation: "Arithmetic operator swap in discount formula"
+
+    - priority: 9
+      name: "CalculatePrice_FloatingPointPrecision_HandlesCorrectly"
+      code: "Assert.Equal(8.32, calculator.CalculatePrice(10.03, 17), precision: 2)"
+      rationale: >
+        Currency calculations must handle floating-point precision correctly. This test
+        uses values that are known to produce precision issues in IEEE 754 arithmetic.
+        Verifies that the implementation rounds or truncates appropriately.
+      kills_mutation: "Floating-point precision handling removed or broken"
+
+    - priority: 10
+      name: "CalculatePrice_LargePrice_NoOverflow"
+      code: "Assert.Equal(900000000.00, calculator.CalculatePrice(1000000000, 10))"
+      rationale: >
+        Tests behavior with large values to detect arithmetic overflow. While less
+        common in most languages with double-precision floats, this is a standard
+        error guessing scenario for financial calculations.
+      kills_mutation: "Arithmetic overflow in multiplication"
+
+verification_method:
+  recommended_tool: "Mutation testing framework"
+  description: >
+    Run a mutation testing tool against your test suite to objectively measure test
+    quality beyond code coverage. The mutation score (killed mutants / total mutants)
+    is a far more reliable indicator of test effectiveness than line coverage.
+  tools_by_language:
+    csharp: "Stryker.NET (dotnet-stryker)"
+    java: "PITest (pitest-maven)"
+    javascript_typescript: "Stryker (stryker-mutator)"
+    python: "mutmut or cosmic-ray"
+  expected_improvement: >
+    Your current suite would likely achieve a mutation score of ~40-50%. Adding the
+    priority 1-6 tests above should raise it to ~85-90%. Adding all 10 tests should
+    push it above 95%.
+
+scenario_coverage_assessment:
+  current:
+    total_scenarios: 12
+    covered_scenarios: 2
+    scenario_coverage: "17%"
+    weighted_coverage: "14%"
+    verdict: "FAIL (well below 60% threshold)"
+  after_adding_recommended_tests:
+    total_scenarios: 12
+    covered_scenarios: 12
+    scenario_coverage: "100%"
+    weighted_coverage: "100%"
+    verdict: "PASS"
+
+key_takeaway: >
+  100% code coverage with 2 tests is coverage theater. Your CalculatePrice method has
+  at least 12 meaningful scenarios across two input dimensions, and you are covering only 2
+  of them (17% scenario coverage). The most dangerous gap is the missing price=0 boundary
+  test — without it, a conditional boundary mutation (<= to <) survives undetected,
+  potentially allowing zero-priced items through your system. Add the 6 highest-priority
+  tests listed above as your immediate next step, then run a mutation testing tool to
+  verify your suite's true fault-detection capability.

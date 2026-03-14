@@ -1,0 +1,240 @@
+verdict: "DO NOT SHIP. Your 95% line coverage is likely coverage theater — a dangerous anti-pattern where high metrics create false confidence while critical scenarios remain untested."
+
+anti_pattern:
+  name: "Coverage Theater"
+  description: >
+    Coverage theater occurs when tests inflate line coverage metrics without
+    meaningfully verifying behavior. AI-generated test suites are particularly
+    susceptible because LLMs tend to produce tests that exercise code paths
+    (achieving line coverage) without asserting meaningful outcomes. The result
+    is a test suite that "covers" code in the same way a security camera covers
+    a room when nobody is watching the feed — the mechanism is present but the
+    protection is absent.
+
+risk_comparison:
+  what_ai_tests_typically_cover:
+    - area: "Getters, setters, and simple property access"
+      risk: low
+      risk_rationale: "Impact: 1, Frequency: 2, Consequence: 1, Detectability: 1. Average: 1.25 -> low."
+    - area: "Constructor initialization and default values"
+      risk: low
+      risk_rationale: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.0 -> low."
+    - area: "Happy-path-only execution of each function"
+      risk: low
+      risk_rationale: "Impact: 1, Frequency: 3, Consequence: 1, Detectability: 1. Average: 1.5 -> low."
+    - area: "String formatting and display logic"
+      risk: low
+      risk_rationale: "Impact: 1, Frequency: 2, Consequence: 1, Detectability: 1. Average: 1.25 -> low."
+  what_ai_tests_typically_miss:
+    - area: "Boundary conditions (off-by-one on thresholds, limits, ranges)"
+      risk: high
+      risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high."
+      techniques: [boundary_value, equivalence_partitioning]
+    - area: "Error handling and exception paths (null, empty, malformed inputs)"
+      risk: high
+      risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high."
+      techniques: [equivalence_partitioning, error_guessing]
+    - area: "State transition edge cases (invalid transitions, concurrent state changes)"
+      risk: high
+      risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high."
+      techniques: [state_transition]
+    - area: "Decision logic with multiple interacting conditions (combinatorial explosions)"
+      risk: high
+      risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high."
+      techniques: [decision_table, pairwise, cause_effect]
+    - area: "Security-sensitive paths (authentication bypass, authorization gaps, injection)"
+      risk: high
+      risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high."
+      techniques: [error_guessing, equivalence_partitioning]
+    - area: "Concurrency and race conditions"
+      risk: high
+      risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high."
+      techniques: [state_transition, error_guessing]
+
+mutation_survivable_weaknesses:
+  description: >
+    AI-generated tests are notoriously weak against mutation testing. If you ran
+    a mutation testing tool (e.g., Stryker for JS/TS, mutmut or cosmic-ray for
+    Python, PITest for Java) against your AI-generated suite, expect a mutation
+    score well below 60%. Here are the mutations most likely to survive:
+
+  likely_surviving_mutations:
+    - mutation: "Conditional boundary: <= changed to <, >= changed to >"
+      why_survives: >
+        AI tests rarely test exact boundary values. If a threshold is
+        'if (age >= 18)', the AI likely tests age=20 and age=10, but not
+        age=18 (on-point) and age=17 (off-point). The mutant '<' passes
+        because 20 > 18 and 10 < 17 regardless.
+      fix: "Add tests for the exact boundary value and the value immediately adjacent (age=18 and age=17)."
+
+    - mutation: "Logical operator: && changed to ||, || changed to &&"
+      why_survives: >
+        AI tests tend to test conditions in isolation rather than in
+        combination. If you have 'if (isAdmin && isActive)', the AI might
+        test (true, true) and (false, false), but not (true, false) or
+        (false, true). Both && and || give the same result for those pairs.
+      fix: "Build a decision table covering all condition combinations: (T,T), (T,F), (F,T), (F,F)."
+
+    - mutation: "Arithmetic: + changed to -, * changed to /"
+      why_survives: >
+        AI tests often use inputs where arithmetic mutations produce
+        no observable difference, such as using 0 as input (0+x == 0-(-x))
+        or 1 (1*x == 1/x only when x=1). The assertion may also be too
+        coarse (e.g., checking 'result > 0' instead of 'result == 15').
+      fix: "Assert exact expected values, not ranges. Use inputs where +/- and *// produce visibly different results."
+
+    - mutation: "Negation: if(x) changed to if(!x)"
+      why_survives: >
+        If the test only checks the happy path (condition is true), the
+        negation mutant will fail the happy path but the test suite may
+        not have the complementary negative test to detect it.
+      fix: "For every boolean condition, test both true and false branches with specific expected outcomes."
+
+    - mutation: "String mutation: error message changed"
+      why_survives: >
+        AI-generated tests almost never assert on exception messages or
+        error strings. If your function throws 'Invalid email format',
+        a mutant changing it to 'Invalid email' or '' survives because
+        the test only checks that 'an exception was thrown'.
+      fix: "Assert the exact exception type AND message string for all error-handling paths."
+
+    - mutation: "Void method call removal: method call deleted entirely"
+      why_survives: >
+        If a function calls a side-effecting method (e.g., logger.log(),
+        cache.invalidate(), event.emit()), and the test does not verify
+        the side effect occurred, removing the call changes nothing observable.
+      fix: "Verify observable side effects: check that state changed, events were emitted, or outputs reflect the call."
+
+  expected_mutation_score: "40-55% (a well-tested codebase should achieve 75%+)"
+
+known_ai_test_weaknesses:
+  - weakness: "Tautological assertions"
+    description: >
+      AI often generates assertions that restate implementation logic rather
+      than verify behavior. Example: 'assert calculate(2,3) == 2+3' literally
+      recomputes the function logic in the test, or 'assert result is not None'
+      which passes for almost any non-crashing execution.
+    detection: "Review assertions — if the expected value is computed rather than hardcoded, it is likely tautological."
+
+  - weakness: "Format ambiguity blindness"
+    description: >
+      AI tests rarely probe format boundaries — what happens with Unicode input,
+      trailing whitespace, mixed encodings, extremely long strings, empty strings
+      vs null vs undefined? These distinctions cause real production bugs.
+    detection: "Check whether any test uses non-ASCII input, empty strings, or strings with special characters."
+
+  - weakness: "Comment-induced confusion"
+    description: >
+      AI may misread code comments as specifications and generate tests that
+      verify the comment rather than the actual code behavior. If a comment says
+      'returns the maximum value' but the code has a bug, the AI test may
+      assert the buggy behavior.
+    detection: "Verify that expected values are derived from requirements, not from reading the source code."
+
+  - weakness: "Shallow mocking"
+    description: >
+      AI tests tend to mock everything aggressively, replacing real behavior
+      with predetermined returns. This means the tests verify that mocks return
+      what they were told to return — a circular non-test.
+    detection: "Count mocks per test. If a test has more mock setups than assertions, it is likely testing mocks, not code."
+
+actionable_next_steps:
+  - step: 1
+    priority: "CRITICAL"
+    action: "Run mutation testing against your test suite"
+    detail: >
+      Install a mutation testing tool for your language (Stryker for JS/TS,
+      mutmut for Python, PITest for Java). Run it and check the mutation score.
+      If it is below 70%, your tests are not catching real bugs regardless of
+      line coverage. Focus on surviving mutants in high-risk modules first.
+    command_examples:
+      python: "pip install mutmut && mutmut run --paths-to-mutate=src/"
+      javascript: "npx stryker init && npx stryker run"
+      java: "mvn org.pitest:pitest-maven:mutationCoverage"
+
+  - step: 2
+    priority: "CRITICAL"
+    action: "Audit assertions for tautologies"
+    detail: >
+      Review every test the AI generated. For each assertion, ask: 'Could this
+      assertion pass even if the function returned a wrong-but-close value?'
+      Replace any assertion that computes expected values with hardcoded
+      expected values derived from requirements, not from code.
+
+  - step: 3
+    priority: "HIGH"
+    action: "Add boundary value tests for all numeric thresholds"
+    detail: >
+      For every conditional in your code that uses <, <=, >, >=, ==, or !=
+      with a numeric value, add tests for the on-point (exact boundary),
+      off-point (boundary +/- 1), and one value clearly inside each partition.
+      AI tests almost never do this.
+
+  - step: 4
+    priority: "HIGH"
+    action: "Build decision tables for multi-condition logic"
+    detail: >
+      Identify every function with 2+ boolean conditions or branching parameters.
+      Build a decision table covering all condition combinations. AI tests
+      typically test 2-3 combinations out of 8+ possible. Each missing
+      combination is a potential && vs || mutation survivor.
+
+  - step: 5
+    priority: "HIGH"
+    action: "Add negative and error path tests"
+    detail: >
+      For every function, test: null input, empty input, wrong type, out-of-range
+      values, malformed data, unauthorized access, and concurrent access. AI tests
+      heavily skew toward happy paths. Apply equivalence partitioning to identify
+      the invalid input classes and test at least one representative from each.
+
+  - step: 6
+    priority: "MEDIUM"
+    action: "Verify state transition coverage"
+    detail: >
+      For any stateful component (workflows, sessions, connections, orders),
+      map the state machine and verify that every valid transition AND every
+      invalid transition is tested. AI tests rarely cover invalid state
+      transitions (e.g., trying to ship an order that was never paid for).
+
+  - step: 7
+    priority: "MEDIUM"
+    action: "Review mock usage and replace with fakes where possible"
+    detail: >
+      For each test with mocks, evaluate whether a fake (in-memory implementation)
+      would provide better coverage. Prefer Real > Fake > Stub > Spy > Mock.
+      Mock only at the boundary between your code and external infrastructure,
+      never between internal modules.
+
+  - step: 8
+    priority: "MEDIUM"
+    action: "Calculate scenario coverage, not just line coverage"
+    detail: >
+      Line coverage tells you what code was executed, not what behaviors were
+      verified. Derive scenarios from your requirements using example mapping
+      (story -> rules -> examples). Calculate what percentage of scenarios have
+      meaningful tests. Weight by risk. A codebase with 95% line coverage and
+      40% weighted scenario coverage is dangerously under-tested.
+
+summary: >
+  High line coverage from AI-generated tests is one of the most dangerous
+  false signals in software engineering. It creates a confidence level that
+  is inversely correlated with actual test quality. The tests pass because
+  they were generated FROM the code — they mirror its behavior, including
+  its bugs. They are not independently verifying requirements.
+
+  Think of it this way: if a student writes an exam and grades their own
+  answers, they will score 100% — but that tells you nothing about whether
+  the answers are correct. Your AI wrote both the code and the tests. The
+  tests confirm the code does what the code does. That is a tautology, not
+  a validation.
+
+  Before shipping, you need mutation testing to measure true fault detection
+  capability, boundary value analysis to catch off-by-one errors, decision
+  tables to verify combinatorial logic, and scenario-level traceability to
+  ensure every requirement has a meaningful test. Only then can you have
+  justified confidence in your test suite.
+
+  Run '/vg analyze <path>' on your codebase to get a risk-weighted gap
+  analysis, or run mutation testing first to quantify exactly how many
+  faults your test suite would miss in production.

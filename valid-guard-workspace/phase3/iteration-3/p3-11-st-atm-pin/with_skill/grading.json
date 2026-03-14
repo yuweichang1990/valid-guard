@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-11-st-atm-pin",
+  "eval_name": "ATM PIN entry state machine",
+  "category": "state_transition",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "States: idle, waiting_for_pin, account_access, card_retained",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: idle"
+    },
+    {
+      "text": "Transition: incorrect PIN → retry (up to 3)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('3', 'attempt')"
+    },
+    {
+      "text": "Transition: 3rd failure → card retained/locked",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('3', 'lock')"
+    },
+    {
+      "text": "Guard condition on PIN attempts counter",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Guard"
+    },
+    {
+      "text": "Uses state_transition technique",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: state_transition"
+    },
+    {
+      "text": "Tests timeout/card ejection",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: eject"
+    },
+    {
+      "text": "Has state transition diagram/table",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: states:"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: feature:"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Impact"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: technique_rationale:"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: uncovered"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priority: 1"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: test_ref:"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: state_transition"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence_partitioning"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: example_mapping:"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: metadata:"
+    }
+  ],
+  "summary": {
+    "passed": 17,
+    "total": 17,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 1.0
+  }
+}

@@ -1,0 +1,751 @@
+# Valid Guard Test Plan — E-Commerce Checkout
+# This example demonstrates the full range of schema capabilities:
+#   - Multiple scenario types (happy_path, edge_case, boundary, state_transition, etc.)
+#   - Decision table for discount calculations
+#   - State transition for order lifecycle
+#   - Example mapping for checkout business rules
+#   - Mix of covered / uncovered / failing statuses
+#   - Realistic risk assessments with rationales
+#   - Multiple testing techniques per scenario
+
+feature: "E-Commerce Checkout"
+
+feature_description: >
+  End-to-end checkout flow for an online store. Covers cart validation,
+  pricing and discount calculations, payment processing, inventory
+  reservation, and order lifecycle management. Supports credit card,
+  digital wallet, and buy-now-pay-later payment methods.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: prd
+  path: "docs/prd/checkout-v2.md"
+
+scenarios:
+  # ---------- Happy Path ---------------------------------------------------
+  - name: "Successful checkout with a single item"
+    description: >
+      Customer adds one in-stock item to cart, enters valid shipping address,
+      pays with a credit card, and receives an order confirmation.
+    type: happy_path
+    risk: high
+    risk_rationale: "Core revenue path — any failure directly blocks sales."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Single valid-class representative confirms the golden path."
+    preconditions:
+      - "Customer is authenticated"
+      - "Cart contains exactly one in-stock item"
+    examples:
+      - input:
+          cart: [{ sku: "SHOE-42", qty: 1, unit_price: 89.99 }]
+          payment_method: "credit_card"
+          shipping_address: { country: "US", zip: "94105" }
+        expected:
+          status: 201
+          order_state: "confirmed"
+          total: 89.99
+        description: "Single item, standard domestic shipping."
+    test_ref: "tests/checkout/test_checkout.py::test_single_item_checkout"
+    status: covered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+
+  - name: "Successful checkout with multiple items"
+    description: "Cart with three different SKUs, quantities > 1 for some items."
+    type: happy_path
+    risk: high
+    risk_rationale: "Multi-item carts are the majority of real orders."
+    techniques:
+      - equivalence_partitioning
+    preconditions:
+      - "Customer is authenticated"
+      - "All items in stock"
+    examples:
+      - input:
+          cart:
+            - { sku: "SHOE-42", qty: 2, unit_price: 89.99 }
+            - { sku: "SOCK-M", qty: 3, unit_price: 12.99 }
+            - { sku: "BELT-L", qty: 1, unit_price: 34.99 }
+          payment_method: "credit_card"
+        expected:
+          status: 201
+          item_count: 3
+          total: 253.94
+        description: "Three SKUs, mixed quantities."
+    test_ref: "tests/checkout/test_checkout.py::test_multi_item_checkout"
+    status: covered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+
+  - name: "Guest checkout without authentication"
+    description: "Unauthenticated user checks out by providing email at payment step."
+    type: happy_path
+    risk: medium
+    risk_rationale: "Important conversion path, but lower volume than registered users."
+    techniques:
+      - equivalence_partitioning
+    preconditions:
+      - "User is not authenticated"
+      - "Cart contains at least one item"
+    examples:
+      - input:
+          guest_email: "guest@example.com"
+          cart: [{ sku: "HAT-S", qty: 1, unit_price: 24.99 }]
+          payment_method: "digital_wallet"
+        expected:
+          status: 201
+          guest_order: true
+        description: "Guest pays with digital wallet."
+    test_ref: "tests/checkout/test_checkout.py::test_guest_checkout"
+    status: covered
+    priority: 2
+    tags:
+      - guest
+
+  # ---------- Edge Cases ---------------------------------------------------
+  - name: "Checkout with item that goes out of stock during payment"
+    description: >
+      Between cart validation and payment capture, another customer buys the
+      last unit. The system must fail gracefully and release the hold.
+    type: edge_case
+    risk: high
+    risk_rationale: "Race condition can cause overselling — financial and fulfilment impact."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets known concurrency pitfalls; state transition
+      covers the inventory reservation lifecycle.
+    preconditions:
+      - "Item has exactly 1 unit in stock"
+      - "Another purchase completes between validation and capture"
+    examples:
+      - input:
+          cart: [{ sku: "LIMITED-1", qty: 1 }]
+          concurrent_purchase: true
+        expected:
+          status: 409
+          error: "ITEM_OUT_OF_STOCK"
+          inventory_hold_released: true
+        description: "Concurrent purchase triggers stock conflict."
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - inventory
+
+  - name: "Checkout with maximum cart size (200 items)"
+    description: "Cart contains the platform maximum of 200 distinct line items."
+    type: edge_case
+    risk: medium
+    risk_rationale: "Rare but possible for B2B buyers; could cause timeouts."
+    techniques:
+      - boundary_value
+    preconditions:
+      - "Cart has exactly 200 line items"
+    examples:
+      - input:
+          cart_size: 200
+        expected:
+          status: 201
+          processing_time_ms: "<5000"
+        description: "Max cart must complete within SLA."
+    status: uncovered
+    priority: 3
+    tags:
+      - performance
+      - boundary
+
+  - name: "Empty cart checkout attempt"
+    description: "User somehow triggers checkout with an empty cart."
+    type: edge_case
+    risk: low
+    risk_rationale: "UI normally prevents this; defense-in-depth only."
+    techniques:
+      - equivalence_partitioning
+    examples:
+      - input:
+          cart: []
+        expected:
+          status: 400
+          error: "CART_EMPTY"
+        description: "Empty cart is rejected."
+    test_ref: "tests/checkout/test_validation.py::test_empty_cart"
+    status: covered
+    priority: 4
+    tags:
+      - validation
+
+  # ---------- Boundary Values ----------------------------------------------
+  - name: "Order total at minimum ($0.50 — processor minimum)"
+    description: "Payment processors require a minimum charge amount."
+    type: boundary
+    risk: medium
+    risk_rationale: "Below-minimum charges silently fail in some gateways."
+    techniques:
+      - boundary_value
+    technique_rationale: "Tests the exact threshold of the payment processor constraint."
+    examples:
+      - input:
+          cart: [{ sku: "STICKER-1", qty: 1, unit_price: 0.50 }]
+        expected:
+          status: 201
+          total: 0.50
+        description: "Minimum valid charge."
+      - input:
+          cart: [{ sku: "STICKER-2", qty: 1, unit_price: 0.49 }]
+        expected:
+          status: 400
+          error: "BELOW_MINIMUM_CHARGE"
+        description: "One cent below minimum — rejected."
+    test_ref: "tests/checkout/test_pricing.py::test_minimum_order_total"
+    status: covered
+    priority: 2
+    tags:
+      - pricing
+      - boundary
+
+  - name: "Order total at maximum ($99,999.99)"
+    description: "Platform enforces a per-order ceiling for fraud prevention."
+    type: boundary
+    risk: medium
+    risk_rationale: "Exceeding limit could slip through and trigger manual review overhead."
+    techniques:
+      - boundary_value
+    examples:
+      - input:
+          total: 99999.99
+        expected:
+          status: 201
+        description: "Exactly at ceiling — accepted."
+      - input:
+          total: 100000.00
+        expected:
+          status: 400
+          error: "ORDER_EXCEEDS_MAXIMUM"
+        description: "One cent over ceiling — rejected."
+    status: uncovered
+    priority: 3
+    tags:
+      - pricing
+      - boundary
+      - fraud
+
+  - name: "Quantity per SKU at boundary (max 99)"
+    description: "Each line item quantity is capped at 99 units."
+    type: boundary
+    risk: low
+    risk_rationale: "Validation exists in UI; API-level check is secondary."
+    techniques:
+      - boundary_value
+    examples:
+      - input:
+          cart: [{ sku: "PEN-1", qty: 99 }]
+        expected:
+          status: 201
+        description: "Max quantity per SKU — accepted."
+      - input:
+          cart: [{ sku: "PEN-1", qty: 100 }]
+        expected:
+          status: 400
+          error: "QUANTITY_EXCEEDS_LIMIT"
+        description: "One over limit — rejected."
+      - input:
+          cart: [{ sku: "PEN-1", qty: 0 }]
+        expected:
+          status: 400
+          error: "INVALID_QUANTITY"
+        description: "Zero quantity — rejected."
+    test_ref: "tests/checkout/test_validation.py::test_quantity_boundaries"
+    status: failing
+    priority: 3
+    tags:
+      - validation
+      - boundary
+
+  # ---------- Error Handling -----------------------------------------------
+  - name: "Payment gateway timeout"
+    description: "External payment gateway does not respond within 30 seconds."
+    type: error_handling
+    risk: high
+    risk_rationale: "Customers may be charged without order confirmation — dual-write risk."
+    techniques:
+      - error_guessing
+    preconditions:
+      - "Payment gateway is configured with 30s timeout"
+    examples:
+      - input:
+          gateway_response_time_ms: 31000
+        expected:
+          status: 504
+          error: "PAYMENT_GATEWAY_TIMEOUT"
+          cart_preserved: true
+          charge_reversed: true
+        description: "Gateway timeout triggers reversal and preserves cart."
+    status: uncovered
+    priority: 1
+    tags:
+      - reliability
+      - payment
+
+  - name: "Payment declined by issuer"
+    description: "Card issuer declines the transaction (insufficient funds, etc.)."
+    type: error_handling
+    risk: high
+    risk_rationale: "Poor decline handling leads to customer abandonment."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning groups decline codes into categories;
+      error guessing covers uncommon codes.
+    examples:
+      - input:
+          decline_code: "insufficient_funds"
+        expected:
+          status: 402
+          error: "PAYMENT_DECLINED"
+          user_message: "Your card was declined. Please try another payment method."
+        description: "Insufficient funds decline."
+      - input:
+          decline_code: "stolen_card"
+        expected:
+          status: 402
+          error: "PAYMENT_DECLINED"
+          fraud_flag: true
+        description: "Stolen card flag triggers fraud review."
+    test_ref: "tests/checkout/test_payment.py::test_payment_declined"
+    status: covered
+    priority: 1
+    tags:
+      - payment
+      - error-handling
+
+  - name: "Invalid shipping address"
+    description: "Address validation service rejects the address."
+    type: error_handling
+    risk: medium
+    risk_rationale: "Bad addresses cause failed deliveries and returns."
+    techniques:
+      - equivalence_partitioning
+    examples:
+      - input:
+          shipping_address: { street: "", city: "SF", zip: "00000" }
+        expected:
+          status: 400
+          error: "INVALID_ADDRESS"
+          fields: ["street", "zip"]
+        description: "Missing street and invalid ZIP."
+    test_ref: "tests/checkout/test_validation.py::test_invalid_shipping_address"
+    status: covered
+    priority: 2
+    tags:
+      - validation
+
+  # ---------- State Transition ---------------------------------------------
+  - name: "Order lifecycle state transitions"
+    description: >
+      Verifies the complete order state machine from cart through delivery,
+      including cancellation and refund branches.
+    type: state_transition
+    risk: high
+    risk_rationale: "Invalid state transitions can cause duplicate charges or lost orders."
+    techniques:
+      - state_transition
+    technique_rationale: "Order lifecycle is a classic finite state machine."
+    state_transition:
+      states:
+        - cart
+        - pending_payment
+        - payment_processing
+        - confirmed
+        - preparing
+        - shipped
+        - delivered
+        - cancelled
+        - refund_requested
+        - refunded
+      transitions:
+        - from: cart
+          to: pending_payment
+          trigger: "checkout_initiated"
+        - from: pending_payment
+          to: payment_processing
+          trigger: "payment_submitted"
+        - from: payment_processing
+          to: confirmed
+          trigger: "payment_captured"
+        - from: payment_processing
+          to: pending_payment
+          trigger: "payment_failed"
+          guard: "retry_count < 3"
+        - from: payment_processing
+          to: cancelled
+          trigger: "payment_failed"
+          guard: "retry_count >= 3"
+        - from: confirmed
+          to: preparing
+          trigger: "warehouse_acknowledged"
+        - from: preparing
+          to: shipped
+          trigger: "tracking_number_assigned"
+        - from: shipped
+          to: delivered
+          trigger: "delivery_confirmed"
+        - from: confirmed
+          to: cancelled
+          trigger: "customer_cancel_request"
+          guard: "time_since_confirm < 30min"
+        - from: delivered
+          to: refund_requested
+          trigger: "customer_refund_request"
+          guard: "time_since_delivery < 30days"
+        - from: refund_requested
+          to: refunded
+          trigger: "refund_approved"
+    examples:
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm: "15min"
+        expected:
+          new_state: "cancelled"
+          refund_initiated: true
+        description: "Cancellation within 30-minute window."
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm: "45min"
+        expected:
+          error: "CANCELLATION_WINDOW_EXPIRED"
+        description: "Cancellation after window closes — rejected."
+      - input:
+          current_state: "cart"
+          trigger: "delivery_confirmed"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Illegal jump from cart to delivered."
+    test_ref: "tests/checkout/test_order_lifecycle.py::test_state_transitions"
+    status: covered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+
+  # ---------- Combinatorial / Decision Table -------------------------------
+  - name: "Discount calculation rules"
+    description: >
+      The discount engine applies rules based on coupon validity, loyalty tier,
+      cart total, and promotional period. This decision table captures all
+      meaningful combinations.
+    type: combinatorial
+    risk: high
+    risk_rationale: "Incorrect discounts directly affect revenue and customer trust."
+    techniques:
+      - decision_table
+      - pairwise
+    technique_rationale: >
+      Decision table enumerates the business rules; pairwise reduces the
+      combinatorial explosion of coupon x tier x promo x total.
+    decision_table:
+      conditions:
+        - "valid_coupon"
+        - "loyalty_tier"
+        - "cart_total_above_100"
+        - "promo_period_active"
+      actions:
+        - "coupon_discount_pct"
+        - "loyalty_discount_pct"
+        - "free_shipping"
+        - "promo_bonus_pct"
+      rules:
+        - description: "Gold member, valid coupon, promo active, large cart"
+          condition_values:
+            valid_coupon: true
+            loyalty_tier: "gold"
+            cart_total_above_100: true
+            promo_period_active: true
+          expected_actions:
+            coupon_discount_pct: 15
+            loyalty_discount_pct: 10
+            free_shipping: true
+            promo_bonus_pct: 5
+
+        - description: "Silver member, no coupon, promo active, small cart"
+          condition_values:
+            valid_coupon: false
+            loyalty_tier: "silver"
+            cart_total_above_100: false
+            promo_period_active: true
+          expected_actions:
+            coupon_discount_pct: 0
+            loyalty_discount_pct: 5
+            free_shipping: false
+            promo_bonus_pct: 5
+
+        - description: "No loyalty, valid coupon, no promo, large cart"
+          condition_values:
+            valid_coupon: true
+            loyalty_tier: "none"
+            cart_total_above_100: true
+            promo_period_active: false
+          expected_actions:
+            coupon_discount_pct: 15
+            loyalty_discount_pct: 0
+            free_shipping: true
+            promo_bonus_pct: 0
+
+        - description: "No loyalty, no coupon, no promo, small cart"
+          condition_values:
+            valid_coupon: false
+            loyalty_tier: "none"
+            cart_total_above_100: false
+            promo_period_active: false
+          expected_actions:
+            coupon_discount_pct: 0
+            loyalty_discount_pct: 0
+            free_shipping: false
+            promo_bonus_pct: 0
+
+        - description: "Gold member, expired coupon, promo active, large cart"
+          condition_values:
+            valid_coupon: false
+            loyalty_tier: "gold"
+            cart_total_above_100: true
+            promo_period_active: true
+          expected_actions:
+            coupon_discount_pct: 0
+            loyalty_discount_pct: 10
+            free_shipping: true
+            promo_bonus_pct: 5
+    examples:
+      - input:
+          coupon_code: "SAVE15"
+          loyalty_tier: "gold"
+          cart_total: 150.00
+          current_date: "2026-01-15"
+          promo_start: "2026-01-01"
+          promo_end: "2026-01-31"
+        expected:
+          coupon_discount: 22.50
+          loyalty_discount: 15.00
+          promo_bonus: 7.50
+          free_shipping: true
+          final_total: 105.00
+        description: "All discounts stacked — gold, coupon, promo, over $100."
+    test_ref: "tests/checkout/test_discounts.py::test_discount_combinations"
+    status: failing
+    priority: 1
+    tags:
+      - pricing
+      - discounts
+      - decision-table
+
+  # ---------- Security -----------------------------------------------------
+  - name: "Price tampering via modified cart payload"
+    description: >
+      Attacker modifies unit_price in the client-side cart payload to a lower
+      value. Server must re-validate prices from catalog.
+    type: security
+    risk: high
+    risk_rationale: "Direct financial loss if server trusts client-supplied prices."
+    techniques:
+      - error_guessing
+    preconditions:
+      - "Catalog price for SKU SHOE-42 is $89.99"
+    examples:
+      - input:
+          cart: [{ sku: "SHOE-42", qty: 1, unit_price: 0.01 }]
+        expected:
+          applied_unit_price: 89.99
+          total: 89.99
+        description: "Server ignores client price and uses catalog price."
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - fraud
+
+  - name: "Replay attack with duplicate order submission"
+    description: "Same idempotency key sent twice within seconds."
+    type: security
+    risk: high
+    risk_rationale: "Duplicate charges erode customer trust and require manual refunds."
+    techniques:
+      - error_guessing
+    examples:
+      - input:
+          idempotency_key: "abc-123"
+          submission_count: 2
+        expected:
+          orders_created: 1
+          second_response_status: 200
+          second_response_body: "original_order"
+        description: "Second submission returns the original order, no duplicate created."
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - idempotency
+
+  # ---------- Performance --------------------------------------------------
+  - name: "Checkout latency under sustained load"
+    description: "P99 response time stays under 2 seconds at 500 RPS."
+    type: performance
+    risk: medium
+    risk_rationale: "Slow checkout during peak hours directly impacts conversion rate."
+    techniques:
+      - boundary_value
+    technique_rationale: "Boundary value at the load threshold helps find the breaking point."
+    examples:
+      - input:
+          concurrent_requests: 500
+          duration_seconds: 60
+        expected:
+          p99_latency_ms: "<2000"
+          error_rate_pct: "<0.1"
+        description: "Sustained 500 RPS for 60 seconds."
+    status: uncovered
+    priority: 2
+    tags:
+      - performance
+      - load-test
+
+  # ---------- Additional Scenarios -----------------------------------------
+  - name: "Currency conversion for international orders"
+    description: "Order placed in EUR, system converts to USD for processing."
+    type: happy_path
+    risk: medium
+    risk_rationale: "Exchange rate errors cause under/overcharging."
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+    examples:
+      - input:
+          cart: [{ sku: "SHOE-42", qty: 1, unit_price_eur: 79.99 }]
+          currency: "EUR"
+          exchange_rate: 1.08
+        expected:
+          charged_usd: 86.39
+          display_currency: "EUR"
+          display_total: 79.99
+        description: "EUR to USD conversion with current rate."
+    status: uncovered
+    priority: 2
+    tags:
+      - international
+      - pricing
+
+  - name: "Apply expired coupon code"
+    description: "Coupon code that was valid last week is used after expiry."
+    type: error_handling
+    risk: low
+    risk_rationale: "Clear error message prevents support tickets but not a functional blocker."
+    techniques:
+      - equivalence_partitioning
+    examples:
+      - input:
+          coupon_code: "EXPIRED20"
+          coupon_expiry: "2026-03-01"
+          current_date: "2026-03-13"
+        expected:
+          status: 400
+          error: "COUPON_EXPIRED"
+          discount_applied: false
+        description: "Expired coupon rejected with clear message."
+    test_ref: "tests/checkout/test_coupons.py::test_expired_coupon"
+    status: covered
+    priority: 3
+    tags:
+      - coupons
+      - validation
+
+  - name: "Shipping cost calculation by weight tiers"
+    description: "Verify shipping cost jumps at weight tier boundaries."
+    type: boundary
+    risk: medium
+    risk_rationale: "Incorrect tier assignment causes under/overcharging for shipping."
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      Boundary value catches off-by-one at tier edges; equivalence partitioning
+      confirms each tier's representative value.
+    examples:
+      - input: { total_weight_kg: 0.99 }
+        expected: { shipping_cost: 5.99, tier: "light" }
+        description: "Just below 1 kg threshold — light tier."
+      - input: { total_weight_kg: 1.00 }
+        expected: { shipping_cost: 9.99, tier: "standard" }
+        description: "Exactly at 1 kg — standard tier."
+      - input: { total_weight_kg: 4.99 }
+        expected: { shipping_cost: 9.99, tier: "standard" }
+        description: "Just below 5 kg — still standard."
+      - input: { total_weight_kg: 5.00 }
+        expected: { shipping_cost: 14.99, tier: "heavy" }
+        description: "Exactly at 5 kg — heavy tier."
+    status: uncovered
+    priority: 2
+    tags:
+      - shipping
+      - boundary
+
+# ---------------------------------------------------------------------------
+# Example Mapping
+# ---------------------------------------------------------------------------
+example_mapping:
+  story: >
+    As an online shopper, I want to complete a purchase through checkout
+    so that I receive the items I selected.
+  rules:
+    - rule_name: "Cart must contain at least one in-stock item"
+      examples:
+        - "Cart with one in-stock item -> proceed to payment"
+        - "Cart with one out-of-stock item -> block with ITEM_OUT_OF_STOCK error"
+        - "Empty cart -> block with CART_EMPTY error"
+        - "Cart where item goes out of stock during payment -> 409 conflict"
+
+    - rule_name: "Payment must be captured before order is confirmed"
+      examples:
+        - "Valid credit card -> payment captured -> order confirmed"
+        - "Declined credit card -> payment not captured -> order stays pending"
+        - "Gateway timeout -> reversal attempted -> cart preserved"
+        - "Duplicate submission with same idempotency key -> original order returned"
+
+    - rule_name: "Discounts are applied based on coupon, loyalty, and promo status"
+      examples:
+        - "Valid coupon + gold tier + promo active -> all discounts stacked"
+        - "Expired coupon -> rejected, no discount"
+        - "No coupon, no loyalty, no promo -> full price"
+        - "Gold tier + large cart -> free shipping even without coupon"
+
+    - rule_name: "Order can be cancelled within 30 minutes of confirmation"
+      examples:
+        - "Cancel at 15 minutes -> allowed, refund initiated"
+        - "Cancel at 45 minutes -> rejected, window expired"
+        - "Cancel from 'preparing' state -> rejected, already in fulfilment"
+
+    - rule_name: "Shipping cost depends on total weight"
+      examples:
+        - "0.5 kg -> light tier ($5.99)"
+        - "1.0 kg -> standard tier ($9.99)"
+        - "5.0 kg -> heavy tier ($14.99)"
+        - "Free shipping when cart > $100 and loyalty is gold"
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+metadata:
+  created_at: "2026-03-13T10:00:00Z"
+  updated_at: "2026-03-13T10:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

@@ -1,0 +1,64 @@
+{
+  "eval_key": "p3-06-brownfield-redundancy",
+  "eval_name": "Test suite redundancy analysis",
+  "category": "brownfield",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "Addresses both redundancy AND gap discovery",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: redundan"
+    },
+    {
+      "text": "References EP for identifying same-partition tests",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence"
+    },
+    {
+      "text": "References BVA for finding missing edge cases",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: edge case"
+    },
+    {
+      "text": "Recommends test-to-scenario mapping",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "Mentions risk-based prioritization",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "Suggests mutation testing",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Mutation"
+    },
+    {
+      "text": "Addresses path/branch coverage gaps",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('branch', 'coverage')"
+    },
+    {
+      "text": "Notes maintainability benefit of removing redundancy",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ci"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "total": 8,
+    "pass_rate": 0.75,
+    "weighted_score": 0.667,
+    "content_score": 0.667,
+    "structural_score": 0
+  }
+}

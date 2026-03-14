@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-19-st-vending-machine",
+  "eval_name": "Vending machine state transitions",
+  "category": "correctness",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "States: idle, accepting_coins, dispensing, returning_change, out_of_stock",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: idle"
+    },
+    {
+      "text": "Guard: amount >= item_price",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('amount', 'price')"
+    },
+    {
+      "text": "Change calculation",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: return"
+    },
+    {
+      "text": "Out-of-stock handling",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: return"
+    },
+    {
+      "text": "Coin denominations",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: coin"
+    },
+    {
+      "text": "Multiple items / price variations",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: item"
+    },
+    {
+      "text": "Cancel/coin return from accepting_coins",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: cancel"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/2 required patterns"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "total": 17,
+    "pass_rate": 0.412,
+    "weighted_score": 0.429,
+    "content_score": 1.0,
+    "structural_score": 0.0
+  }
+}

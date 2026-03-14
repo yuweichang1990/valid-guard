@@ -1,0 +1,58 @@
+{
+  "eval_key": "p3-27-security-attack-payloads",
+  "eval_name": "Security attack payload testing",
+  "category": "security",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "XSS payloads with specific examples",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('XSS', 'javascript:')"
+    },
+    {
+      "text": "SQL injection payloads",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: SQL Inject"
+    },
+    {
+      "text": "CSRF token manipulation",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Cross-Site Request"
+    },
+    {
+      "text": "Input sanitization bypass",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('encod', 'bypass')"
+    },
+    {
+      "text": "Null byte injection",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Null Byte"
+    },
+    {
+      "text": "Expected defensive responses specified",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('400', 'status')"
+    },
+    {
+      "text": "Multiple attack vectors (3+)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: XSS"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "total": 7,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 0
+  }
+}

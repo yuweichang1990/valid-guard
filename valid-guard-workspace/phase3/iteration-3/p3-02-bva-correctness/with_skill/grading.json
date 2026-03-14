@@ -1,0 +1,130 @@
+{
+  "eval_key": "p3-02-bva-correctness",
+  "eval_name": "BVA for isEligible(age, income)",
+  "category": "correctness",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Tests age=17 (below boundary)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: 17"
+    },
+    {
+      "text": "Tests age=18 (exact boundary)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: 18"
+    },
+    {
+      "text": "Tests income=30000 (boundary where > fails)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: 30000"
+    },
+    {
+      "text": "Tests income=30001 (just above boundary)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: 30001"
+    },
+    {
+      "text": "Uses equivalence partitioning",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: equivalence_partition"
+    },
+    {
+      "text": "Uses boundary value analysis",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Boundary Value"
+    },
+    {
+      "text": "Tests both conditions independently",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: each input condition"
+    },
+    {
+      "text": "Identifies >= vs > distinction",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: >= 18) and (income > "
+    },
+    {
+      "text": "Has 4+ equivalence partitions",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: partition"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: feature:"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Impact"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: technique_rationale:"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: uncovered"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priority: 1"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: happy_path"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence_partitioning"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: example_mapping:"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: metadata:"
+    }
+  ],
+  "summary": {
+    "passed": 18,
+    "total": 19,
+    "pass_rate": 0.947,
+    "weighted_score": 0.962,
+    "content_score": 1.0,
+    "structural_score": 0.917
+  }
+}

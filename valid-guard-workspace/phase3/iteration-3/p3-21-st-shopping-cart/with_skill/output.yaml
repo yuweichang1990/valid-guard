@@ -1,0 +1,2043 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T12:00:00Z
+# Source: natural language
+
+feature: "E-Commerce Shopping Cart State Machine"
+
+feature_description: >
+  Shopping cart modeled as a finite state machine with five states
+  (empty_cart, items_added, checkout_in_progress, payment_processing,
+  order_confirmed) and eight events (add_product, update_quantity,
+  remove_item, remove_all_items, click_checkout, submit_payment,
+  payment_success, payment_failure). Guards enforce that the cart must
+  not be empty for checkout, all items must be in stock, and the payment
+  amount must match the cart total. Removing all items returns the cart
+  to empty_cart. Payment failure returns to checkout_in_progress.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # STATE TRANSITION — Full state machine coverage (0-switch)
+  # ==========================================================================
+
+  - name: "ST-01: Complete valid state transition table"
+    description: >
+      Verifies every valid transition in the shopping cart state machine.
+      Covers the full state transition table: empty_cart -> items_added
+      (add_product), items_added -> items_added (add_product, update_quantity,
+      remove_item), items_added -> empty_cart (remove_all_items,
+      remove_item when last item), items_added -> checkout_in_progress
+      (click_checkout with guards), checkout_in_progress -> payment_processing
+      (submit_payment with guards), payment_processing -> order_confirmed
+      (payment_success), payment_processing -> checkout_in_progress
+      (payment_failure).
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Core e-commerce flow; every purchase depends on correct
+      state transitions. Frequency: 3 — Every user session involves cart
+      state changes. Consequence: 3 — Invalid transitions can cause lost
+      orders, stuck carts, or double charges. Detectability: 2 — Some
+      transitions fail silently (e.g., stuck in payment_processing).
+      Average: 2.75 -> high.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      The shopping cart is explicitly defined as a state machine with
+      discrete states and event-driven transitions. State transition
+      testing is the primary technique for 0-switch coverage of all
+      valid transitions.
+    preconditions:
+      - "Cart system is initialized and accessible"
+      - "Product catalog is available with in-stock items"
+    examples:
+      - input:
+          current_state: "empty_cart"
+          event: "add_product"
+          product: { sku: "SHIRT-M", qty: 1, price: 29.99 }
+        expected:
+          new_state: "items_added"
+          cart_items: 1
+        description: "Adding first product transitions empty_cart to items_added."
+      - input:
+          current_state: "items_added"
+          event: "add_product"
+          product: { sku: "PANTS-L", qty: 1, price: 49.99 }
+        expected:
+          new_state: "items_added"
+          cart_items: 2
+        description: "Adding another product stays in items_added state."
+      - input:
+          current_state: "items_added"
+          event: "update_quantity"
+          sku: "SHIRT-M"
+          new_qty: 3
+        expected:
+          new_state: "items_added"
+          updated_qty: 3
+        description: "Updating quantity stays in items_added state."
+      - input:
+          current_state: "items_added"
+          event: "remove_item"
+          sku: "PANTS-L"
+          remaining_items: 1
+        expected:
+          new_state: "items_added"
+          cart_items: 1
+        description: "Removing one item (others remain) stays in items_added."
+      - input:
+          current_state: "items_added"
+          event: "remove_all_items"
+        expected:
+          new_state: "empty_cart"
+          cart_items: 0
+        description: "Removing all items returns cart to empty_cart."
+      - input:
+          current_state: "items_added"
+          event: "click_checkout"
+          cart_not_empty: true
+          all_items_in_stock: true
+        expected:
+          new_state: "checkout_in_progress"
+        description: "Clicking checkout with all guards satisfied transitions to checkout_in_progress."
+      - input:
+          current_state: "checkout_in_progress"
+          event: "submit_payment"
+          payment_amount: 79.98
+          cart_total: 79.98
+        expected:
+          new_state: "payment_processing"
+        description: "Submitting payment with matching amount transitions to payment_processing."
+      - input:
+          current_state: "payment_processing"
+          event: "payment_success"
+        expected:
+          new_state: "order_confirmed"
+        description: "Payment success transitions to order_confirmed."
+      - input:
+          current_state: "payment_processing"
+          event: "payment_failure"
+        expected:
+          new_state: "checkout_in_progress"
+        description: "Payment failure returns to checkout_in_progress."
+    state_transition:
+      states:
+        - "empty_cart"
+        - "items_added"
+        - "checkout_in_progress"
+        - "payment_processing"
+        - "order_confirmed"
+      transitions:
+        - from: "empty_cart"
+          to: "items_added"
+          trigger: "add_product"
+          guard: "product exists in catalog"
+        - from: "items_added"
+          to: "items_added"
+          trigger: "add_product"
+          guard: "product exists in catalog"
+        - from: "items_added"
+          to: "items_added"
+          trigger: "update_quantity"
+          guard: "new quantity > 0"
+        - from: "items_added"
+          to: "items_added"
+          trigger: "remove_item"
+          guard: "cart has more than one item remaining after removal"
+        - from: "items_added"
+          to: "empty_cart"
+          trigger: "remove_item"
+          guard: "cart has exactly one item and it is removed"
+        - from: "items_added"
+          to: "empty_cart"
+          trigger: "remove_all_items"
+          guard: "none"
+        - from: "items_added"
+          to: "checkout_in_progress"
+          trigger: "click_checkout"
+          guard: "cart is not empty AND all items are in stock"
+        - from: "checkout_in_progress"
+          to: "payment_processing"
+          trigger: "submit_payment"
+          guard: "payment amount matches cart total"
+        - from: "payment_processing"
+          to: "order_confirmed"
+          trigger: "payment_success"
+          guard: "none"
+        - from: "payment_processing"
+          to: "checkout_in_progress"
+          trigger: "payment_failure"
+          guard: "none"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - 0-switch
+
+  # ==========================================================================
+  # STATE TRANSITION — Remove last item returns to empty_cart
+  # ==========================================================================
+
+  - name: "ST-02: Remove last item transitions items_added to empty_cart"
+    description: >
+      When the cart contains exactly one item and the user removes it via
+      remove_item (not remove_all_items), the cart must transition back to
+      empty_cart. This is a distinct transition from remove_all_items and
+      must be tested separately.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Incorrect state after removing last item could leave
+      cart in items_added with zero items, breaking checkout guard.
+      Frequency: 2 — Common scenario when users reconsider.
+      Consequence: 3 — Stuck state or allowing checkout with empty cart.
+      Detectability: 2 — May not be immediately obvious until checkout fails.
+      Average: 2.5 -> high.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition verifies the correct state change. Equivalence
+      partitioning distinguishes between remove_item with remaining items
+      vs. remove_item of the last item (two distinct equivalence classes).
+    preconditions:
+      - "Cart is in items_added state"
+      - "Cart contains exactly one item"
+    examples:
+      - input:
+          current_state: "items_added"
+          event: "remove_item"
+          sku: "SHIRT-M"
+          items_before_removal: 1
+        expected:
+          new_state: "empty_cart"
+          cart_items: 0
+        description: "Removing the sole item transitions to empty_cart."
+      - input:
+          current_state: "items_added"
+          event: "remove_item"
+          sku: "SHIRT-M"
+          items_before_removal: 3
+        expected:
+          new_state: "items_added"
+          cart_items: 2
+        description: "Removing one of multiple items stays in items_added."
+    state_transition:
+      states:
+        - "items_added"
+        - "empty_cart"
+      transitions:
+        - from: "items_added"
+          to: "empty_cart"
+          trigger: "remove_item"
+          guard: "item being removed is the only item in cart"
+        - from: "items_added"
+          to: "items_added"
+          trigger: "remove_item"
+          guard: "other items remain in cart after removal"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - edge-case
+
+  # ==========================================================================
+  # STATE TRANSITION — Payment failure returns to checkout_in_progress
+  # ==========================================================================
+
+  - name: "ST-03: Payment failure returns to checkout_in_progress"
+    description: >
+      When payment fails during payment_processing, the cart must return
+      to checkout_in_progress so the user can retry or change payment
+      method. Cart contents and totals must be preserved.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Users must be able to retry payment without losing cart.
+      Frequency: 2 — Payment failures occur in roughly 5-10% of attempts.
+      Consequence: 3 — Lost cart or stuck in payment_processing means lost sale.
+      Detectability: 2 — User sees an error but may not know cart state.
+      Average: 2.5 -> high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition validates the rollback transition. Error guessing
+      anticipates failure modes (timeout, declined card, network error).
+    preconditions:
+      - "Cart is in payment_processing state"
+      - "Payment attempt has been submitted"
+    examples:
+      - input:
+          current_state: "payment_processing"
+          event: "payment_failure"
+          failure_reason: "card_declined"
+        expected:
+          new_state: "checkout_in_progress"
+          cart_preserved: true
+          error_message: "Payment was declined. Please try another method."
+        description: "Card decline returns to checkout with cart preserved."
+      - input:
+          current_state: "payment_processing"
+          event: "payment_failure"
+          failure_reason: "gateway_timeout"
+        expected:
+          new_state: "checkout_in_progress"
+          cart_preserved: true
+          error_message: "Payment processing timed out. Please try again."
+        description: "Gateway timeout returns to checkout safely."
+      - input:
+          current_state: "payment_processing"
+          event: "payment_failure"
+          failure_reason: "insufficient_funds"
+        expected:
+          new_state: "checkout_in_progress"
+          cart_preserved: true
+          user_can_change_payment: true
+        description: "Insufficient funds allows user to change payment method."
+    state_transition:
+      states:
+        - "payment_processing"
+        - "checkout_in_progress"
+      transitions:
+        - from: "payment_processing"
+          to: "checkout_in_progress"
+          trigger: "payment_failure"
+          guard: "none"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - payment
+      - error-recovery
+
+  # ==========================================================================
+  # STATE TRANSITION — 1-switch coverage (common paths)
+  # ==========================================================================
+
+  - name: "ST-04: Full happy path sequence (empty_cart to order_confirmed)"
+    description: >
+      1-switch coverage: Verifies the complete golden path through the
+      state machine — empty_cart -> items_added -> checkout_in_progress ->
+      payment_processing -> order_confirmed. This tests that all
+      sequential transitions work end-to-end.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 — The primary purchase flow.
+      Frequency: 3 — Every successful purchase traverses this path.
+      Consequence: 3 — Broken golden path means zero revenue.
+      Detectability: 1 — A broken end-to-end flow may pass unit tests
+      but fail in integration.
+      Average: 2.5 -> high.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      1-switch state transition coverage verifies sequential transitions
+      along the primary path, catching integration issues between states.
+    preconditions:
+      - "Cart system is initialized"
+      - "Product catalog has in-stock items"
+      - "Payment gateway is operational"
+    examples:
+      - input:
+          sequence:
+            - { event: "add_product", product: { sku: "SHOE-42", qty: 1, price: 89.99 } }
+            - { event: "add_product", product: { sku: "SOCK-M", qty: 2, price: 12.99 } }
+            - { event: "click_checkout" }
+            - { event: "submit_payment", amount: 115.97 }
+            - { event: "payment_success" }
+        expected:
+          final_state: "order_confirmed"
+          total: 115.97
+          items_count: 2
+        description: "Complete purchase flow from empty cart to confirmed order."
+    state_transition:
+      states:
+        - "empty_cart"
+        - "items_added"
+        - "checkout_in_progress"
+        - "payment_processing"
+        - "order_confirmed"
+      transitions:
+        - from: "empty_cart"
+          to: "items_added"
+          trigger: "add_product"
+        - from: "items_added"
+          to: "items_added"
+          trigger: "add_product"
+        - from: "items_added"
+          to: "checkout_in_progress"
+          trigger: "click_checkout"
+          guard: "cart not empty AND all items in stock"
+        - from: "checkout_in_progress"
+          to: "payment_processing"
+          trigger: "submit_payment"
+          guard: "payment amount matches cart total"
+        - from: "payment_processing"
+          to: "order_confirmed"
+          trigger: "payment_success"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - 1-switch
+      - smoke
+
+  - name: "ST-05: Payment retry path (payment_failure then success)"
+    description: >
+      1-switch coverage: Tests the retry path — payment_processing ->
+      checkout_in_progress (payment_failure) -> payment_processing
+      (submit_payment) -> order_confirmed (payment_success). Ensures
+      users can recover from payment failure.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Recovery from payment failure is critical for revenue.
+      Frequency: 2 — Occurs in 5-10% of transactions.
+      Consequence: 3 — If retry path is broken, failed payments are
+      permanently lost sales.
+      Detectability: 2 — User sees error but retry behavior may be buggy.
+      Average: 2.5 -> high.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      1-switch state transition coverage for the failure-recovery loop.
+    preconditions:
+      - "Cart has items and has reached payment_processing"
+      - "First payment attempt will fail"
+    examples:
+      - input:
+          sequence:
+            - { state: "payment_processing", event: "payment_failure", reason: "card_declined" }
+            - { state: "checkout_in_progress", event: "submit_payment", amount: 89.99, new_card: true }
+            - { state: "payment_processing", event: "payment_success" }
+        expected:
+          final_state: "order_confirmed"
+          payment_attempts: 2
+          cart_preserved_throughout: true
+        description: "Failed payment, change card, retry, success."
+    state_transition:
+      states:
+        - "payment_processing"
+        - "checkout_in_progress"
+        - "order_confirmed"
+      transitions:
+        - from: "payment_processing"
+          to: "checkout_in_progress"
+          trigger: "payment_failure"
+        - from: "checkout_in_progress"
+          to: "payment_processing"
+          trigger: "submit_payment"
+          guard: "payment amount matches cart total"
+        - from: "payment_processing"
+          to: "order_confirmed"
+          trigger: "payment_success"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - payment
+      - retry
+      - 1-switch
+
+  - name: "ST-06: Add then remove all items path (items_added to empty_cart)"
+    description: >
+      1-switch coverage: User adds products, then removes all items,
+      returning to empty_cart. Tests the add -> remove_all_items
+      transition sequence.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Cart management feature, not directly revenue-blocking.
+      Frequency: 2 — Users occasionally clear their cart.
+      Consequence: 2 — Incorrect state could allow checkout on empty cart.
+      Detectability: 2 — User would see empty cart but state may be wrong internally.
+      Average: 2.0 -> medium.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition testing for the cart-clearing path.
+    preconditions:
+      - "Cart starts empty"
+    examples:
+      - input:
+          sequence:
+            - { event: "add_product", product: { sku: "HAT-S", qty: 1, price: 24.99 } }
+            - { event: "add_product", product: { sku: "SCARF-M", qty: 1, price: 19.99 } }
+            - { event: "remove_all_items" }
+        expected:
+          final_state: "empty_cart"
+          cart_items: 0
+          cart_total: 0
+        description: "Add two items then clear cart returns to empty_cart."
+    state_transition:
+      states:
+        - "empty_cart"
+        - "items_added"
+      transitions:
+        - from: "empty_cart"
+          to: "items_added"
+          trigger: "add_product"
+        - from: "items_added"
+          to: "items_added"
+          trigger: "add_product"
+        - from: "items_added"
+          to: "empty_cart"
+          trigger: "remove_all_items"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - state-machine
+      - cart-management
+      - 1-switch
+
+  # ==========================================================================
+  # INVALID STATE TRANSITIONS — Events fired in wrong states
+  # ==========================================================================
+
+  - name: "ST-07: Invalid transitions — events in wrong states"
+    description: >
+      Verifies that events are rejected when fired in states that should
+      not accept them. The system must remain in its current state and
+      return an appropriate error. Covers all invalid (state, event) pairs
+      from the state transition table.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Accepting invalid transitions can corrupt order state.
+      Frequency: 2 — Edge cases triggered by UI bugs, API misuse, or
+      race conditions.
+      Consequence: 3 — Could lead to checkout on empty cart, double
+      payment, or skipping payment.
+      Detectability: 3 — Invalid transitions may be silent — state
+      changes without visible error.
+      Average: 2.75 -> high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition testing for invalid transitions (negative testing).
+      Error guessing anticipates likely API misuse and race conditions.
+    preconditions:
+      - "Cart system is initialized"
+    examples:
+      - input:
+          current_state: "empty_cart"
+          event: "click_checkout"
+        expected:
+          new_state: "empty_cart"
+          error: "CART_EMPTY"
+        description: "Cannot checkout from empty_cart — cart is empty."
+      - input:
+          current_state: "empty_cart"
+          event: "update_quantity"
+          sku: "SHIRT-M"
+          new_qty: 2
+        expected:
+          new_state: "empty_cart"
+          error: "INVALID_OPERATION"
+        description: "Cannot update quantity in empty cart."
+      - input:
+          current_state: "empty_cart"
+          event: "remove_item"
+          sku: "SHIRT-M"
+        expected:
+          new_state: "empty_cart"
+          error: "INVALID_OPERATION"
+        description: "Cannot remove item from empty cart."
+      - input:
+          current_state: "empty_cart"
+          event: "remove_all_items"
+        expected:
+          new_state: "empty_cart"
+          error: "INVALID_OPERATION"
+        description: "Cannot remove all items from empty cart."
+      - input:
+          current_state: "empty_cart"
+          event: "submit_payment"
+        expected:
+          new_state: "empty_cart"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot submit payment from empty_cart."
+      - input:
+          current_state: "empty_cart"
+          event: "payment_success"
+        expected:
+          new_state: "empty_cart"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot receive payment_success in empty_cart."
+      - input:
+          current_state: "empty_cart"
+          event: "payment_failure"
+        expected:
+          new_state: "empty_cart"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot receive payment_failure in empty_cart."
+      - input:
+          current_state: "items_added"
+          event: "submit_payment"
+        expected:
+          new_state: "items_added"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot submit payment directly from items_added (must checkout first)."
+      - input:
+          current_state: "items_added"
+          event: "payment_success"
+        expected:
+          new_state: "items_added"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot receive payment_success in items_added."
+      - input:
+          current_state: "items_added"
+          event: "payment_failure"
+        expected:
+          new_state: "items_added"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot receive payment_failure in items_added."
+      - input:
+          current_state: "checkout_in_progress"
+          event: "add_product"
+        expected:
+          new_state: "checkout_in_progress"
+          error: "INVALID_OPERATION"
+        description: "Cannot add product during checkout (must go back to cart)."
+      - input:
+          current_state: "checkout_in_progress"
+          event: "payment_success"
+        expected:
+          new_state: "checkout_in_progress"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot receive payment_success before submitting payment."
+      - input:
+          current_state: "checkout_in_progress"
+          event: "payment_failure"
+        expected:
+          new_state: "checkout_in_progress"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot receive payment_failure before submitting payment."
+      - input:
+          current_state: "payment_processing"
+          event: "add_product"
+        expected:
+          new_state: "payment_processing"
+          error: "INVALID_OPERATION"
+        description: "Cannot add product while payment is processing."
+      - input:
+          current_state: "payment_processing"
+          event: "click_checkout"
+        expected:
+          new_state: "payment_processing"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot click checkout while payment is processing."
+      - input:
+          current_state: "payment_processing"
+          event: "submit_payment"
+        expected:
+          new_state: "payment_processing"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot submit another payment while one is processing."
+      - input:
+          current_state: "order_confirmed"
+          event: "add_product"
+        expected:
+          new_state: "order_confirmed"
+          error: "INVALID_OPERATION"
+        description: "Cannot add product to confirmed order."
+      - input:
+          current_state: "order_confirmed"
+          event: "click_checkout"
+        expected:
+          new_state: "order_confirmed"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot checkout a confirmed order."
+      - input:
+          current_state: "order_confirmed"
+          event: "submit_payment"
+        expected:
+          new_state: "order_confirmed"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot submit payment for confirmed order."
+      - input:
+          current_state: "order_confirmed"
+          event: "payment_success"
+        expected:
+          new_state: "order_confirmed"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot re-confirm payment on confirmed order."
+      - input:
+          current_state: "order_confirmed"
+          event: "payment_failure"
+        expected:
+          new_state: "order_confirmed"
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot fail payment on confirmed order."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - negative-testing
+      - invalid-transitions
+
+  # ==========================================================================
+  # GUARD CONDITIONS — Decision table for checkout guard
+  # ==========================================================================
+
+  - name: "DT-01: Checkout guard — cart not empty AND all items in stock"
+    description: >
+      Decision table for the click_checkout transition guard. Two
+      conditions must both be true: cart must not be empty, and all items
+      must be in stock. Tests all four combinations.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Guards prevent invalid checkouts; bypassing them
+      causes downstream failures.
+      Frequency: 3 — Every checkout attempt evaluates these guards.
+      Consequence: 3 — Checking out with empty cart or out-of-stock
+      items leads to failed orders and bad UX.
+      Detectability: 2 — Out-of-stock may fail silently until fulfillment.
+      Average: 2.75 -> high.
+    techniques:
+      - decision_table
+      - state_transition
+    technique_rationale: >
+      Decision table enumerates all combinations of the two boolean
+      guard conditions. State transition validates the guarded transition.
+    preconditions:
+      - "Cart is in items_added state"
+    examples:
+      - input:
+          cart_not_empty: true
+          all_items_in_stock: true
+          event: "click_checkout"
+        expected:
+          transition_allowed: true
+          new_state: "checkout_in_progress"
+        description: "Both guards satisfied — checkout proceeds."
+      - input:
+          cart_not_empty: true
+          all_items_in_stock: false
+          event: "click_checkout"
+        expected:
+          transition_allowed: false
+          error: "ITEMS_OUT_OF_STOCK"
+          new_state: "items_added"
+        description: "Cart has items but some are out of stock — blocked."
+      - input:
+          cart_not_empty: false
+          all_items_in_stock: true
+          event: "click_checkout"
+        expected:
+          transition_allowed: false
+          error: "CART_EMPTY"
+          new_state: "empty_cart"
+        description: "Cart is empty (guard violation) — blocked."
+      - input:
+          cart_not_empty: false
+          all_items_in_stock: false
+          event: "click_checkout"
+        expected:
+          transition_allowed: false
+          error: "CART_EMPTY"
+          new_state: "empty_cart"
+        description: "Cart empty and items out of stock — blocked (empty takes precedence)."
+    decision_table:
+      conditions:
+        - "cart_not_empty"
+        - "all_items_in_stock"
+      actions:
+        - "allow_checkout"
+        - "error_message"
+      rules:
+        - description: "Both guards pass — allow checkout"
+          condition_values:
+            cart_not_empty: true
+            all_items_in_stock: true
+          expected_actions:
+            allow_checkout: true
+            error_message: "none"
+        - description: "Cart has items but some out of stock — block"
+          condition_values:
+            cart_not_empty: true
+            all_items_in_stock: false
+          expected_actions:
+            allow_checkout: false
+            error_message: "ITEMS_OUT_OF_STOCK"
+        - description: "Cart is empty — block regardless of stock"
+          condition_values:
+            cart_not_empty: false
+            all_items_in_stock: true
+          expected_actions:
+            allow_checkout: false
+            error_message: "CART_EMPTY"
+        - description: "Cart is empty and items out of stock — block"
+          condition_values:
+            cart_not_empty: false
+            all_items_in_stock: false
+          expected_actions:
+            allow_checkout: false
+            error_message: "CART_EMPTY"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - guard
+      - checkout
+      - decision-table
+
+  - name: "DT-02: Payment guard — payment amount must match cart total"
+    description: >
+      Decision table for the submit_payment transition guard. The payment
+      amount submitted must exactly match the cart total. Tests matching
+      amount, underpayment, and overpayment.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Payment/cart total mismatch causes financial
+      discrepancies.
+      Frequency: 3 — Every payment submission checks this guard.
+      Consequence: 3 — Accepting mismatched amounts is direct financial loss.
+      Detectability: 2 — Overpayment may go unnoticed by the customer;
+      underpayment may silently succeed.
+      Average: 2.75 -> high.
+    techniques:
+      - decision_table
+      - boundary_value
+    technique_rationale: >
+      Decision table covers the match/mismatch logic. Boundary value
+      tests amounts at the exact match point and tiny deviations
+      (e.g., off by one cent).
+    preconditions:
+      - "Cart is in checkout_in_progress state"
+      - "Cart total is known (e.g., $115.97)"
+    examples:
+      - input:
+          cart_total: 115.97
+          payment_amount: 115.97
+        expected:
+          transition_allowed: true
+          new_state: "payment_processing"
+        description: "Exact match — payment proceeds."
+      - input:
+          cart_total: 115.97
+          payment_amount: 115.96
+        expected:
+          transition_allowed: false
+          error: "PAYMENT_AMOUNT_MISMATCH"
+        description: "One cent under — payment rejected."
+      - input:
+          cart_total: 115.97
+          payment_amount: 115.98
+        expected:
+          transition_allowed: false
+          error: "PAYMENT_AMOUNT_MISMATCH"
+        description: "One cent over — payment rejected."
+      - input:
+          cart_total: 115.97
+          payment_amount: 0
+        expected:
+          transition_allowed: false
+          error: "PAYMENT_AMOUNT_MISMATCH"
+        description: "Zero payment — rejected."
+      - input:
+          cart_total: 115.97
+          payment_amount: -115.97
+        expected:
+          transition_allowed: false
+          error: "INVALID_PAYMENT_AMOUNT"
+        description: "Negative payment amount — rejected."
+    decision_table:
+      conditions:
+        - "payment_amount_matches_cart_total"
+        - "payment_amount_positive"
+      actions:
+        - "allow_payment"
+        - "error_type"
+      rules:
+        - description: "Amount matches and is positive — allow"
+          condition_values:
+            payment_amount_matches_cart_total: true
+            payment_amount_positive: true
+          expected_actions:
+            allow_payment: true
+            error_type: "none"
+        - description: "Amount does not match but is positive — mismatch error"
+          condition_values:
+            payment_amount_matches_cart_total: false
+            payment_amount_positive: true
+          expected_actions:
+            allow_payment: false
+            error_type: "PAYMENT_AMOUNT_MISMATCH"
+        - description: "Amount is zero or negative — invalid amount error"
+          condition_values:
+            payment_amount_matches_cart_total: false
+            payment_amount_positive: false
+          expected_actions:
+            allow_payment: false
+            error_type: "INVALID_PAYMENT_AMOUNT"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - guard
+      - payment
+      - decision-table
+
+  - name: "DT-03: Combined guard evaluation for full checkout-to-payment flow"
+    description: >
+      Decision table combining all three guards across the checkout flow:
+      (1) cart not empty, (2) all items in stock, (3) payment matches total.
+      Tests key combinations of all three conditions together.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Combined guard failures represent the most critical
+      business logic.
+      Frequency: 2 — Full flow evaluation happens on each purchase.
+      Consequence: 3 — Any bypass can cause financial or fulfillment failures.
+      Detectability: 2 — Individual guards may pass but combined behavior
+      may have gaps.
+      Average: 2.5 -> high.
+    techniques:
+      - decision_table
+      - cause_effect
+    technique_rationale: >
+      Decision table captures the combinatorial logic of three guards.
+      Cause-effect graphing maps the logical dependency between guard
+      conditions and the allowed/blocked outcomes.
+    preconditions:
+      - "Cart system is initialized"
+    examples:
+      - input:
+          cart_not_empty: true
+          all_items_in_stock: true
+          payment_matches_total: true
+        expected:
+          checkout_allowed: true
+          payment_allowed: true
+          final_state: "order_confirmed"
+        description: "All three guards pass — full flow succeeds."
+      - input:
+          cart_not_empty: true
+          all_items_in_stock: false
+          payment_matches_total: true
+        expected:
+          checkout_allowed: false
+          blocked_at: "click_checkout"
+          error: "ITEMS_OUT_OF_STOCK"
+        description: "Stock guard fails — blocked at checkout step."
+      - input:
+          cart_not_empty: true
+          all_items_in_stock: true
+          payment_matches_total: false
+        expected:
+          checkout_allowed: true
+          payment_allowed: false
+          blocked_at: "submit_payment"
+          error: "PAYMENT_AMOUNT_MISMATCH"
+        description: "Checkout succeeds but payment guard fails."
+      - input:
+          cart_not_empty: false
+          all_items_in_stock: true
+          payment_matches_total: true
+        expected:
+          checkout_allowed: false
+          blocked_at: "click_checkout"
+          error: "CART_EMPTY"
+        description: "Empty cart blocks at first guard."
+    decision_table:
+      conditions:
+        - "cart_not_empty"
+        - "all_items_in_stock"
+        - "payment_matches_total"
+      actions:
+        - "checkout_transition_allowed"
+        - "payment_transition_allowed"
+        - "blocked_at_step"
+      rules:
+        - description: "All guards pass"
+          condition_values:
+            cart_not_empty: true
+            all_items_in_stock: true
+            payment_matches_total: true
+          expected_actions:
+            checkout_transition_allowed: true
+            payment_transition_allowed: true
+            blocked_at_step: "none"
+        - description: "Stock guard fails"
+          condition_values:
+            cart_not_empty: true
+            all_items_in_stock: false
+            payment_matches_total: "N/A"
+          expected_actions:
+            checkout_transition_allowed: false
+            payment_transition_allowed: false
+            blocked_at_step: "click_checkout"
+        - description: "Payment guard fails"
+          condition_values:
+            cart_not_empty: true
+            all_items_in_stock: true
+            payment_matches_total: false
+          expected_actions:
+            checkout_transition_allowed: true
+            payment_transition_allowed: false
+            blocked_at_step: "submit_payment"
+        - description: "Empty cart blocks everything"
+          condition_values:
+            cart_not_empty: false
+            all_items_in_stock: "N/A"
+            payment_matches_total: "N/A"
+          expected_actions:
+            checkout_transition_allowed: false
+            payment_transition_allowed: false
+            blocked_at_step: "click_checkout"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - guard
+      - decision-table
+      - combined-logic
+
+  # ==========================================================================
+  # EQUIVALENCE PARTITIONING — Input classes for cart operations
+  # ==========================================================================
+
+  - name: "EP-01: Add product — valid and invalid input partitions"
+    description: >
+      Equivalence partitioning for the add_product event. Tests valid
+      product additions (existing SKU, valid quantity, in-stock) and
+      invalid partitions (non-existent SKU, zero/negative quantity,
+      out-of-stock product).
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Adding products is fundamental but input validation
+      is a secondary concern.
+      Frequency: 3 — Every user session involves adding products.
+      Consequence: 2 — Bad input causes user frustration but no data loss.
+      Detectability: 1 — Errors are immediately visible to the user.
+      Average: 2.0 -> medium.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Input parameters (SKU, quantity, price) have distinct valid and
+      invalid classes that partition the input domain.
+    preconditions:
+      - "Cart is in empty_cart or items_added state"
+      - "Product catalog contains SKU SHIRT-M at $29.99"
+    examples:
+      - input:
+          sku: "SHIRT-M"
+          qty: 1
+          price: 29.99
+        expected:
+          result: "product_added"
+          cart_items: 1
+        description: "Valid product, valid quantity — product added (valid class)."
+      - input:
+          sku: "SHIRT-M"
+          qty: 5
+          price: 29.99
+        expected:
+          result: "product_added"
+          cart_items: 1
+          total_qty: 5
+        description: "Valid product, higher quantity — product added (valid class, qty > 1)."
+      - input:
+          sku: "NONEXISTENT-99"
+          qty: 1
+          price: 0
+        expected:
+          result: "error"
+          error: "PRODUCT_NOT_FOUND"
+        description: "Non-existent SKU — rejected (invalid class)."
+      - input:
+          sku: "SHIRT-M"
+          qty: 0
+          price: 29.99
+        expected:
+          result: "error"
+          error: "INVALID_QUANTITY"
+        description: "Zero quantity — rejected (invalid class)."
+      - input:
+          sku: "SHIRT-M"
+          qty: -1
+          price: 29.99
+        expected:
+          result: "error"
+          error: "INVALID_QUANTITY"
+        description: "Negative quantity — rejected (invalid class)."
+      - input:
+          sku: "OUT-OF-STOCK-01"
+          qty: 1
+          price: 39.99
+        expected:
+          result: "error"
+          error: "PRODUCT_OUT_OF_STOCK"
+        description: "Out-of-stock product — rejected (invalid class)."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - equivalence-partitioning
+      - cart-operations
+      - input-validation
+
+  - name: "EP-02: Update quantity — valid and invalid partitions"
+    description: >
+      Equivalence partitioning for the update_quantity event. Tests valid
+      quantity updates and invalid updates (zero, negative, exceeding stock).
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Quantity updates affect order totals.
+      Frequency: 2 — Some users update quantities.
+      Consequence: 2 — Wrong quantity silently affects total but visible in cart.
+      Detectability: 1 — User sees updated quantity immediately.
+      Average: 1.75 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+    technique_rationale: >
+      Equivalence partitioning separates valid vs. invalid quantity values.
+      Boundary value tests limits like 0, 1, and max stock quantity.
+    preconditions:
+      - "Cart is in items_added state"
+      - "Item SHIRT-M is in cart with qty 2"
+      - "SHIRT-M has 10 units in stock"
+    examples:
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 5
+        expected:
+          result: "quantity_updated"
+          new_qty: 5
+        description: "Valid quantity increase — updated (valid class)."
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 1
+        expected:
+          result: "quantity_updated"
+          new_qty: 1
+        description: "Valid quantity decrease — updated (valid class, min valid)."
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 0
+        expected:
+          result: "error"
+          error: "INVALID_QUANTITY"
+        description: "Zero quantity — rejected (invalid class, use remove_item instead)."
+      - input:
+          sku: "SHIRT-M"
+          new_qty: -3
+        expected:
+          result: "error"
+          error: "INVALID_QUANTITY"
+        description: "Negative quantity — rejected (invalid class)."
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 11
+        expected:
+          result: "error"
+          error: "EXCEEDS_STOCK"
+        description: "Quantity exceeds available stock — rejected (invalid class)."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - equivalence-partitioning
+      - cart-operations
+      - quantity
+
+  # ==========================================================================
+  # BOUNDARY VALUE ANALYSIS — Quantity and cart limits
+  # ==========================================================================
+
+  - name: "BVA-01: Cart item count boundaries"
+    description: >
+      Boundary value analysis for the number of items in the cart.
+      Tests at minimum (1 item), typical, and maximum cart size boundaries.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Cart size limits affect usability and performance.
+      Frequency: 1 — Most carts are small; boundary cases are rare.
+      Consequence: 2 — Exceeding limits may cause performance degradation.
+      Detectability: 1 — User receives immediate feedback on cart size.
+      Average: 1.5 -> medium.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Cart size has implicit boundaries (minimum 1 for checkout, potential
+      maximum). Boundary value analysis tests at these edges.
+    preconditions:
+      - "Cart system is operational"
+    examples:
+      - input:
+          cart_items: 1
+          event: "click_checkout"
+        expected:
+          transition_allowed: true
+          state: "checkout_in_progress"
+        description: "Minimum cart size (1 item) — checkout allowed."
+      - input:
+          cart_items: 0
+          event: "click_checkout"
+        expected:
+          transition_allowed: false
+          error: "CART_EMPTY"
+        description: "Below minimum (0 items) — checkout blocked."
+      - input:
+          cart_items: 100
+          event: "click_checkout"
+        expected:
+          transition_allowed: true
+          state: "checkout_in_progress"
+        description: "Large cart — checkout allowed if all in stock."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - boundary
+      - cart-size
+
+  - name: "BVA-02: Item quantity boundaries"
+    description: >
+      Boundary value analysis for individual item quantity within the cart.
+      Tests at quantity 1 (minimum), and stock limit boundaries.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Quantity directly affects pricing.
+      Frequency: 2 — Quantity changes are common.
+      Consequence: 2 — Off-by-one in quantity affects total price.
+      Detectability: 1 — Quantity is visible in cart display.
+      Average: 1.75 -> medium.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Quantity has a lower bound (1) and an upper bound (stock limit).
+      Three-point BVA at each boundary.
+    preconditions:
+      - "Cart is in items_added state"
+      - "Item has 10 units in stock"
+    examples:
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 1
+          stock_available: 10
+        expected:
+          result: "quantity_updated"
+        description: "Minimum valid quantity (1) — accepted."
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 0
+          stock_available: 10
+        expected:
+          result: "error"
+          error: "INVALID_QUANTITY"
+        description: "Below minimum (0) — rejected."
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 10
+          stock_available: 10
+        expected:
+          result: "quantity_updated"
+        description: "At stock limit (10) — accepted."
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 11
+          stock_available: 10
+        expected:
+          result: "error"
+          error: "EXCEEDS_STOCK"
+        description: "One above stock limit (11) — rejected."
+      - input:
+          sku: "SHIRT-M"
+          new_qty: 9
+          stock_available: 10
+        expected:
+          result: "quantity_updated"
+        description: "One below stock limit (9) — accepted."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - quantity
+      - stock
+
+  - name: "BVA-03: Payment amount precision boundaries"
+    description: >
+      Boundary value analysis for payment amount matching. Tests exact
+      match, off-by-one-cent, and floating-point precision edge cases.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Payment amount accuracy is critical for financial
+      integrity.
+      Frequency: 3 — Every payment is validated against cart total.
+      Consequence: 3 — Accepting wrong amount is direct financial loss.
+      Detectability: 2 — Tiny mismatches may not be noticed by users.
+      Average: 2.75 -> high.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Payment-cart total matching is an exact boundary — the payment
+      amount must be precisely equal. BVA tests the exact match and
+      minimal deviations.
+    preconditions:
+      - "Cart is in checkout_in_progress state"
+      - "Cart total is $99.99"
+    examples:
+      - input:
+          cart_total: 99.99
+          payment_amount: 99.99
+        expected:
+          transition_allowed: true
+        description: "Exact match — accepted."
+      - input:
+          cart_total: 99.99
+          payment_amount: 99.98
+        expected:
+          transition_allowed: false
+          error: "PAYMENT_AMOUNT_MISMATCH"
+        description: "One cent below — rejected."
+      - input:
+          cart_total: 99.99
+          payment_amount: 100.00
+        expected:
+          transition_allowed: false
+          error: "PAYMENT_AMOUNT_MISMATCH"
+        description: "One cent above — rejected."
+      - input:
+          cart_total: 33.33
+          payment_amount: 33.33
+        expected:
+          transition_allowed: true
+        description: "Repeating decimal — exact match accepted."
+      - input:
+          cart_total: 0.10
+          payment_amount: 0.10
+        expected:
+          transition_allowed: true
+        description: "Known floating-point edge case (0.1) — must match correctly."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - payment
+      - precision
+
+  # ==========================================================================
+  # ERROR GUESSING — Experience-based defect anticipation
+  # ==========================================================================
+
+  - name: "EG-01: Stock changes between checkout start and payment"
+    description: >
+      Race condition: items are in stock when checkout starts, but go
+      out of stock before payment is processed. The system must detect
+      this and prevent the order from being confirmed.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Overselling causes fulfillment failures and customer
+      dissatisfaction.
+      Frequency: 2 — Possible during high-demand sales events.
+      Consequence: 3 — Overselling leads to cancellations and refunds.
+      Detectability: 3 — Customer does not know stock changed until
+      order is cancelled later.
+      Average: 2.75 -> high.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing identifies the race condition between stock check
+      at checkout and actual inventory at payment. State transition
+      verifies the system handles this mid-flow state correctly.
+    preconditions:
+      - "Cart passes checkout guard (all items in stock)"
+      - "Another purchase depletes stock between checkout and payment"
+    examples:
+      - input:
+          cart: [{ sku: "LIMITED-1", qty: 1 }]
+          stock_at_checkout: 1
+          stock_at_payment: 0
+        expected:
+          payment_blocked: true
+          error: "ITEMS_OUT_OF_STOCK"
+          state: "checkout_in_progress"
+        description: "Stock depleted after checkout — payment blocked."
+      - input:
+          cart: [{ sku: "POPULAR-1", qty: 5 }, { sku: "POPULAR-2", qty: 3 }]
+          stock_at_checkout: [5, 3]
+          stock_at_payment: [5, 1]
+        expected:
+          payment_blocked: true
+          error: "INSUFFICIENT_STOCK"
+          out_of_stock_items: ["POPULAR-2"]
+        description: "Partial stock depletion — specific items identified."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - race-condition
+      - concurrency
+      - inventory
+
+  - name: "EG-02: Duplicate add_product calls"
+    description: >
+      Same product added twice in rapid succession (e.g., double-click).
+      System should either increment quantity or deduplicate, not create
+      duplicate line items.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Duplicate items inflate cart total incorrectly.
+      Frequency: 2 — Double-click is a common user behavior.
+      Consequence: 2 — User sees double items but can fix manually.
+      Detectability: 1 — Duplicate items visible in cart immediately.
+      Average: 1.75 -> medium.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates the double-click/rapid-fire submission
+      pattern that is a known source of bugs.
+    preconditions:
+      - "Cart is in empty_cart or items_added state"
+    examples:
+      - input:
+          event_sequence:
+            - { event: "add_product", sku: "SHIRT-M", qty: 1 }
+            - { event: "add_product", sku: "SHIRT-M", qty: 1 }
+        expected:
+          cart_items: 1
+          shirt_m_qty: 2
+          no_duplicate_lines: true
+        description: "Same product added twice — quantity incremented, not duplicated."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - double-click
+      - idempotency
+
+  - name: "EG-03: Cart total recalculation after price change"
+    description: >
+      Product price changes in catalog while item is in cart. The cart
+      total must reflect the current price at checkout time, not the
+      price when the item was added.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Stale prices cause financial discrepancies.
+      Frequency: 1 — Prices change infrequently during a session.
+      Consequence: 3 — Charging old price is direct revenue loss.
+      Detectability: 3 — Price mismatch may not be noticed until
+      financial reconciliation.
+      Average: 2.5 -> high.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing identifies the stale-data pattern where cached
+      prices diverge from catalog prices.
+    preconditions:
+      - "Item is in cart with original price"
+      - "Catalog price changes before checkout"
+    examples:
+      - input:
+          sku: "SHIRT-M"
+          price_when_added: 29.99
+          current_catalog_price: 34.99
+          event: "click_checkout"
+        expected:
+          cart_total_uses: "current_catalog_price"
+          user_notified_of_price_change: true
+        description: "Price increased — cart updates to current price and notifies user."
+      - input:
+          sku: "SHIRT-M"
+          price_when_added: 29.99
+          current_catalog_price: 24.99
+          event: "click_checkout"
+        expected:
+          cart_total_uses: "current_catalog_price"
+          user_notified_of_price_change: true
+        description: "Price decreased — cart updates to current price and notifies user."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-guessing
+      - pricing
+      - stale-data
+
+  - name: "EG-04: Concurrent modification of cart during checkout"
+    description: >
+      User has the cart open in two browser tabs. In tab A, they click
+      checkout. In tab B, they remove an item. The system must handle
+      the cart state conflict.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Concurrent cart modification is a known multi-tab issue.
+      Frequency: 1 — Rare but reproducible.
+      Consequence: 2 — Could lead to inconsistent cart state but user
+      can recover.
+      Detectability: 2 — User may not realize tabs are out of sync.
+      Average: 1.75 -> medium.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates multi-tab/multi-device concurrency
+      issues that are common in web applications.
+    preconditions:
+      - "User has cart open in two browser sessions"
+      - "Cart has items"
+    examples:
+      - input:
+          tab_a_action: "click_checkout"
+          tab_b_action: "remove_item"
+          tab_b_timing: "after_tab_a_checkout"
+        expected:
+          conflict_detected: true
+          tab_a_state: "checkout_in_progress"
+          tab_b_result: "CART_MODIFIED_DURING_CHECKOUT"
+        description: "Concurrent modification detected and user is notified."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - concurrency
+      - multi-session
+
+  - name: "EG-05: Multiple consecutive payment failures"
+    description: >
+      User experiences repeated payment failures. The system must handle
+      the retry loop without degrading state or leaking resources. After
+      N failures, the system may impose a cooldown or lockout.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Repeated failures stress the payment integration.
+      Frequency: 1 — Rare to have many consecutive failures.
+      Consequence: 2 — Could exhaust retry limits or cause account flags.
+      Detectability: 1 — User sees each failure clearly.
+      Average: 1.5 -> medium.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates the repeated-failure loop. State
+      transition verifies the payment_processing -> checkout_in_progress
+      cycle remains stable across multiple iterations.
+    preconditions:
+      - "Cart is in checkout_in_progress state"
+      - "Payment will fail multiple times consecutively"
+    examples:
+      - input:
+          payment_attempts: 3
+          all_fail: true
+        expected:
+          state_after_each: "checkout_in_progress"
+          cart_preserved: true
+          no_partial_charges: true
+        description: "Three consecutive failures — cart preserved, no partial charges."
+      - input:
+          payment_attempts: 5
+          all_fail: true
+        expected:
+          state: "checkout_in_progress"
+          cooldown_imposed: true
+          message: "Too many attempts. Please wait before retrying."
+        description: "Five failures may trigger rate limiting or cooldown."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - payment
+      - retry-loop
+
+  # ==========================================================================
+  # STOCK GUARD — In-stock validation scenarios
+  # ==========================================================================
+
+  - name: "EP-03: Stock guard — all items in stock variations"
+    description: >
+      Equivalence partitioning for the stock guard condition. Tests
+      scenarios where all items are in stock, some are out of stock,
+      and all are out of stock.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Stock validation prevents overselling.
+      Frequency: 3 — Checked on every checkout attempt.
+      Consequence: 3 — Overselling causes fulfillment failures.
+      Detectability: 2 — Out-of-stock may not be caught until fulfillment.
+      Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      The stock status of cart items partitions into three classes:
+      all in stock, some out of stock, all out of stock.
+    preconditions:
+      - "Cart is in items_added state with multiple items"
+    examples:
+      - input:
+          cart:
+            - { sku: "ITEM-A", qty: 2, stock: 10 }
+            - { sku: "ITEM-B", qty: 1, stock: 5 }
+          event: "click_checkout"
+        expected:
+          checkout_allowed: true
+          new_state: "checkout_in_progress"
+        description: "All items in stock — checkout proceeds."
+      - input:
+          cart:
+            - { sku: "ITEM-A", qty: 2, stock: 10 }
+            - { sku: "ITEM-C", qty: 1, stock: 0 }
+          event: "click_checkout"
+        expected:
+          checkout_allowed: false
+          error: "ITEMS_OUT_OF_STOCK"
+          out_of_stock_items: ["ITEM-C"]
+        description: "One item out of stock — checkout blocked with specific item listed."
+      - input:
+          cart:
+            - { sku: "ITEM-D", qty: 3, stock: 2 }
+          event: "click_checkout"
+        expected:
+          checkout_allowed: false
+          error: "INSUFFICIENT_STOCK"
+          item: "ITEM-D"
+          requested: 3
+          available: 2
+        description: "Requested quantity exceeds available stock — checkout blocked."
+      - input:
+          cart:
+            - { sku: "ITEM-E", qty: 1, stock: 0 }
+            - { sku: "ITEM-F", qty: 1, stock: 0 }
+          event: "click_checkout"
+        expected:
+          checkout_allowed: false
+          error: "ITEMS_OUT_OF_STOCK"
+          out_of_stock_items: ["ITEM-E", "ITEM-F"]
+        description: "All items out of stock — checkout blocked."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - equivalence-partitioning
+      - stock-guard
+      - checkout
+
+  # ==========================================================================
+  # STATE TRANSITION — Terminal state (order_confirmed)
+  # ==========================================================================
+
+  - name: "ST-08: Order confirmed is a terminal state"
+    description: >
+      Verifies that order_confirmed is a terminal (absorbing) state.
+      No events should cause a transition out of order_confirmed.
+      All events must be rejected.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 — A confirmed order must not revert or mutate.
+      Frequency: 1 — Only applicable after order is confirmed.
+      Consequence: 3 — Reverting a confirmed order could cause
+      double charges or fulfillment chaos.
+      Detectability: 3 — State corruption in confirmed orders may
+      not surface until fulfillment.
+      Average: 2.5 -> high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition testing for the terminal state — all events must
+      be rejected. Error guessing anticipates attempts to re-process
+      or modify confirmed orders.
+    preconditions:
+      - "Cart/order is in order_confirmed state"
+    examples:
+      - input:
+          current_state: "order_confirmed"
+          event: "add_product"
+        expected:
+          state_unchanged: true
+          error: "ORDER_ALREADY_CONFIRMED"
+        description: "Cannot add product to confirmed order."
+      - input:
+          current_state: "order_confirmed"
+          event: "remove_all_items"
+        expected:
+          state_unchanged: true
+          error: "ORDER_ALREADY_CONFIRMED"
+        description: "Cannot clear a confirmed order."
+      - input:
+          current_state: "order_confirmed"
+          event: "submit_payment"
+        expected:
+          state_unchanged: true
+          error: "ORDER_ALREADY_CONFIRMED"
+        description: "Cannot re-submit payment on confirmed order."
+    state_transition:
+      states:
+        - "order_confirmed"
+      transitions: []
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - terminal-state
+      - negative-testing
+
+  # ==========================================================================
+  # EDGE CASE — Empty cart guard enforcement
+  # ==========================================================================
+
+  - name: "ST-09: Empty cart cannot proceed to checkout"
+    description: >
+      Verifies the cart-not-empty guard by attempting checkout from
+      empty_cart. The system must reject the transition and return
+      a clear error message.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Allowing checkout on empty cart corrupts order flow.
+      Frequency: 2 — Can happen via direct API calls or race conditions.
+      Consequence: 3 — Empty orders cause downstream processing errors.
+      Detectability: 1 — Empty cart is immediately visible.
+      Average: 2.25 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      Tests the empty class from equivalence partitioning of cart contents.
+      State transition validates the guard prevents the transition.
+    preconditions:
+      - "Cart is in empty_cart state"
+    examples:
+      - input:
+          current_state: "empty_cart"
+          event: "click_checkout"
+        expected:
+          transition_blocked: true
+          state: "empty_cart"
+          error: "CART_EMPTY"
+        description: "Checkout from empty cart — blocked by guard."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - guard
+      - empty-cart
+      - negative-testing
+
+  # ==========================================================================
+  # STATE TRANSITION — Self-transitions in items_added
+  # ==========================================================================
+
+  - name: "ST-10: Self-transitions within items_added state"
+    description: >
+      Verifies that add_product, update_quantity, and remove_item (when
+      items remain) are valid self-transitions that keep the cart in
+      items_added state while correctly updating cart contents.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — Cart manipulation is core UX.
+      Frequency: 3 — Users frequently modify cart contents.
+      Consequence: 2 — Wrong state would be visible but not catastrophic.
+      Detectability: 1 — Cart contents are displayed to the user.
+      Average: 2.0 -> medium.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition for the self-loop transitions. Equivalence
+      partitioning for the different cart operations within the same state.
+    preconditions:
+      - "Cart is in items_added state with at least 2 items"
+    examples:
+      - input:
+          current_state: "items_added"
+          event: "add_product"
+          product: { sku: "NEW-ITEM", qty: 1 }
+        expected:
+          new_state: "items_added"
+          item_count_increased: true
+        description: "Adding product stays in items_added."
+      - input:
+          current_state: "items_added"
+          event: "update_quantity"
+          sku: "EXISTING-ITEM"
+          new_qty: 3
+        expected:
+          new_state: "items_added"
+          quantity_updated: true
+        description: "Updating quantity stays in items_added."
+      - input:
+          current_state: "items_added"
+          event: "remove_item"
+          sku: "EXISTING-ITEM"
+          remaining_items: 2
+        expected:
+          new_state: "items_added"
+          item_count_decreased: true
+        description: "Removing one of several items stays in items_added."
+    state_transition:
+      states:
+        - "items_added"
+      transitions:
+        - from: "items_added"
+          to: "items_added"
+          trigger: "add_product"
+          guard: "product exists in catalog"
+        - from: "items_added"
+          to: "items_added"
+          trigger: "update_quantity"
+          guard: "new quantity > 0 and <= stock"
+        - from: "items_added"
+          to: "items_added"
+          trigger: "remove_item"
+          guard: "more than one item remains after removal"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - state-machine
+      - self-transition
+      - cart-management
+
+  # ==========================================================================
+  # CAUSE-EFFECT — Guard interaction logic
+  # ==========================================================================
+
+  - name: "CE-01: Cause-effect graph for checkout eligibility"
+    description: >
+      Maps the logical dependencies between causes (cart state, stock
+      status, payment readiness) and effects (checkout allowed, payment
+      allowed, order confirmed) using cause-effect graphing.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — Checkout eligibility is the gateway to revenue.
+      Frequency: 3 — Evaluated on every purchase attempt.
+      Consequence: 3 — Logic errors cause either blocked valid checkouts
+      or allowed invalid ones.
+      Detectability: 2 — Some cause-effect paths may only manifest
+      under specific conditions.
+      Average: 2.75 -> high.
+    techniques:
+      - cause_effect
+      - decision_table
+    technique_rationale: >
+      Cause-effect graphing maps the logical AND/OR relationships between
+      guard conditions. The resulting graph is converted to a decision
+      table for systematic test generation.
+    preconditions:
+      - "Cart system is operational"
+    examples:
+      - input:
+          causes:
+            cart_has_items: true
+            all_items_in_stock: true
+            payment_amount_correct: true
+            payment_method_valid: true
+        expected:
+          effects:
+            checkout_proceeds: true
+            payment_processes: true
+            order_confirms: true
+        description: "All causes true — all effects fire."
+      - input:
+          causes:
+            cart_has_items: true
+            all_items_in_stock: true
+            payment_amount_correct: false
+            payment_method_valid: true
+        expected:
+          effects:
+            checkout_proceeds: true
+            payment_processes: false
+            order_confirms: false
+        description: "Payment amount wrong — checkout OK but payment blocked."
+      - input:
+          causes:
+            cart_has_items: false
+            all_items_in_stock: false
+            payment_amount_correct: false
+            payment_method_valid: false
+        expected:
+          effects:
+            checkout_proceeds: false
+            payment_processes: false
+            order_confirms: false
+        description: "All causes false — everything blocked."
+    decision_table:
+      conditions:
+        - "cart_has_items"
+        - "all_items_in_stock"
+        - "payment_amount_correct"
+        - "payment_method_valid"
+      actions:
+        - "checkout_proceeds"
+        - "payment_processes"
+        - "order_confirms"
+      rules:
+        - description: "All conditions met"
+          condition_values:
+            cart_has_items: true
+            all_items_in_stock: true
+            payment_amount_correct: true
+            payment_method_valid: true
+          expected_actions:
+            checkout_proceeds: true
+            payment_processes: true
+            order_confirms: true
+        - description: "Cart empty — blocks everything"
+          condition_values:
+            cart_has_items: false
+            all_items_in_stock: "N/A"
+            payment_amount_correct: "N/A"
+            payment_method_valid: "N/A"
+          expected_actions:
+            checkout_proceeds: false
+            payment_processes: false
+            order_confirms: false
+        - description: "Items out of stock — blocks at checkout"
+          condition_values:
+            cart_has_items: true
+            all_items_in_stock: false
+            payment_amount_correct: "N/A"
+            payment_method_valid: "N/A"
+          expected_actions:
+            checkout_proceeds: false
+            payment_processes: false
+            order_confirms: false
+        - description: "Payment amount wrong — blocks at payment"
+          condition_values:
+            cart_has_items: true
+            all_items_in_stock: true
+            payment_amount_correct: false
+            payment_method_valid: true
+          expected_actions:
+            checkout_proceeds: true
+            payment_processes: false
+            order_confirms: false
+        - description: "Invalid payment method — blocks at payment"
+          condition_values:
+            cart_has_items: true
+            all_items_in_stock: true
+            payment_amount_correct: true
+            payment_method_valid: false
+          expected_actions:
+            checkout_proceeds: true
+            payment_processes: false
+            order_confirms: false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - cause-effect
+      - guard-logic
+      - combinatorial
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As an online shopper, I want to manage my shopping cart through a
+    predictable state machine so that I can add items, proceed to checkout,
+    make payment, and receive order confirmation with proper validation
+    at each step.
+  rules:
+    - rule_name: "Cart state transitions follow defined state machine"
+      examples:
+        - "Adding a product to empty_cart transitions to items_added"
+        - "Adding another product in items_added stays in items_added"
+        - "Updating quantity in items_added stays in items_added"
+        - "Removing one of several items stays in items_added"
+        - "Removing the last item transitions to empty_cart"
+        - "Removing all items transitions to empty_cart"
+        - "Clicking checkout from items_added transitions to checkout_in_progress (with guards)"
+        - "Submitting payment from checkout_in_progress transitions to payment_processing (with guards)"
+        - "Payment success transitions to order_confirmed"
+        - "Payment failure returns to checkout_in_progress"
+
+    - rule_name: "Cart must not be empty to proceed to checkout"
+      examples:
+        - "Cart with 1 item -> click_checkout -> checkout_in_progress"
+        - "Cart with 0 items -> click_checkout -> blocked with CART_EMPTY error"
+        - "Cart where last item removed -> state becomes empty_cart -> checkout blocked"
+
+    - rule_name: "All items must be in stock to proceed to checkout"
+      examples:
+        - "All items in stock -> checkout allowed"
+        - "One item out of stock -> checkout blocked with ITEMS_OUT_OF_STOCK"
+        - "Requested quantity exceeds available stock -> checkout blocked with INSUFFICIENT_STOCK"
+        - "Stock depleted between checkout and payment -> payment blocked"
+
+    - rule_name: "Payment amount must match cart total"
+      examples:
+        - "Payment amount equals cart total -> payment proceeds"
+        - "Payment amount one cent below cart total -> payment rejected"
+        - "Payment amount one cent above cart total -> payment rejected"
+        - "Zero payment amount -> payment rejected"
+        - "Negative payment amount -> payment rejected"
+
+    - rule_name: "Invalid events are rejected in each state"
+      examples:
+        - "submit_payment in empty_cart -> INVALID_STATE_TRANSITION"
+        - "payment_success in items_added -> INVALID_STATE_TRANSITION"
+        - "add_product in checkout_in_progress -> INVALID_OPERATION"
+        - "click_checkout in payment_processing -> INVALID_STATE_TRANSITION"
+        - "Any event in order_confirmed -> ORDER_ALREADY_CONFIRMED"
+
+    - rule_name: "Payment failure allows retry"
+      examples:
+        - "Card declined -> return to checkout_in_progress -> retry with different card -> success"
+        - "Gateway timeout -> return to checkout_in_progress -> retry -> success"
+        - "Multiple consecutive failures -> cart preserved, no partial charges"
+        - "Five failures -> rate limiting or cooldown imposed"
+
+    - rule_name: "Cart integrity during state transitions"
+      examples:
+        - "Cart contents preserved after payment failure"
+        - "Cart total recalculated when catalog price changes"
+        - "Duplicate add_product increments quantity instead of creating duplicate line"
+        - "Concurrent cart modification in multiple tabs is handled safely"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T12:00:00Z"
+  updated_at: "2026-03-14T12:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

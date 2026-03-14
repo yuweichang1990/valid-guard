@@ -1,0 +1,1753 @@
+# Valid Guard Test Plan — Multi-Currency Payment API
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Multi-Currency Payment API"
+
+feature_description: >
+  REST API endpoint POST /payments that processes multi-currency transactions.
+  Accepts a JSON payload with {amount, currency, card_token}. Must validate
+  currency codes against ISO 4217, enforce currency-specific decimal precision
+  rules (e.g., USD=2, JPY=0, BHD=3), handle boundary amounts including zero
+  and extremely large values, and correctly manage currency conversion scenarios
+  including rate drift and mixed-currency carts.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # 1. INVALID CURRENCY CODES
+  # ==========================================================================
+
+  - name: "Reject non-existent ISO 4217 currency code"
+    description: >
+      Submitting a currency code that is syntactically valid (3 uppercase letters)
+      but does not exist in ISO 4217 (e.g., 'XXX', 'ZZZ') must return a 400 error
+      with a clear message identifying the invalid currency.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — accepting an invalid currency could lead to unrecoverable
+      payment processing errors. Frequency: 2 — can happen via API integrations
+      or misconfigured clients. Consequence: 3 — financial data corruption or
+      silent payment failures. Detectability: 2 — may not be immediately visible
+      if the error is swallowed downstream. Average: 2.5 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning divides currency codes into valid ISO 4217 codes
+      and invalid codes. Error guessing targets commonly confused or placeholder
+      codes like XXX (which ISO 4217 reserves for testing) and ZZZ (which does
+      not exist at all).
+    preconditions:
+      - "Payment API is available and accepting requests"
+      - "A valid card_token exists for the test account"
+    examples:
+      - input:
+          amount: 100.00
+          currency: "XXX"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+          error_message: "Currency code 'XXX' is not a supported ISO 4217 currency."
+        description: "XXX is an ISO 4217 reserved code for testing, not a real currency."
+      - input:
+          amount: 50.00
+          currency: "ZZZ"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+          error_message: "Currency code 'ZZZ' is not a supported ISO 4217 currency."
+        description: "ZZZ does not exist in any ISO standard."
+      - input:
+          amount: 25.00
+          currency: "ABC"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+          error_message: "Currency code 'ABC' is not a supported ISO 4217 currency."
+        description: "Random three-letter code that is not a valid currency."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - currency
+      - error-handling
+
+  - name: "Reject empty string as currency code"
+    description: >
+      Submitting an empty string for the currency field must be rejected.
+      The API should not attempt to process a payment without knowing
+      the currency.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — missing currency could cause the payment processor to assume
+      a default currency, leading to incorrect charges. Frequency: 2 — possible
+      from malformed API requests or incomplete form submissions. Consequence: 3 —
+      customer charged in wrong currency. Detectability: 2 — might appear to
+      succeed if a default is silently applied. Average: 2.5 -> high.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+    technique_rationale: >
+      Equivalence partitioning identifies the empty string as a distinct invalid
+      class. Boundary value analysis treats the empty string as the minimum-length
+      boundary for the currency field (length 0 vs. required length 3).
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 100.00
+          currency: ""
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "MISSING_CURRENCY"
+          error_message: "Currency code is required and cannot be empty."
+        description: "Empty string currency must be rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - currency
+      - boundary
+
+  - name: "Reject numeric value as currency code"
+    description: >
+      Submitting a numeric value (e.g., 840 for USD's ISO 4217 numeric code,
+      or arbitrary numbers like 123) as the currency field must be rejected.
+      The API expects alphabetic ISO 4217 codes, not numeric codes.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — type mismatch would be caught by most serialization layers.
+      Frequency: 1 — uncommon, but possible if a client uses the numeric ISO
+      code variant. Consequence: 2 — payment would fail, but no silent corruption.
+      Detectability: 3 — error would be immediately visible. Average: 2.0 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning classifies numeric values as a distinct invalid
+      type class. Error guessing anticipates confusion between ISO 4217 alpha
+      codes and numeric codes (e.g., 840 = USD).
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 100.00
+          currency: 840
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY_TYPE"
+          error_message: "Currency must be a 3-letter ISO 4217 alphabetic code, not a number."
+        description: "ISO 4217 numeric code 840 (USD) submitted instead of 'USD'."
+      - input:
+          amount: 50.00
+          currency: 123
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY_TYPE"
+          error_message: "Currency must be a 3-letter ISO 4217 alphabetic code, not a number."
+        description: "Arbitrary numeric value as currency."
+      - input:
+          amount: 75.00
+          currency: "123"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+          error_message: "Currency code '123' is not a supported ISO 4217 currency."
+        description: "Numeric string (not a valid alpha code)."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - validation
+      - currency
+      - type-safety
+
+  - name: "Reject lowercase and mixed-case currency codes"
+    description: >
+      ISO 4217 currency codes are uppercase. Submitting 'usd', 'Usd', or 'usD'
+      tests whether the API enforces or normalizes casing. The expected behavior
+      should be documented: either reject with an error or normalize to uppercase.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1 — if the API normalizes casing, no harm; if it rejects, the
+      error is clear. Frequency: 2 — common user input variation.
+      Consequence: 1 — minor inconvenience, easily corrected. Detectability: 3 —
+      immediately visible error. Average: 1.75 -> medium, but downgraded to low
+      because the failure mode is benign.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning distinguishes valid uppercase codes from case
+      variants as a separate input class.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 10.00
+          currency: "usd"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+          error_message: "Currency code must be uppercase ISO 4217 format (e.g., 'USD')."
+        description: "All lowercase currency code rejected (or accepted if API normalizes; document which)."
+      - input:
+          amount: 10.00
+          currency: "Eur"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+          error_message: "Currency code must be uppercase ISO 4217 format (e.g., 'EUR')."
+        description: "Mixed-case currency code."
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - validation
+      - currency
+      - normalization
+
+  - name: "Reject null and missing currency field"
+    description: >
+      Submitting a request with currency set to null or with the currency field
+      entirely omitted must return a clear validation error.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — missing currency can cause undefined behavior in payment
+      processing. Frequency: 2 — possible from incomplete API integrations.
+      Consequence: 3 — payment could be processed in a default or wrong currency.
+      Detectability: 2 — might silently default. Average: 2.5 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning identifies null/missing as distinct invalid input
+      classes. Error guessing anticipates the common mistake of omitting required
+      fields.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 100.00
+          currency: null
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "MISSING_CURRENCY"
+          error_message: "Currency code is required."
+        description: "Null currency value."
+      - input:
+          amount: 100.00
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "MISSING_CURRENCY"
+          error_message: "Currency code is required."
+        description: "Currency field entirely omitted from payload."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - currency
+      - required-fields
+
+  # ==========================================================================
+  # 2. NEGATIVE PAYMENT AMOUNTS
+  # ==========================================================================
+
+  - name: "Reject negative payment amount"
+    description: >
+      Negative amounts must be rejected. Payment amounts represent charges to
+      the customer and must be non-negative. Refunds use a separate endpoint or
+      mechanism.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — a negative amount could trigger a credit/refund instead of a
+      charge, causing direct financial loss. Frequency: 2 — possible from
+      malicious API callers or arithmetic bugs in client code. Consequence: 3 —
+      financial loss, potential for exploitation. Detectability: 1 — a refund
+      processed as a payment might not be caught quickly. Average: 2.25 -> medium,
+      but elevated to high due to financial consequence severity.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning separates positive, zero, and negative amount
+      classes. Boundary value analysis tests -0.01 (just below zero). Error
+      guessing targets large negative values and edge cases like -1.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: -0.01
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_AMOUNT"
+          error_message: "Payment amount must be greater than or equal to zero."
+        description: "Smallest negative amount — one cent below zero in USD."
+      - input:
+          amount: -100.00
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_AMOUNT"
+          error_message: "Payment amount must be greater than or equal to zero."
+        description: "Typical negative amount."
+      - input:
+          amount: -99999999999.99
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_AMOUNT"
+          error_message: "Payment amount must be greater than or equal to zero."
+        description: "Extremely large negative value."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - amount
+      - security
+
+  # ==========================================================================
+  # 3. ZERO-AMOUNT TRANSACTIONS
+  # ==========================================================================
+
+  - name: "Zero-amount transaction for card authorization"
+    description: >
+      Some payment processors support $0.00 authorization to validate a card
+      without charging. The API should either accept $0 for auth purposes or
+      reject it with a specific error, depending on business rules. Both
+      behaviors must be explicitly tested.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 — $0 auth is a legitimate use case for card verification.
+      Frequency: 2 — used in subscription sign-ups and card-on-file flows.
+      Consequence: 3 — rejecting valid $0 auth blocks onboarding; accepting
+      unintended $0 charges wastes processing fees. Detectability: 2 — behavior
+      may differ by processor. Average: 2.5 -> high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+      - decision_table
+    technique_rationale: >
+      Boundary value analysis tests the zero boundary. Equivalence partitioning
+      separates zero-amount as a distinct class from positive amounts. Decision
+      table captures the conditional logic: whether $0 auth is allowed depends
+      on merchant configuration and processor capabilities.
+    preconditions:
+      - "Payment API is available"
+      - "Merchant account is configured (test both $0-auth-enabled and disabled configurations)"
+    examples:
+      - input:
+          amount: 0
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          transaction_type: "authorization"
+          charged_amount: 0.00
+          card_verified: true
+        description: "Zero-amount USD authorization succeeds when $0 auth is enabled."
+      - input:
+          amount: 0.00
+          currency: "EUR"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          transaction_type: "authorization"
+          charged_amount: 0.00
+          card_verified: true
+        description: "Zero-amount EUR authorization with explicit decimal."
+      - input:
+          amount: 0
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          transaction_type: "authorization"
+          charged_amount: 0
+          card_verified: true
+        description: "Zero-amount JPY authorization (JPY has no decimal places)."
+    decision_table:
+      conditions:
+        - "amount_is_zero"
+        - "zero_auth_enabled"
+        - "processor_supports_zero_auth"
+      actions:
+        - "http_status"
+        - "transaction_outcome"
+      rules:
+        - description: "Zero amount, zero-auth enabled, processor supports it"
+          condition_values:
+            amount_is_zero: true
+            zero_auth_enabled: true
+            processor_supports_zero_auth: true
+          expected_actions:
+            http_status: 200
+            transaction_outcome: "card_verified"
+        - description: "Zero amount, zero-auth enabled, processor does NOT support it"
+          condition_values:
+            amount_is_zero: true
+            zero_auth_enabled: true
+            processor_supports_zero_auth: false
+          expected_actions:
+            http_status: 502
+            transaction_outcome: "processor_unsupported"
+        - description: "Zero amount, zero-auth disabled"
+          condition_values:
+            amount_is_zero: true
+            zero_auth_enabled: false
+            processor_supports_zero_auth: true
+          expected_actions:
+            http_status: 400
+            transaction_outcome: "zero_amount_not_allowed"
+        - description: "Zero amount, zero-auth disabled, processor does not support"
+          condition_values:
+            amount_is_zero: true
+            zero_auth_enabled: false
+            processor_supports_zero_auth: false
+          expected_actions:
+            http_status: 400
+            transaction_outcome: "zero_amount_not_allowed"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - amount
+      - card-verification
+      - decision-table
+
+  # ==========================================================================
+  # 4. DECIMAL PRECISION MISMATCHES BY CURRENCY
+  # ==========================================================================
+
+  - name: "USD payment with correct 2-decimal precision"
+    description: >
+      USD uses 2 decimal places. A payment of $99.99 should be accepted.
+      This is the happy-path baseline for decimal precision validation.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 — core payment flow. Frequency: 3 — every USD transaction.
+      Consequence: 3 — incorrect amount processing. Detectability: 2 — may
+      not be noticed if rounding silently occurs. Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning confirms that a standard 2-decimal USD amount
+      belongs to the valid input class.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 99.99
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 99.99
+          currency: "USD"
+        description: "Standard USD payment with 2 decimal places."
+      - input:
+          amount: 1.50
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 1.50
+          currency: "USD"
+        description: "USD payment with 1 significant decimal digit (trailing zero)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - precision
+      - currency
+      - happy-path
+
+  - name: "Reject USD amount with more than 2 decimal places"
+    description: >
+      USD has 2 decimal places. Amounts like 10.999 or 49.001 have excess
+      precision and must be rejected. Silent rounding could cause discrepancies
+      between displayed and charged amounts.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — incorrect charge amount is a financial integrity issue.
+      Frequency: 2 — can occur from floating-point arithmetic in client code.
+      Consequence: 3 — overcharge or undercharge relative to what was displayed.
+      Detectability: 1 — rounding errors are notoriously hard to detect.
+      Average: 2.25 -> medium, elevated to high due to silent failure risk.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Boundary value analysis tests at the precision boundary (2 vs. 3 decimal
+      places). Equivalence partitioning separates valid-precision from excess-
+      precision classes. Error guessing targets floating-point artifacts like
+      10.005 which may result from arithmetic.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 10.999
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_PRECISION"
+          error_message: "USD amounts must have at most 2 decimal places. Received 3."
+        description: "Three decimal places for USD — exceeds allowed precision."
+      - input:
+          amount: 49.001
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_PRECISION"
+          error_message: "USD amounts must have at most 2 decimal places. Received 3."
+        description: "Trailing sub-cent precision in USD."
+      - input:
+          amount: 0.125
+          currency: "EUR"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_PRECISION"
+          error_message: "EUR amounts must have at most 2 decimal places. Received 3."
+        description: "EUR also uses 2 decimal places — 3 decimals rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - precision
+      - currency
+      - validation
+
+  - name: "JPY payment with zero decimal places"
+    description: >
+      Japanese Yen (JPY) has 0 decimal places — amounts must be whole numbers.
+      Submitting 1000 should succeed; submitting 1000.50 must be rejected.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 — JPY is a major world currency with high transaction volume.
+      Frequency: 2 — all JPY transactions are affected. Consequence: 3 —
+      rounding a JPY amount silently could create a discrepancy. Detectability: 1 —
+      a 1-yen rounding error is very hard to detect. Average: 2.25 -> medium,
+      elevated to high due to volume and silent failure mode.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Boundary value analysis tests the precision boundary at 0 decimals.
+      Equivalence partitioning divides JPY amounts into integers (valid) and
+      fractional (invalid). Error guessing targets the common mistake of applying
+      USD-style cents to JPY.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 1000
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 1000
+          currency: "JPY"
+        description: "Valid JPY payment — whole number."
+      - input:
+          amount: 1000.50
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_PRECISION"
+          error_message: "JPY amounts must be whole numbers with no decimal places. Received 1 decimal place(s)."
+        description: "JPY with decimal — rejected."
+      - input:
+          amount: 1000.00
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 1000
+          currency: "JPY"
+        description: "JPY with .00 trailing — should be accepted as it equals a whole number."
+      - input:
+          amount: 1
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 1
+          currency: "JPY"
+        description: "Minimum meaningful JPY amount — 1 yen."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - precision
+      - currency
+      - jpy
+      - boundary
+
+  - name: "BHD payment with 3 decimal places"
+    description: >
+      Bahraini Dinar (BHD) uses 3 decimal places (fils). The API must accept
+      amounts with up to 3 decimal places and reject amounts with 4 or more.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 3 — incorrect precision handling causes financial errors.
+      Frequency: 1 — BHD transactions are relatively rare outside MENA region.
+      Consequence: 3 — over/undercharge. Detectability: 1 — rounding errors
+      are silent. Average: 2.0 -> medium.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      Boundary value analysis tests at the 3-decimal boundary. Equivalence
+      partitioning separates valid 3-decimal amounts from invalid 4-decimal
+      amounts.
+    preconditions:
+      - "Payment API is available"
+      - "BHD is a supported currency"
+    examples:
+      - input:
+          amount: 10.500
+          currency: "BHD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 10.500
+          currency: "BHD"
+        description: "Valid BHD payment with 3 decimal places."
+      - input:
+          amount: 10.123
+          currency: "BHD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 10.123
+          currency: "BHD"
+        description: "BHD with 3 significant decimal digits."
+      - input:
+          amount: 10.1234
+          currency: "BHD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_PRECISION"
+          error_message: "BHD amounts must have at most 3 decimal places. Received 4."
+        description: "BHD with 4 decimal places — exceeds allowed precision."
+      - input:
+          amount: 10.1
+          currency: "BHD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 10.100
+          currency: "BHD"
+        description: "BHD with fewer than 3 decimal places — valid, padded to 3."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - precision
+      - currency
+      - bhd
+      - boundary
+
+  - name: "Decimal precision validation across multiple currencies"
+    description: >
+      Combinatorial test verifying that the correct decimal precision rule is
+      applied based on the currency code. Covers the interaction between currency
+      selection and amount validation.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — affects all currencies. Frequency: 3 — every transaction.
+      Consequence: 3 — financial precision errors. Detectability: 1 — rounding
+      errors are silent. Average: 2.5 -> high.
+    techniques:
+      - decision_table
+      - pairwise
+    technique_rationale: >
+      Decision table maps each currency to its allowed decimal places and
+      expected behavior for amounts at and beyond precision boundaries. Pairwise
+      covers the currency x precision x amount-format parameter space.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 10.99
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          accepted: true
+        description: "USD with 2 decimals — accepted."
+      - input:
+          amount: 10.999
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_PRECISION"
+        description: "USD with 3 decimals — rejected."
+      - input:
+          amount: 1000
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          accepted: true
+        description: "JPY integer — accepted."
+      - input:
+          amount: 1000.5
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_PRECISION"
+        description: "JPY with decimals — rejected."
+      - input:
+          amount: 5.123
+          currency: "BHD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          accepted: true
+        description: "BHD with 3 decimals — accepted."
+      - input:
+          amount: 5.1234
+          currency: "BHD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_PRECISION"
+        description: "BHD with 4 decimals — rejected."
+    decision_table:
+      conditions:
+        - "currency"
+        - "decimal_places_in_amount"
+      actions:
+        - "http_status"
+        - "outcome"
+      rules:
+        - description: "USD with <= 2 decimal places"
+          condition_values:
+            currency: "USD"
+            decimal_places_in_amount: "<=2"
+          expected_actions:
+            http_status: 200
+            outcome: "accepted"
+        - description: "USD with > 2 decimal places"
+          condition_values:
+            currency: "USD"
+            decimal_places_in_amount: ">2"
+          expected_actions:
+            http_status: 400
+            outcome: "INVALID_PRECISION"
+        - description: "JPY with 0 decimal places"
+          condition_values:
+            currency: "JPY"
+            decimal_places_in_amount: "0"
+          expected_actions:
+            http_status: 200
+            outcome: "accepted"
+        - description: "JPY with > 0 decimal places"
+          condition_values:
+            currency: "JPY"
+            decimal_places_in_amount: ">0"
+          expected_actions:
+            http_status: 400
+            outcome: "INVALID_PRECISION"
+        - description: "BHD with <= 3 decimal places"
+          condition_values:
+            currency: "BHD"
+            decimal_places_in_amount: "<=3"
+          expected_actions:
+            http_status: 200
+            outcome: "accepted"
+        - description: "BHD with > 3 decimal places"
+          condition_values:
+            currency: "BHD"
+            decimal_places_in_amount: ">3"
+          expected_actions:
+            http_status: 400
+            outcome: "INVALID_PRECISION"
+        - description: "KWD with <= 3 decimal places (another 3-decimal currency)"
+          condition_values:
+            currency: "KWD"
+            decimal_places_in_amount: "<=3"
+          expected_actions:
+            http_status: 200
+            outcome: "accepted"
+        - description: "GBP with <= 2 decimal places"
+          condition_values:
+            currency: "GBP"
+            decimal_places_in_amount: "<=2"
+          expected_actions:
+            http_status: 200
+            outcome: "accepted"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - precision
+      - currency
+      - decision-table
+      - combinatorial
+
+  # ==========================================================================
+  # 5. INTEGER OVERFLOW WITH EXTREMELY LARGE AMOUNTS
+  # ==========================================================================
+
+  - name: "Reject extremely large payment amount exceeding system limits"
+    description: >
+      Extremely large amounts (e.g., 99999999999.99) may exceed integer storage
+      limits when converted to minor currency units (cents), cause arithmetic
+      overflow, or violate business-rule maximum transaction limits. The API
+      must reject these with a clear error.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 — integer overflow can cause wrap-around to negative or zero
+      values, resulting in free transactions or credits. Frequency: 1 — rare
+      but possible from malicious input. Consequence: 3 — financial loss from
+      overflow exploitation. Detectability: 1 — overflow errors are notoriously
+      silent. Average: 2.0 -> medium, elevated to high due to catastrophic
+      failure potential.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value analysis tests at the maximum representable amount. Error
+      guessing targets values that would overflow when multiplied by 100 (cents
+      conversion), specifically values near 2^31, 2^53, and 2^63 boundaries.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 99999999999.99
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "AMOUNT_TOO_LARGE"
+          error_message: "Payment amount exceeds the maximum allowed limit."
+        description: "11-digit amount with cents — likely exceeds processor limits."
+      - input:
+          amount: 21474836.48
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "AMOUNT_TOO_LARGE"
+          error_message: "Payment amount exceeds the maximum allowed limit."
+        description: "Amount that, when converted to cents (2147483648), overflows signed 32-bit integer."
+      - input:
+          amount: 92233720368547758.07
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "AMOUNT_TOO_LARGE"
+          error_message: "Payment amount exceeds the maximum allowed limit."
+        description: "Amount near 64-bit signed integer max in cents."
+      - input:
+          amount: 9999999999999999
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "AMOUNT_TOO_LARGE"
+          error_message: "Payment amount exceeds the maximum allowed limit."
+        description: "Extremely large JPY amount (no cents conversion but still exceeds limits)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - overflow
+      - security
+      - amount
+
+  - name: "Payment at maximum allowed transaction amount"
+    description: >
+      Tests the exact boundary of the maximum allowed transaction amount.
+      Values at the limit should succeed; values one unit above should fail.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 — off-by-one at the max limit could allow or block legitimate
+      transactions. Frequency: 1 — large transactions are rare but high value.
+      Consequence: 3 — blocking a legitimate large payment loses revenue;
+      allowing an oversized one risks fraud. Detectability: 2 — boundary errors
+      are found when a high-value transaction is attempted. Average: 2.25 -> medium,
+      elevated to high because each occurrence involves large money.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Classic boundary value analysis at the maximum threshold: test at limit,
+      limit-1, and limit+1.
+    preconditions:
+      - "Payment API is available"
+      - "Maximum transaction limit is configured (e.g., $999,999.99 for USD)"
+    examples:
+      - input:
+          amount: 999999.99
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 999999.99
+        description: "Exactly at maximum allowed USD amount — accepted."
+      - input:
+          amount: 999999.98
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 999999.98
+        description: "One cent below maximum — accepted."
+      - input:
+          amount: 1000000.00
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "AMOUNT_TOO_LARGE"
+          error_message: "Payment amount exceeds the maximum allowed limit of 999999.99 USD."
+        description: "One cent above maximum — rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - amount
+      - limits
+
+  # ==========================================================================
+  # 6. CURRENCY CONVERSION RATE CHANGES (RATE DRIFT)
+  # ==========================================================================
+
+  - name: "Rate drift between cart display and payment submission"
+    description: >
+      The exchange rate displayed to the user when they view the cart may differ
+      from the rate available when the payment is actually processed. The system
+      must handle this drift — either by locking the rate at cart time, applying
+      the current rate, or rejecting if drift exceeds a threshold.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — charging a different amount than displayed violates consumer
+      trust and potentially regulations. Frequency: 2 — exchange rates change
+      continuously; any delay between display and submission creates drift.
+      Consequence: 3 — overcharging triggers chargebacks; undercharging causes
+      losses. Detectability: 1 — small drift amounts go unnoticed by both
+      parties. Average: 2.25 -> medium, elevated to high due to regulatory and
+      financial implications.
+    techniques:
+      - state_transition
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      State transition models the payment lifecycle from rate-quoted to
+      rate-applied. Error guessing anticipates the timing gap issue. Cause-effect
+      maps the relationship between drift magnitude and system response.
+    preconditions:
+      - "Multi-currency support is enabled"
+      - "Cart was displayed with exchange rate R1"
+      - "Payment is submitted when exchange rate has changed to R2"
+    examples:
+      - input:
+          cart_display_rate: 1.0800
+          payment_submission_rate: 1.0810
+          amount_in_display_currency: 100.00
+          display_currency: "EUR"
+          charge_currency: "USD"
+          card_token: "tok_valid_visa"
+          rate_lock_enabled: true
+        expected:
+          http_status: 200
+          charged_amount_usd: 108.00
+          rate_used: 1.0800
+          rate_source: "locked_at_cart_time"
+        description: "Rate locked at cart display time — customer charged the displayed amount."
+      - input:
+          cart_display_rate: 1.0800
+          payment_submission_rate: 1.1200
+          amount_in_display_currency: 100.00
+          display_currency: "EUR"
+          charge_currency: "USD"
+          card_token: "tok_valid_visa"
+          rate_lock_enabled: false
+          drift_threshold_pct: 2.0
+        expected:
+          http_status: 409
+          error_code: "RATE_DRIFT_EXCEEDED"
+          error_message: "Exchange rate has changed by 3.7% since cart was displayed. Please review the updated price."
+          updated_rate: 1.1200
+          updated_total_usd: 112.00
+        description: "Rate drift exceeds 2% threshold — payment blocked, user must re-confirm."
+      - input:
+          cart_display_rate: 1.0800
+          payment_submission_rate: 1.0815
+          amount_in_display_currency: 100.00
+          display_currency: "EUR"
+          charge_currency: "USD"
+          card_token: "tok_valid_visa"
+          rate_lock_enabled: false
+          drift_threshold_pct: 2.0
+        expected:
+          http_status: 200
+          charged_amount_usd: 108.15
+          rate_used: 1.0815
+          rate_source: "current_market_rate"
+        description: "Rate drift within threshold — payment proceeds at current rate."
+    state_transition:
+      states:
+        - "rate_quoted"
+        - "rate_locked"
+        - "rate_validated"
+        - "payment_processed"
+        - "rate_expired"
+        - "re_quote_required"
+      transitions:
+        - from: "rate_quoted"
+          to: "rate_locked"
+          trigger: "checkout_initiated"
+          guard: "rate_lock_enabled == true"
+        - from: "rate_quoted"
+          to: "rate_validated"
+          trigger: "payment_submitted"
+          guard: "rate_lock_enabled == false AND drift <= threshold"
+        - from: "rate_quoted"
+          to: "re_quote_required"
+          trigger: "payment_submitted"
+          guard: "rate_lock_enabled == false AND drift > threshold"
+        - from: "rate_locked"
+          to: "payment_processed"
+          trigger: "payment_captured"
+        - from: "rate_locked"
+          to: "rate_expired"
+          trigger: "lock_timeout"
+          guard: "time_since_lock > lock_duration"
+        - from: "rate_validated"
+          to: "payment_processed"
+          trigger: "payment_captured"
+        - from: "re_quote_required"
+          to: "rate_quoted"
+          trigger: "new_rate_displayed"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - currency-conversion
+      - rate-drift
+      - state-machine
+      - edge-case
+
+  - name: "Rate lock expiration during slow checkout"
+    description: >
+      If rate locking is enabled, the locked rate should have a time-to-live.
+      If the customer takes too long to complete checkout, the locked rate
+      expires and a new rate must be fetched.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — expired rate lock is an inconvenience but not a financial
+      error. Frequency: 2 — common when users are distracted during checkout.
+      Consequence: 2 — user must re-confirm price, may abandon cart.
+      Detectability: 3 — the re-quote prompt is visible to the user.
+      Average: 2.25 -> medium.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition covers the rate lifecycle. Boundary value tests the
+      exact lock expiration boundary.
+    preconditions:
+      - "Rate lock is enabled with a 15-minute TTL"
+      - "Exchange rate was locked at checkout initiation"
+    examples:
+      - input:
+          rate_locked_at: "2026-03-14T08:00:00Z"
+          payment_submitted_at: "2026-03-14T08:14:59Z"
+          lock_ttl_minutes: 15
+          locked_rate: 1.0800
+          current_rate: 1.0900
+          amount: 100.00
+          currency: "EUR"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          rate_used: 1.0800
+          charged_amount: 108.00
+        description: "Payment submitted 1 second before lock expires — uses locked rate."
+      - input:
+          rate_locked_at: "2026-03-14T08:00:00Z"
+          payment_submitted_at: "2026-03-14T08:15:01Z"
+          lock_ttl_minutes: 15
+          locked_rate: 1.0800
+          current_rate: 1.0900
+          amount: 100.00
+          currency: "EUR"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 409
+          error_code: "RATE_LOCK_EXPIRED"
+          error_message: "The quoted exchange rate has expired. Please review the updated price."
+          new_rate: 1.0900
+          new_total: 109.00
+        description: "Payment submitted 1 second after lock expires — must re-quote."
+    state_transition:
+      states:
+        - "rate_locked"
+        - "rate_expired"
+        - "payment_processed"
+      transitions:
+        - from: "rate_locked"
+          to: "payment_processed"
+          trigger: "payment_submitted"
+          guard: "time_since_lock < lock_ttl"
+        - from: "rate_locked"
+          to: "rate_expired"
+          trigger: "payment_submitted"
+          guard: "time_since_lock >= lock_ttl"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - currency-conversion
+      - rate-lock
+      - state-machine
+      - boundary
+
+  # ==========================================================================
+  # 7. MIXED-CURRENCY CART
+  # ==========================================================================
+
+  - name: "Mixed-currency cart with items in EUR and payment in USD"
+    description: >
+      Cart contains items priced in EUR, but the customer pays in USD. The API
+      must convert all item prices to USD using the applicable exchange rate,
+      sum the converted amounts, and charge the total in USD.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — incorrect conversion produces wrong total charge. Frequency: 2 —
+      common in international e-commerce platforms. Consequence: 3 — financial
+      discrepancy between displayed and charged amounts. Detectability: 1 —
+      rounding across multiple conversions can hide errors. Average: 2.25 ->
+      medium, elevated to high due to cumulative rounding risk across items.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Equivalence partitioning tests same-currency vs. mixed-currency carts.
+      Error guessing targets rounding accumulation across multiple line items.
+      Cause-effect maps: (item_currencies differ from payment_currency) AND
+      (exchange_rate_available) -> conversion applied.
+    preconditions:
+      - "Multi-currency cart support is enabled"
+      - "Exchange rates are available for EUR->USD"
+    examples:
+      - input:
+          cart_items:
+            - item_id: "item_001"
+              price: 50.00
+              currency: "EUR"
+            - item_id: "item_002"
+              price: 30.00
+              currency: "EUR"
+          payment_currency: "USD"
+          eur_to_usd_rate: 1.0800
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          item_conversions:
+            - item_id: "item_001"
+              original: 50.00
+              converted_usd: 54.00
+            - item_id: "item_002"
+              original: 30.00
+              converted_usd: 32.40
+          total_charged_usd: 86.40
+          currency: "USD"
+        description: "Two EUR items converted to USD and summed."
+      - input:
+          cart_items:
+            - item_id: "item_001"
+              price: 33.33
+              currency: "EUR"
+            - item_id: "item_002"
+              price: 33.33
+              currency: "EUR"
+            - item_id: "item_003"
+              price: 33.34
+              currency: "EUR"
+          payment_currency: "USD"
+          eur_to_usd_rate: 1.0800
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          total_charged_usd: 108.00
+          rounding_strategy: "per_item_then_sum"
+        description: "Three EUR items that sum to 100.00 EUR; verify rounding strategy does not create drift."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - mixed-currency
+      - conversion
+      - rounding
+      - edge-case
+
+  - name: "Mixed-currency cart with items in multiple different currencies"
+    description: >
+      Cart contains items priced in EUR, GBP, and JPY, and the customer pays
+      in USD. Each item must be individually converted and the total computed
+      in the payment currency.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — multiple currency conversions compound error. Frequency: 1 —
+      less common than single-currency carts. Consequence: 3 — cumulative
+      rounding errors across 3+ conversions. Detectability: 1 — very hard to
+      audit individual conversion steps. Average: 2.0 -> medium, elevated to
+      high due to compounding error risk.
+    techniques:
+      - pairwise
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Pairwise covers the currency x item x rate parameter combinations. Error
+      guessing targets JPY rounding (0-decimal) interacting with USD rounding
+      (2-decimal). Cause-effect maps multi-currency input to single-currency
+      output with conversion chain.
+    preconditions:
+      - "Multi-currency cart support is enabled"
+      - "Exchange rates available for EUR->USD, GBP->USD, JPY->USD"
+    examples:
+      - input:
+          cart_items:
+            - item_id: "item_eur"
+              price: 50.00
+              currency: "EUR"
+            - item_id: "item_gbp"
+              price: 40.00
+              currency: "GBP"
+            - item_id: "item_jpy"
+              price: 5000
+              currency: "JPY"
+          payment_currency: "USD"
+          exchange_rates:
+            EUR_USD: 1.0800
+            GBP_USD: 1.2700
+            JPY_USD: 0.0067
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          item_conversions:
+            - item_id: "item_eur"
+              converted_usd: 54.00
+            - item_id: "item_gbp"
+              converted_usd: 50.80
+            - item_id: "item_jpy"
+              converted_usd: 33.50
+          total_charged_usd: 138.30
+          currency: "USD"
+        description: "Three items in three different currencies all converted to USD."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - mixed-currency
+      - multi-conversion
+      - combinatorial
+
+  - name: "Mixed-currency cart with unsupported currency in one item"
+    description: >
+      One item in the cart is priced in a currency for which no exchange rate
+      is available. The API must reject the entire payment with a clear error
+      identifying the unsupported currency.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — payment blocked but no financial loss. Frequency: 1 — rare
+      configuration error. Consequence: 2 — cart cannot be checked out until
+      item is removed or currency rate is added. Detectability: 3 — error
+      message makes the problem clear. Average: 2.0 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning tests supported vs. unsupported currencies within
+      a mixed cart. Error guessing anticipates the missing-rate scenario.
+    preconditions:
+      - "Multi-currency cart support is enabled"
+      - "Exchange rate for XAF->USD is not available"
+    examples:
+      - input:
+          cart_items:
+            - item_id: "item_eur"
+              price: 50.00
+              currency: "EUR"
+            - item_id: "item_xaf"
+              price: 10000
+              currency: "XAF"
+          payment_currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "UNSUPPORTED_CURRENCY_IN_CART"
+          error_message: "Cannot convert XAF to USD: exchange rate not available."
+        description: "Cart with unsupported currency item blocks entire payment."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - mixed-currency
+      - validation
+      - error-handling
+
+  # ==========================================================================
+  # ADDITIONAL CROSS-CUTTING SCENARIOS
+  # ==========================================================================
+
+  - name: "Successful single-currency payment happy path"
+    description: >
+      Baseline happy path: a valid payment request with a supported currency,
+      correct precision, and reasonable amount processes successfully.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 — core revenue path. Frequency: 3 — every transaction.
+      Consequence: 3 — broken happy path means zero revenue. Detectability: 3 —
+      immediately visible. Average: 3.0 -> high.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning selects a representative from each valid input
+      class to confirm the golden path works.
+    preconditions:
+      - "Payment API is available"
+      - "Valid card token exists"
+    examples:
+      - input:
+          amount: 49.99
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 49.99
+          currency: "USD"
+          transaction_id: "<non-empty string>"
+          status: "succeeded"
+        description: "Standard USD payment succeeds."
+      - input:
+          amount: 75.50
+          currency: "EUR"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 75.50
+          currency: "EUR"
+          transaction_id: "<non-empty string>"
+          status: "succeeded"
+        description: "Standard EUR payment succeeds."
+      - input:
+          amount: 5000
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 5000
+          currency: "JPY"
+          transaction_id: "<non-empty string>"
+          status: "succeeded"
+        description: "Standard JPY payment succeeds."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - happy-path
+      - smoke
+      - critical-path
+
+  - name: "Invalid card token"
+    description: >
+      Payment request with a valid amount and currency but an invalid, expired,
+      or revoked card token must be rejected.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — card validation is core to payment security. Frequency: 2 —
+      expired tokens are common in recurring billing. Consequence: 3 — processing
+      with an invalid token could result in fraud. Detectability: 2 — depends on
+      processor response handling. Average: 2.5 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning separates valid tokens from invalid/expired/revoked
+      classes. Error guessing targets edge cases like empty token strings and
+      malformed token formats.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 50.00
+          currency: "USD"
+          card_token: "tok_expired_visa"
+        expected:
+          http_status: 402
+          error_code: "INVALID_CARD_TOKEN"
+          error_message: "The card token is invalid or has expired."
+        description: "Expired card token rejected."
+      - input:
+          amount: 50.00
+          currency: "USD"
+          card_token: ""
+        expected:
+          http_status: 400
+          error_code: "MISSING_CARD_TOKEN"
+          error_message: "Card token is required."
+        description: "Empty card token string."
+      - input:
+          amount: 50.00
+          currency: "USD"
+          card_token: "not_a_real_token"
+        expected:
+          http_status: 402
+          error_code: "INVALID_CARD_TOKEN"
+          error_message: "The card token is invalid or has expired."
+        description: "Malformed card token format."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - card-token
+      - security
+
+  - name: "Minimum valid payment amount by currency"
+    description: >
+      Tests the smallest valid non-zero payment amount for different currencies.
+      For USD the minimum meaningful amount is $0.01 (1 cent), for JPY it is
+      1 yen, for BHD it is 0.001 BHD (1 fil).
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — micro-payments have low individual value. Frequency: 2 —
+      some business models rely on micro-transactions. Consequence: 2 — blocking
+      valid micro-payments breaks specific use cases. Detectability: 3 —
+      minimum amount failures are immediately visible. Average: 2.25 -> medium.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Boundary value analysis at the minimum non-zero amount for each currency.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 0.01
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 0.01
+        description: "Minimum USD amount — 1 cent."
+      - input:
+          amount: 1
+          currency: "JPY"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 1
+        description: "Minimum JPY amount — 1 yen."
+      - input:
+          amount: 0.001
+          currency: "BHD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 0.001
+        description: "Minimum BHD amount — 1 fil."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - minimum-amount
+      - currency
+
+  - name: "Floating-point arithmetic precision in amount handling"
+    description: >
+      Tests that the API correctly handles amounts that are problematic in
+      IEEE 754 floating-point representation. For example, 0.1 + 0.2 != 0.3
+      in floating-point. The API must use fixed-point or decimal arithmetic
+      to avoid rounding errors.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — floating-point bugs cause incorrect charges. Frequency: 2 —
+      certain amount combinations always trigger IEEE 754 issues. Consequence: 3 —
+      systematic over/undercharging. Detectability: 1 — errors are fractional
+      and extremely hard to notice. Average: 2.25 -> medium, elevated to high
+      due to systematic nature.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing specifically targets known IEEE 754 floating-point problem
+      values that cause precision loss in binary representation.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 0.10
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 0.10
+        description: "0.10 USD — a classic floating-point problem value."
+      - input:
+          amount: 33.33
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 33.33
+        description: "33.33 USD — repeating decimal in binary."
+      - input:
+          amount: 19.99
+          currency: "USD"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 200
+          charged_amount: 19.99
+        description: "19.99 USD — common retail price that is imprecise in IEEE 754."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - precision
+      - floating-point
+      - edge-case
+
+  - name: "Concurrent payment submissions with same card token"
+    description: >
+      Two payment requests arrive simultaneously for the same card token.
+      The API must handle this without double-charging — either via idempotency
+      keys or request deduplication.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — double charging a customer is a serious financial and trust
+      issue. Frequency: 2 — possible from network retries, double-clicks, or
+      aggressive client-side retry logic. Consequence: 3 — financial loss,
+      chargebacks, customer churn. Detectability: 1 — duplicate charges may
+      not be caught until statement review. Average: 2.25 -> medium, elevated
+      to high due to financial impact.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets the concurrency/race condition. State transition
+      models the payment state to ensure only one transition to 'charged'
+      occurs per idempotency key.
+    preconditions:
+      - "Payment API is available"
+      - "Idempotency mechanism is in place"
+    examples:
+      - input:
+          request_1:
+            amount: 100.00
+            currency: "USD"
+            card_token: "tok_valid_visa"
+            idempotency_key: "idem-key-001"
+          request_2:
+            amount: 100.00
+            currency: "USD"
+            card_token: "tok_valid_visa"
+            idempotency_key: "idem-key-001"
+          submission_delay_ms: 0
+        expected:
+          request_1_status: 200
+          request_2_status: 200
+          total_charges: 1
+          request_2_body: "original_transaction"
+        description: "Duplicate request with same idempotency key — only one charge created."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - idempotency
+      - security
+
+  - name: "Special characters and injection in currency field"
+    description: >
+      Malicious input in the currency field such as SQL injection, script tags,
+      or control characters must be safely rejected without executing.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 — injection attacks can compromise the entire system.
+      Frequency: 1 — targeted attacks are infrequent but automated scanners
+      are common. Consequence: 3 — data breach, system compromise.
+      Detectability: 1 — successful injections are often silent.
+      Average: 2.0 -> medium, elevated to high due to catastrophic worst case.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing applies domain knowledge about common injection attack
+      patterns targeting string input fields.
+    preconditions:
+      - "Payment API is available"
+    examples:
+      - input:
+          amount: 100.00
+          currency: "'; DROP TABLE payments; --"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+        description: "SQL injection attempt in currency field — safely rejected."
+      - input:
+          amount: 100.00
+          currency: "<script>alert('xss')</script>"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+        description: "XSS attempt in currency field — safely rejected."
+      - input:
+          amount: 100.00
+          currency: "US\x00D"
+          card_token: "tok_valid_visa"
+        expected:
+          http_status: 400
+          error_code: "INVALID_CURRENCY"
+        description: "Null byte injection in currency field — safely rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - injection
+      - currency
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As a customer making an international purchase, I want to pay in my preferred
+    currency so that I know exactly how much I am being charged, with the API
+    correctly validating currency codes, enforcing decimal precision rules, and
+    handling cross-currency conversion transparently.
+  rules:
+    - rule_name: "Currency code must be a valid ISO 4217 alphabetic code"
+      examples:
+        - "USD, EUR, GBP, JPY -> accepted"
+        - "XXX (ISO test code) -> rejected with INVALID_CURRENCY"
+        - "ZZZ (non-existent) -> rejected with INVALID_CURRENCY"
+        - "Empty string -> rejected with MISSING_CURRENCY"
+        - "Numeric 840 -> rejected with INVALID_CURRENCY_TYPE"
+        - "Lowercase 'usd' -> rejected (or normalized; document behavior)"
+        - "Null or missing field -> rejected with MISSING_CURRENCY"
+        - "SQL injection string -> rejected with INVALID_CURRENCY"
+
+    - rule_name: "Payment amount must be non-negative"
+      examples:
+        - "Positive amount (49.99 USD) -> payment processed"
+        - "Negative amount (-0.01 USD) -> rejected with INVALID_AMOUNT"
+        - "Large negative (-99999999999.99) -> rejected with INVALID_AMOUNT"
+
+    - rule_name: "Zero-amount transactions follow merchant configuration"
+      examples:
+        - "Amount 0 with zero-auth enabled and processor supports it -> card verified"
+        - "Amount 0 with zero-auth enabled but processor does not support -> 502 error"
+        - "Amount 0 with zero-auth disabled -> rejected with zero_amount_not_allowed"
+
+    - rule_name: "Decimal precision must match currency-specific rules"
+      examples:
+        - "USD/EUR with 2 decimal places -> accepted"
+        - "USD with 3 decimal places (10.999) -> rejected with INVALID_PRECISION"
+        - "JPY as whole number (1000) -> accepted"
+        - "JPY with decimals (1000.50) -> rejected with INVALID_PRECISION"
+        - "BHD with 3 decimal places (10.123) -> accepted"
+        - "BHD with 4 decimal places (10.1234) -> rejected with INVALID_PRECISION"
+
+    - rule_name: "Amounts must not exceed system maximum limits"
+      examples:
+        - "At maximum limit (999999.99 USD) -> accepted"
+        - "One cent above limit (1000000.00 USD) -> rejected with AMOUNT_TOO_LARGE"
+        - "Integer overflow value (21474836.48 USD = 2^31 cents) -> rejected"
+        - "Near 64-bit overflow -> rejected with AMOUNT_TOO_LARGE"
+
+    - rule_name: "Currency conversion rate drift must be managed"
+      examples:
+        - "Rate locked at cart time, small drift -> charged at locked rate"
+        - "Rate not locked, drift > threshold -> 409 RATE_DRIFT_EXCEEDED, re-confirm required"
+        - "Rate not locked, drift < threshold -> charged at current rate"
+        - "Rate lock expired after TTL -> 409 RATE_LOCK_EXPIRED, re-quote required"
+
+    - rule_name: "Mixed-currency carts are converted to payment currency"
+      examples:
+        - "All EUR items, payment in USD -> each item converted, total in USD"
+        - "Items in EUR, GBP, JPY, payment in USD -> all converted individually"
+        - "One item in unsupported currency -> entire payment rejected"
+        - "Rounding strategy preserves accuracy across multiple conversions"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

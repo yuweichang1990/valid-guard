@@ -1,0 +1,124 @@
+{
+  "eval_key": "p3-01-dt-correctness",
+  "eval_name": "Decision Table for max(x,y,z)",
+  "category": "correctness",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Contains decision_table section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Decision Table"
+    },
+    {
+      "text": "Lists conditions c1-c9 or equivalent",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: c1"
+    },
+    {
+      "text": "Actions include x_largest/y_largest/z_largest",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: x is largest"
+    },
+    {
+      "text": "Includes invalid_input action",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: out of range"
+    },
+    {
+      "text": "Has at least 10 rules",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: rule"
+    },
+    {
+      "text": "Handles equal values",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: equal"
+    },
+    {
+      "text": "Includes boundary values 1 and 300",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: 1, 300"
+    },
+    {
+      "text": "Has concrete numeric examples",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: 300"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: decision_table"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 9,
+    "total": 18,
+    "pass_rate": 0.5,
+    "weighted_score": 0.565,
+    "content_score": 1.0,
+    "structural_score": 0.167
+  }
+}

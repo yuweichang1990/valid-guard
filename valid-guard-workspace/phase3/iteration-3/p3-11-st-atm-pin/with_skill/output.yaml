@@ -1,0 +1,1574 @@
+# Valid Guard Test Plan — ATM PIN Entry System
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "ATM PIN Entry System"
+
+feature_description: >
+  ATM card-based authentication system with PIN entry workflow. The system
+  starts in an idle state. When a card is inserted, it transitions to a
+  waiting_for_pin state. The user has up to 3 attempts to enter the correct
+  PIN. A correct PIN grants account access. Each incorrect PIN decrements the
+  remaining attempts. After 3 consecutive incorrect PINs, the card is
+  physically confiscated (retained by the machine) and the associated account
+  is blocked, requiring manual intervention to unblock.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # HAPPY PATH — Valid Transitions
+  # ==========================================================================
+
+  - name: "Card insertion transitions system from idle to waiting_for_pin"
+    description: >
+      When the ATM is in the idle state and a valid card is inserted, the
+      system transitions to the waiting_for_pin state and prompts the user
+      to enter their PIN.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (core ATM functionality, entry gate to all banking operations).
+      Frequency: 3 (every user, every session).
+      Consequence: 3 (failure prevents all ATM operations).
+      Detectability: 2 (user sees no prompt but may not know why).
+      Average: 2.75 -> high.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition is the primary technique since this tests a state change
+      from idle to waiting_for_pin. Equivalence partitioning distinguishes
+      valid card insertions from invalid ones.
+    preconditions:
+      - "ATM is in idle state"
+      - "Card reader is functional"
+    examples:
+      - input:
+          current_state: "idle"
+          event: "card_inserted"
+          card_valid: true
+        expected:
+          next_state: "waiting_for_pin"
+          display: "Enter your PIN"
+          remaining_attempts: 3
+        description: "Valid card inserted while idle — system prompts for PIN."
+    state_transition:
+      states:
+        - "idle"
+        - "waiting_for_pin"
+      transitions:
+        - from: "idle"
+          to: "waiting_for_pin"
+          trigger: "card_inserted"
+          guard: "Card is readable and recognized by the bank network"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - state-machine
+
+  - name: "Correct PIN on first attempt grants account access"
+    description: >
+      User enters the correct PIN on the first attempt. The system transitions
+      from waiting_for_pin to account_access, granting the user access to
+      banking operations.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (core authentication — grants access to financial operations).
+      Frequency: 3 (most common user path, every session).
+      Consequence: 3 (failure to authenticate prevents all ATM banking).
+      Detectability: 2 (user sees error but root cause may be unclear).
+      Average: 2.75 -> high.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition covers the waiting_for_pin -> account_access transition.
+      Equivalence partitioning separates correct PIN (valid class) from
+      incorrect PIN (invalid class).
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "User has a valid account associated with the inserted card"
+      - "Remaining attempts = 3"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          pin_entered: "1234"
+          correct_pin: "1234"
+          attempt_number: 1
+        expected:
+          next_state: "account_access"
+          authentication: "success"
+          remaining_attempts: 3
+        description: "Correct PIN on first try — full access granted."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+        - "account_access"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "account_access"
+          trigger: "pin_entered"
+          guard: "PIN matches stored PIN for the card"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - authentication
+      - state-machine
+
+  - name: "Correct PIN on second attempt grants account access"
+    description: >
+      User enters an incorrect PIN on the first attempt, then enters the
+      correct PIN on the second attempt. The system transitions from
+      waiting_for_pin to account_access after the successful second entry.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (authentication gate for financial operations).
+      Frequency: 2 (common scenario — users mistype PINs regularly).
+      Consequence: 3 (failure blocks legitimate access).
+      Detectability: 2 (user sees rejection but may not understand retry logic).
+      Average: 2.50 -> high.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition covers the retry loop (waiting_for_pin with decremented
+      attempts then successful transition to account_access). Boundary value
+      tests the attempt count at 2 remaining.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "1 incorrect attempt already made"
+      - "Remaining attempts = 2"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          pin_entered: "1234"
+          correct_pin: "1234"
+          attempt_number: 2
+          remaining_attempts: 2
+        expected:
+          next_state: "account_access"
+          authentication: "success"
+        description: "Correct PIN on second attempt after one failure — access granted."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+        - "account_access"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "account_access"
+          trigger: "pin_entered"
+          guard: "PIN matches AND remaining_attempts >= 1"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - critical-path
+      - authentication
+      - retry
+      - state-machine
+
+  - name: "Correct PIN on third (final) attempt grants account access"
+    description: >
+      User enters incorrect PINs on the first two attempts, then enters the
+      correct PIN on the third and final attempt. The system transitions to
+      account_access, narrowly avoiding card confiscation.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (boundary between access and lockout — critical decision point).
+      Frequency: 2 (less common but significant for user experience).
+      Consequence: 3 (off-by-one error here confiscates card or allows extra attempt).
+      Detectability: 2 (user may not realize this is the last chance).
+      Average: 2.50 -> high.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the final retry path. Boundary value analysis
+      is critical here: attempt 3 is the exact boundary between access and
+      lockout — an off-by-one error would either confiscate the card too
+      early or grant an extra attempt.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "2 incorrect attempts already made"
+      - "Remaining attempts = 1"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          pin_entered: "1234"
+          correct_pin: "1234"
+          attempt_number: 3
+          remaining_attempts: 1
+        expected:
+          next_state: "account_access"
+          authentication: "success"
+        description: "Correct PIN on the last attempt — access granted just before lockout."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+        - "account_access"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "account_access"
+          trigger: "pin_entered"
+          guard: "PIN matches AND remaining_attempts == 1 (last chance)"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - critical-path
+      - authentication
+      - boundary
+      - state-machine
+
+  # ==========================================================================
+  # ERROR HANDLING — Incorrect PIN Attempts
+  # ==========================================================================
+
+  - name: "First incorrect PIN decrements attempts and stays in waiting_for_pin"
+    description: >
+      User enters an incorrect PIN on the first attempt. The system stays in
+      waiting_for_pin, decrements remaining attempts from 3 to 2, and
+      displays a warning with the remaining attempt count.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (incorrect decrement could lock user out prematurely or allow infinite attempts).
+      Frequency: 3 (very common — users frequently mistype PINs).
+      Consequence: 3 (wrong counter logic can lead to security bypass or false lockout).
+      Detectability: 2 (user sees error but counter logic is internal).
+      Average: 2.75 -> high.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+      - boundary_value
+    technique_rationale: >
+      State transition verifies the self-loop on waiting_for_pin with
+      decremented counter. Equivalence partitioning separates incorrect PIN
+      from correct PIN. Boundary value checks the counter at attempt 1 of 3.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "Remaining attempts = 3"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          pin_entered: "9999"
+          correct_pin: "1234"
+          attempt_number: 1
+        expected:
+          next_state: "waiting_for_pin"
+          authentication: "failed"
+          remaining_attempts: 2
+          display: "Incorrect PIN. 2 attempts remaining."
+        description: "First wrong PIN — stays in waiting_for_pin, 2 attempts left."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "waiting_for_pin"
+          trigger: "pin_entered"
+          guard: "PIN does not match AND remaining_attempts > 1"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-handling
+      - authentication
+      - state-machine
+
+  - name: "Second incorrect PIN decrements attempts and stays in waiting_for_pin"
+    description: >
+      User enters an incorrect PIN on the second attempt. The system stays
+      in waiting_for_pin, decrements remaining attempts from 2 to 1, and
+      warns this is the final attempt.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (counter at 1 remaining — next failure triggers confiscation).
+      Frequency: 2 (less common than first failure but still significant).
+      Consequence: 3 (incorrect counter here means premature or missed lockout).
+      Detectability: 2 (warning displayed but user may not read it carefully).
+      Average: 2.50 -> high.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition tests the self-loop with counter at 2 -> 1. Boundary
+      value is relevant because remaining_attempts == 1 is the threshold
+      before the confiscation boundary.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "1 incorrect attempt already made"
+      - "Remaining attempts = 2"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          pin_entered: "5678"
+          correct_pin: "1234"
+          attempt_number: 2
+        expected:
+          next_state: "waiting_for_pin"
+          authentication: "failed"
+          remaining_attempts: 1
+          display: "Incorrect PIN. 1 attempt remaining. WARNING: next failure will confiscate your card."
+        description: "Second wrong PIN — 1 attempt remaining, final warning displayed."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "waiting_for_pin"
+          trigger: "pin_entered"
+          guard: "PIN does not match AND remaining_attempts == 2"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-handling
+      - authentication
+      - boundary
+      - state-machine
+
+  - name: "Third incorrect PIN confiscates card and blocks account"
+    description: >
+      User enters an incorrect PIN on the third and final attempt. The system
+      transitions from waiting_for_pin to card_confiscated, physically retains
+      the card, blocks the associated account, and returns to idle.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (irreversible action — card confiscation and account blocking).
+      Frequency: 2 (less common but high-consequence when it occurs).
+      Consequence: 3 (failure to confiscate enables brute-force; false confiscation locks legitimate user).
+      Detectability: 1 (silent if confiscation mechanism fails — attacker gets unlimited attempts).
+      Average: 2.25 -> medium, but elevated to high due to security criticality.
+    techniques:
+      - state_transition
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      State transition is essential — this is the terminal state transition.
+      Boundary value tests the exact threshold (attempt 3 of 3). Error guessing
+      considers race conditions (rapid PIN entry) and mechanical failure
+      (card reader jam during confiscation).
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "2 incorrect attempts already made"
+      - "Remaining attempts = 1"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          pin_entered: "0000"
+          correct_pin: "1234"
+          attempt_number: 3
+        expected:
+          next_state: "card_confiscated"
+          card_retained: true
+          account_blocked: true
+          display: "Your card has been confiscated. Please contact your bank."
+        description: "Third wrong PIN — card confiscated, account blocked."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+        - "card_confiscated"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "card_confiscated"
+          trigger: "pin_entered"
+          guard: "PIN does not match AND remaining_attempts == 1 (final attempt exhausted)"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - critical-path
+      - security
+      - state-machine
+      - confiscation
+
+  # ==========================================================================
+  # STATE TRANSITION — Full Lifecycle & Return to Idle
+  # ==========================================================================
+
+  - name: "Card confiscation returns ATM to idle state"
+    description: >
+      After the card is confiscated and the account is blocked, the ATM
+      displays a confiscation message and then returns to the idle state,
+      ready for the next customer.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (ATM stuck in non-idle state renders it unusable for all customers).
+      Frequency: 2 (occurs after every confiscation event).
+      Consequence: 3 (ATM becomes a brick if it cannot return to idle).
+      Detectability: 2 (next customer would notice but bank may not be alerted quickly).
+      Average: 2.50 -> high.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      Pure state transition test — verifies the card_confiscated -> idle
+      recovery path so the ATM remains operational.
+    preconditions:
+      - "ATM is in card_confiscated state"
+      - "Confiscation message has been displayed"
+    examples:
+      - input:
+          current_state: "card_confiscated"
+          event: "confiscation_complete"
+        expected:
+          next_state: "idle"
+          display: "Welcome. Please insert your card."
+          card_slot: "empty"
+        description: "After confiscation completes, ATM returns to idle."
+    state_transition:
+      states:
+        - "card_confiscated"
+        - "idle"
+      transitions:
+        - from: "card_confiscated"
+          to: "idle"
+          trigger: "confiscation_complete"
+          guard: "Card successfully retained and confiscation message displayed for timeout period"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - recovery
+
+  - name: "User completes session and card is ejected — return to idle"
+    description: >
+      After successful PIN authentication and account access, when the user
+      completes their transactions, the card is ejected and the ATM returns
+      to idle state.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (failure to eject card or return to idle breaks the ATM for subsequent users).
+      Frequency: 3 (occurs after every successful session).
+      Consequence: 2 (card stuck is inconvenient but workaround exists — call bank).
+      Detectability: 1 (user may walk away without retrieving card — ATM must handle this).
+      Average: 2.25 -> medium, but elevated due to frequency and card safety.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition covers the account_access -> idle path, including
+      card ejection as a side effect of the transition.
+    preconditions:
+      - "ATM is in account_access state"
+      - "User has completed or cancelled their transaction"
+    examples:
+      - input:
+          current_state: "account_access"
+          event: "session_complete"
+        expected:
+          next_state: "idle"
+          card_ejected: true
+          display: "Please take your card. Thank you."
+        description: "User finishes session — card ejected, ATM returns to idle."
+    state_transition:
+      states:
+        - "account_access"
+        - "idle"
+      transitions:
+        - from: "account_access"
+          to: "idle"
+          trigger: "session_complete"
+          guard: "All pending transactions finalized and card ejected"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - critical-path
+      - state-machine
+      - card-handling
+
+  - name: "Complete state transition lifecycle — idle to access and back"
+    description: >
+      Full 1-switch coverage path: idle -> waiting_for_pin -> account_access
+      -> idle. Verifies the entire happy path lifecycle from card insertion
+      through successful PIN entry to session completion and return to idle.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (validates the entire primary ATM workflow end-to-end).
+      Frequency: 3 (this is the standard usage path for every customer).
+      Consequence: 3 (any break in this chain renders the ATM non-functional).
+      Detectability: 2 (failure at any step produces different symptoms).
+      Average: 2.75 -> high.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      This is a 1-switch coverage test — it traverses a full sequence of
+      valid transitions to verify the state machine works end-to-end.
+    preconditions:
+      - "ATM is powered on and in idle state"
+      - "Card reader and PIN pad are functional"
+    examples:
+      - input:
+          sequence:
+            - event: "card_inserted"
+            - event: "pin_entered"
+              pin: "1234"
+              correct_pin: "1234"
+            - event: "session_complete"
+        expected:
+          state_sequence:
+            - "idle"
+            - "waiting_for_pin"
+            - "account_access"
+            - "idle"
+          final_state: "idle"
+        description: "Full lifecycle: insert card -> correct PIN -> complete session -> idle."
+    state_transition:
+      states:
+        - "idle"
+        - "waiting_for_pin"
+        - "account_access"
+      transitions:
+        - from: "idle"
+          to: "waiting_for_pin"
+          trigger: "card_inserted"
+          guard: "Valid card inserted"
+        - from: "waiting_for_pin"
+          to: "account_access"
+          trigger: "pin_entered"
+          guard: "PIN matches"
+        - from: "account_access"
+          to: "idle"
+          trigger: "session_complete"
+          guard: "Transactions finalized, card ejected"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - end-to-end
+      - critical-path
+      - state-machine
+
+  - name: "Complete state transition lifecycle — idle to confiscation and back"
+    description: >
+      Full 1-switch coverage path for the lockout flow: idle -> waiting_for_pin
+      -> card_confiscated -> idle. Verifies the complete failure path from card
+      insertion through 3 failed PINs to confiscation and ATM recovery.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 (validates the security lockout path end-to-end).
+      Frequency: 2 (less frequent than happy path but critical for security).
+      Consequence: 3 (broken lockout path either blocks legitimate users or enables attacks).
+      Detectability: 1 (if confiscation silently fails, attacker gets unlimited attempts).
+      Average: 2.25 -> medium, but elevated to high due to security consequence.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      1-switch coverage for the failure/security path — verifies the complete
+      confiscation lifecycle including ATM recovery.
+    preconditions:
+      - "ATM is powered on and in idle state"
+    examples:
+      - input:
+          sequence:
+            - event: "card_inserted"
+            - event: "pin_entered"
+              pin: "0000"
+              correct_pin: "1234"
+            - event: "pin_entered"
+              pin: "1111"
+              correct_pin: "1234"
+            - event: "pin_entered"
+              pin: "2222"
+              correct_pin: "1234"
+            - event: "confiscation_complete"
+        expected:
+          state_sequence:
+            - "idle"
+            - "waiting_for_pin"
+            - "waiting_for_pin"
+            - "waiting_for_pin"
+            - "card_confiscated"
+            - "idle"
+          card_retained: true
+          account_blocked: true
+          final_state: "idle"
+        description: "Full lockout lifecycle: insert card -> 3 wrong PINs -> confiscation -> idle."
+    state_transition:
+      states:
+        - "idle"
+        - "waiting_for_pin"
+        - "card_confiscated"
+      transitions:
+        - from: "idle"
+          to: "waiting_for_pin"
+          trigger: "card_inserted"
+          guard: "Valid card inserted"
+        - from: "waiting_for_pin"
+          to: "waiting_for_pin"
+          trigger: "pin_entered"
+          guard: "PIN incorrect AND remaining_attempts > 1"
+        - from: "waiting_for_pin"
+          to: "card_confiscated"
+          trigger: "pin_entered"
+          guard: "PIN incorrect AND remaining_attempts == 1"
+        - from: "card_confiscated"
+          to: "idle"
+          trigger: "confiscation_complete"
+          guard: "Card retained, message displayed"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - end-to-end
+      - security
+      - state-machine
+      - confiscation
+
+  # ==========================================================================
+  # INVALID TRANSITIONS — Events in Wrong States
+  # ==========================================================================
+
+  - name: "PIN entry rejected when ATM is in idle state"
+    description: >
+      If a PIN entry event occurs when the ATM is in idle state (no card
+      inserted), the system must ignore the input and remain in idle state.
+      This is an invalid transition.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (should not affect core functionality but could indicate tampering).
+      Frequency: 1 (rare — would require physical access to PIN pad without card insertion).
+      Consequence: 2 (accepting PIN in idle state could trigger undefined behavior).
+      Detectability: 2 (might go unnoticed in logs).
+      Average: 1.75 -> medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition testing for invalid transitions — events that should
+      not be accepted in a given state. Error guessing anticipates physical
+      tampering or software bugs.
+    preconditions:
+      - "ATM is in idle state"
+      - "No card is inserted"
+    examples:
+      - input:
+          current_state: "idle"
+          event: "pin_entered"
+          pin: "1234"
+        expected:
+          next_state: "idle"
+          response: "ignored"
+          display: "Please insert your card."
+        description: "PIN entry without card insertion — input ignored, stay idle."
+    state_transition:
+      states:
+        - "idle"
+      transitions:
+        - from: "idle"
+          to: "idle"
+          trigger: "pin_entered"
+          guard: "INVALID TRANSITION — no card inserted, event rejected"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - invalid-transition
+      - security
+      - state-machine
+
+  - name: "Card insertion rejected when ATM is already in waiting_for_pin state"
+    description: >
+      If a second card insertion event occurs while the ATM is already
+      processing a card (in waiting_for_pin state), the second insertion
+      must be rejected. The ATM remains in waiting_for_pin for the original card.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (could confuse state machine or mix up card data).
+      Frequency: 1 (rare physical scenario but possible with tampering devices).
+      Consequence: 2 (accepting second card could mix authentication contexts).
+      Detectability: 2 (user would notice but root cause unclear).
+      Average: 1.75 -> medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition validates that invalid events are properly rejected.
+      Error guessing considers card skimming or multi-card attack scenarios.
+    preconditions:
+      - "ATM is in waiting_for_pin state with a card already being processed"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          event: "card_inserted"
+          card_id: "second_card"
+        expected:
+          next_state: "waiting_for_pin"
+          response: "rejected"
+          display: "A card is already being processed."
+          active_card: "original_card"
+        description: "Second card insertion while first card is being processed — rejected."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "waiting_for_pin"
+          trigger: "card_inserted"
+          guard: "INVALID TRANSITION — card already being processed, second card rejected"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - invalid-transition
+      - security
+      - state-machine
+
+  - name: "Card insertion rejected when ATM is in account_access state"
+    description: >
+      If a card insertion event occurs while a user is in the account_access
+      state (actively using ATM), the insertion must be rejected.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (could corrupt active session or confuse transaction state).
+      Frequency: 1 (rare — requires physical access to card slot during session).
+      Consequence: 2 (session confusion could lead to wrong account being debited).
+      Detectability: 2 (user would notice unusual behavior).
+      Average: 1.75 -> medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      Invalid transition testing ensures the state machine properly rejects
+      events not valid for the current state.
+    preconditions:
+      - "ATM is in account_access state with an active user session"
+    examples:
+      - input:
+          current_state: "account_access"
+          event: "card_inserted"
+        expected:
+          next_state: "account_access"
+          response: "rejected"
+          display: "Please complete your current transaction first."
+        description: "Card insertion during active session — rejected."
+    state_transition:
+      states:
+        - "account_access"
+      transitions:
+        - from: "account_access"
+          to: "account_access"
+          trigger: "card_inserted"
+          guard: "INVALID TRANSITION — session active, insertion rejected"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - invalid-transition
+      - state-machine
+
+  - name: "PIN entry rejected when ATM is in card_confiscated state"
+    description: >
+      If a PIN entry event occurs while the ATM is in the card_confiscated
+      state (processing confiscation), the input must be ignored.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (could interfere with confiscation process).
+      Frequency: 1 (extremely rare — user would need to type PIN during confiscation).
+      Consequence: 2 (could reset confiscation or cause undefined behavior).
+      Detectability: 2 (user sees confiscation message).
+      Average: 1.75 -> medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      Invalid transition test. Error guessing considers that a frustrated
+      user might frantically enter PINs during confiscation.
+    preconditions:
+      - "ATM is in card_confiscated state"
+    examples:
+      - input:
+          current_state: "card_confiscated"
+          event: "pin_entered"
+          pin: "1234"
+        expected:
+          next_state: "card_confiscated"
+          response: "ignored"
+        description: "PIN entry during confiscation — ignored, confiscation continues."
+    state_transition:
+      states:
+        - "card_confiscated"
+      transitions:
+        - from: "card_confiscated"
+          to: "card_confiscated"
+          trigger: "pin_entered"
+          guard: "INVALID TRANSITION — confiscation in progress, input ignored"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - invalid-transition
+      - state-machine
+
+  # ==========================================================================
+  # EDGE CASES
+  # ==========================================================================
+
+  - name: "Card removal during waiting_for_pin state (user cancellation)"
+    description: >
+      User removes their card while the ATM is waiting for PIN entry. The
+      system should cancel the authentication process and return to idle.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (failure to reset could lock the ATM in waiting_for_pin).
+      Frequency: 2 (users do cancel mid-process).
+      Consequence: 2 (ATM stuck in wrong state until manual reset).
+      Detectability: 2 (next user would discover it).
+      Average: 2.00 -> medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition covers the cancellation path. Error guessing considers
+      timing issues — what if the card is yanked mid-transaction.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "Card is currently in the reader"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          event: "card_removed"
+        expected:
+          next_state: "idle"
+          session_cancelled: true
+          remaining_attempts_reset: true
+          display: "Transaction cancelled."
+        description: "User pulls card out during PIN entry — session cancelled, return to idle."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+        - "idle"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "idle"
+          trigger: "card_removed"
+          guard: "Card physically removed from reader before PIN validation"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - edge-case
+      - cancellation
+      - state-machine
+
+  - name: "Timeout in waiting_for_pin state returns to idle"
+    description: >
+      If the user does not enter a PIN within the timeout period (e.g., 30
+      seconds), the ATM ejects the card and returns to idle state.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (failure to timeout leaves ATM stuck with card inserted).
+      Frequency: 2 (users do walk away or get distracted).
+      Consequence: 2 (stuck ATM requires manual intervention; card left in reader is a security risk).
+      Detectability: 2 (next customer would notice).
+      Average: 2.00 -> medium.
+    techniques:
+      - state_transition
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      State transition covers the timeout path. Boundary value tests the
+      exact timeout threshold. Error guessing considers network delays
+      that might interfere with timeout logic.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "No PIN entered within timeout period"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          event: "timeout"
+          elapsed_seconds: 30
+        expected:
+          next_state: "idle"
+          card_ejected: true
+          display: "Session timed out. Please take your card."
+        description: "No PIN entered within 30 seconds — card ejected, return to idle."
+      - input:
+          current_state: "waiting_for_pin"
+          event: "pin_entered"
+          elapsed_seconds: 29
+        expected:
+          next_state: "waiting_for_pin"
+          timeout_triggered: false
+        description: "PIN entered at 29 seconds — just before timeout, accepted normally."
+    state_transition:
+      states:
+        - "waiting_for_pin"
+        - "idle"
+      transitions:
+        - from: "waiting_for_pin"
+          to: "idle"
+          trigger: "timeout"
+          guard: "No input received within 30-second timeout window"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - edge-case
+      - timeout
+      - state-machine
+      - boundary
+
+  - name: "Timeout in account_access state returns to idle"
+    description: >
+      If the user is in account_access but does not perform any action
+      within the inactivity timeout period, the ATM ejects the card and
+      returns to idle to prevent unauthorized use.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 (leaving a session open is a security risk — next person could access account).
+      Frequency: 2 (users walk away from ATMs).
+      Consequence: 3 (unauthorized financial transactions if session left open).
+      Detectability: 1 (silent — next person gets access without any alert).
+      Average: 2.25 -> medium, but elevated to high due to security consequence.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition covers the inactivity timeout path. Error guessing
+      considers the scenario where an attacker waits for a user to walk
+      away from an active session.
+    preconditions:
+      - "ATM is in account_access state"
+      - "No user activity within timeout period"
+    examples:
+      - input:
+          current_state: "account_access"
+          event: "inactivity_timeout"
+          idle_seconds: 60
+        expected:
+          next_state: "idle"
+          card_ejected: true
+          session_terminated: true
+          display: "Session timed out for security. Please take your card."
+        description: "No activity for 60 seconds in account_access — session terminated, card ejected."
+    state_transition:
+      states:
+        - "account_access"
+        - "idle"
+      transitions:
+        - from: "account_access"
+          to: "idle"
+          trigger: "inactivity_timeout"
+          guard: "No user interaction within 60-second inactivity window"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - timeout
+      - state-machine
+
+  # ==========================================================================
+  # SECURITY SCENARIOS
+  # ==========================================================================
+
+  - name: "Blocked account card insertion is rejected immediately"
+    description: >
+      If a card belonging to a previously blocked account is inserted, the
+      ATM should reject it immediately without prompting for a PIN, display
+      a message directing the user to contact their bank, and return to idle.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (blocked accounts must not be accessible under any circumstances).
+      Frequency: 1 (rare — only blocked card holders attempt this).
+      Consequence: 3 (security breach if blocked account can re-authenticate).
+      Detectability: 1 (if PIN prompt appears, attacker has unlimited attempts on blocked account).
+      Average: 2.00 -> medium, but elevated to high due to critical security implication.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      State transition tests the idle -> idle (rejected) path. Equivalence
+      partitioning separates blocked cards from active cards. Error guessing
+      considers whether the block status is checked before or after card
+      read — timing matters for race conditions.
+    preconditions:
+      - "ATM is in idle state"
+      - "Inserted card belongs to a blocked account"
+    examples:
+      - input:
+          current_state: "idle"
+          event: "card_inserted"
+          account_status: "blocked"
+        expected:
+          next_state: "idle"
+          card_ejected: true
+          pin_prompt_shown: false
+          display: "This card has been blocked. Please contact your bank."
+        description: "Blocked account card — rejected immediately without PIN prompt."
+    state_transition:
+      states:
+        - "idle"
+      transitions:
+        - from: "idle"
+          to: "idle"
+          trigger: "card_inserted"
+          guard: "Card account is blocked — reject and eject immediately"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - blocked-account
+      - state-machine
+
+  - name: "Invalid or unreadable card is rejected"
+    description: >
+      If the inserted card is damaged, expired, or unreadable (bad magnetic
+      stripe / chip), the ATM rejects the card and returns to idle.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (no security risk but blocks legitimate user).
+      Frequency: 2 (damaged cards are moderately common).
+      Consequence: 1 (user can go to bank branch or use another ATM).
+      Detectability: 3 (immediately visible — card ejected with error).
+      Average: 2.00 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning separates readable vs. unreadable cards.
+      Error guessing covers various card failure modes (demagnetized,
+      expired, wrong bank network, chip malfunction).
+    preconditions:
+      - "ATM is in idle state"
+    examples:
+      - input:
+          current_state: "idle"
+          event: "card_inserted"
+          card_readable: false
+        expected:
+          next_state: "idle"
+          card_ejected: true
+          display: "Card could not be read. Please try again or contact your bank."
+        description: "Unreadable card — ejected with error message."
+      - input:
+          current_state: "idle"
+          event: "card_inserted"
+          card_expired: true
+        expected:
+          next_state: "idle"
+          card_ejected: true
+          display: "This card has expired. Please contact your bank for a replacement."
+        description: "Expired card — ejected with specific message."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - error-handling
+      - card-validation
+      - state-machine
+
+  - name: "Attempt counter resets after card removal and re-insertion"
+    description: >
+      If a user removes their card (or it times out) after 1-2 failed
+      attempts, then re-inserts the same card, the attempt counter should
+      reset to 3 (or persist based on security policy). This test verifies
+      the counter reset behavior.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (if counter resets on re-insertion, attacker gets unlimited 3-attempt windows).
+      Frequency: 2 (an attacker would exploit this deliberately).
+      Consequence: 3 (effectively bypasses the 3-attempt lockout security control).
+      Detectability: 1 (silent — no visible indication that brute-force protection is defeated).
+      Average: 2.25 -> medium, but elevated to high due to security bypass potential.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition tests the idle -> waiting_for_pin cycle with counter
+      persistence. Error guessing anticipates the brute-force bypass attack
+      vector of repeated card insertion/removal.
+    preconditions:
+      - "Card has had 2 failed PIN attempts in a previous session"
+      - "Card was ejected (timeout or user removal)"
+      - "Same card is re-inserted"
+    examples:
+      - input:
+          card_id: "card_123"
+          previous_failed_attempts: 2
+          event: "card_reinserted"
+        expected:
+          remaining_attempts: 1
+          counter_persisted: true
+        description: "Counter persists across card removal/reinsertion — only 1 attempt left (security policy: persist counter)."
+      - input:
+          card_id: "card_456"
+          previous_failed_attempts: 0
+          event: "card_inserted"
+        expected:
+          remaining_attempts: 3
+          counter_persisted: false
+        description: "Fresh card with no previous failures — full 3 attempts."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - brute-force-protection
+      - state-machine
+
+  # ==========================================================================
+  # BOUNDARY VALUE — Attempt Counter Boundaries
+  # ==========================================================================
+
+  - name: "Attempt counter boundary — exactly 0 remaining triggers confiscation"
+    description: >
+      Verifies the exact boundary condition: when remaining_attempts reaches
+      0 (after 3rd failure), confiscation is triggered. Tests for off-by-one
+      errors in the counter logic.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 (off-by-one in counter = security bypass or premature lockout).
+      Frequency: 2 (every 3-failure sequence hits this boundary).
+      Consequence: 3 (allows 4th attempt or confiscates on 2nd — both critical bugs).
+      Detectability: 1 (counter logic is internal, not visible to user until effect occurs).
+      Average: 2.25 -> medium, but elevated to high due to security criticality.
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value analysis at the attempt counter threshold. Testing
+      values: remaining_attempts = 2 (above boundary, should allow retry),
+      remaining_attempts = 1 (at boundary, last chance), remaining_attempts
+      = 0 (below boundary, confiscation should have occurred).
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+    examples:
+      - input:
+          remaining_attempts: 2
+          pin_correct: false
+        expected:
+          action: "allow_retry"
+          remaining_attempts_after: 1
+          confiscated: false
+        description: "2 attempts remaining, wrong PIN — allow retry, 1 left."
+      - input:
+          remaining_attempts: 1
+          pin_correct: false
+        expected:
+          action: "confiscate"
+          remaining_attempts_after: 0
+          confiscated: true
+          account_blocked: true
+        description: "1 attempt remaining, wrong PIN — confiscate card, block account."
+      - input:
+          remaining_attempts: 1
+          pin_correct: true
+        expected:
+          action: "grant_access"
+          confiscated: false
+        description: "1 attempt remaining, correct PIN — grant access (boundary: last valid attempt)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - security
+      - counter-logic
+
+  # ==========================================================================
+  # ERROR GUESSING — Anticipated Defects
+  # ==========================================================================
+
+  - name: "Rapid repeated PIN entry (race condition prevention)"
+    description: >
+      User rapidly presses enter multiple times or enters PINs faster than
+      the system can process. The system must process each PIN entry
+      sequentially and not skip counter decrements or allow double-processing.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 (race condition could skip counter decrement or double-process correct PIN).
+      Frequency: 1 (rare in normal use but exploitable by attackers).
+      Consequence: 3 (could bypass attempt limit or cause duplicate transactions).
+      Detectability: 1 (race conditions are notoriously hard to detect in testing).
+      Average: 2.00 -> medium, but elevated to high due to exploitability.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing for concurrency/race condition scenarios that formal
+      techniques may not systematically uncover. State transition verifies
+      that the state machine processes events serially.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          events:
+            - pin: "0000"
+              timestamp_ms: 0
+            - pin: "0000"
+              timestamp_ms: 50
+        expected:
+          pins_processed: 1
+          remaining_attempts: 2
+          second_input_queued_or_rejected: true
+        description: "Two PINs entered within 50ms — only first processed, second queued or rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - concurrency
+      - error-guessing
+      - security
+
+  - name: "PIN pad hardware failure during PIN entry"
+    description: >
+      The PIN pad hardware fails or becomes unresponsive while the user
+      is entering their PIN. The system must handle this gracefully by
+      ejecting the card and returning to an error/idle state.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (blocks current user but not a security risk).
+      Frequency: 1 (hardware failures are rare).
+      Consequence: 2 (user cannot complete transaction but card should be ejected safely).
+      Detectability: 3 (immediately obvious — PIN pad unresponsive).
+      Average: 2.00 -> medium.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing for hardware failure scenarios that cannot be derived
+      from functional requirements alone.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "PIN pad hardware reports failure"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          event: "hardware_failure"
+          component: "pin_pad"
+        expected:
+          next_state: "idle"
+          card_ejected: true
+          display: "ATM error. Please try another machine."
+          alert_sent_to_bank: true
+        description: "PIN pad fails — card ejected, ATM flags itself for maintenance."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - hardware-failure
+      - reliability
+
+  - name: "Network failure during PIN verification"
+    description: >
+      The network connection to the bank's authentication server drops
+      while the ATM is verifying the entered PIN. The system must not
+      treat a network timeout as either a correct or incorrect PIN.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (treating network error as wrong PIN unfairly decrements counter; treating it as correct PIN is a security breach).
+      Frequency: 2 (network issues occur periodically).
+      Consequence: 3 (incorrect handling leads to security breach or false lockout).
+      Detectability: 1 (user cannot distinguish network error from wrong PIN if error handling is poor).
+      Average: 2.25 -> medium, but elevated to high due to dual-failure consequence.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing for infrastructure failure. State transition verifies
+      the system stays in waiting_for_pin without decrementing the counter.
+    preconditions:
+      - "ATM is in waiting_for_pin state"
+      - "Bank network is unreachable"
+    examples:
+      - input:
+          current_state: "waiting_for_pin"
+          pin_entered: "1234"
+          network_status: "timeout"
+        expected:
+          next_state: "waiting_for_pin"
+          remaining_attempts_changed: false
+          display: "Unable to verify PIN. Please try again."
+          counter_decremented: false
+        description: "Network timeout during verification — no counter change, user can retry."
+      - input:
+          current_state: "waiting_for_pin"
+          pin_entered: "1234"
+          network_status: "timeout"
+          consecutive_network_failures: 3
+        expected:
+          next_state: "idle"
+          card_ejected: true
+          display: "ATM temporarily unavailable. Please try later."
+        description: "3 consecutive network failures — eject card, go out of service."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-guessing
+      - network-failure
+      - security
+      - reliability
+
+  # ==========================================================================
+  # COMPREHENSIVE STATE TRANSITION TABLE (All States x All Events)
+  # ==========================================================================
+
+  - name: "Full state transition table — all states x all events"
+    description: >
+      Comprehensive decision table mapping every possible (state, event)
+      combination to verify completeness of the state machine. Includes
+      all valid transitions and all invalid transitions to ensure no
+      undefined behavior exists.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 (undefined state transitions can crash the ATM or create security holes).
+      Frequency: 3 (covers all possible event combinations).
+      Consequence: 3 (unhandled state+event pair = undefined behavior).
+      Detectability: 1 (undefined behavior may manifest as subtle bugs).
+      Average: 2.50 -> high.
+    techniques:
+      - state_transition
+      - decision_table
+    technique_rationale: >
+      Decision table enumerates all (state, event) combinations. State
+      transition validates each combination against the expected behavior.
+      This ensures 0-switch coverage completeness.
+    preconditions:
+      - "ATM system is operational"
+    decision_table:
+      conditions:
+        - "current_state"
+        - "event"
+      actions:
+        - "next_state"
+        - "response"
+      rules:
+        - description: "idle + card_inserted (valid card)"
+          condition_values:
+            current_state: "idle"
+            event: "card_inserted"
+          expected_actions:
+            next_state: "waiting_for_pin"
+            response: "prompt_for_pin"
+        - description: "idle + card_inserted (blocked account)"
+          condition_values:
+            current_state: "idle"
+            event: "card_inserted_blocked"
+          expected_actions:
+            next_state: "idle"
+            response: "reject_and_eject"
+        - description: "idle + pin_entered"
+          condition_values:
+            current_state: "idle"
+            event: "pin_entered"
+          expected_actions:
+            next_state: "idle"
+            response: "ignored"
+        - description: "idle + timeout"
+          condition_values:
+            current_state: "idle"
+            event: "timeout"
+          expected_actions:
+            next_state: "idle"
+            response: "no_action"
+        - description: "waiting_for_pin + correct_pin (attempts > 0)"
+          condition_values:
+            current_state: "waiting_for_pin"
+            event: "correct_pin_entered"
+          expected_actions:
+            next_state: "account_access"
+            response: "grant_access"
+        - description: "waiting_for_pin + wrong_pin (attempts > 1)"
+          condition_values:
+            current_state: "waiting_for_pin"
+            event: "wrong_pin_attempts_remaining"
+          expected_actions:
+            next_state: "waiting_for_pin"
+            response: "decrement_counter_retry"
+        - description: "waiting_for_pin + wrong_pin (attempts == 1, final)"
+          condition_values:
+            current_state: "waiting_for_pin"
+            event: "wrong_pin_final_attempt"
+          expected_actions:
+            next_state: "card_confiscated"
+            response: "confiscate_and_block"
+        - description: "waiting_for_pin + card_removed"
+          condition_values:
+            current_state: "waiting_for_pin"
+            event: "card_removed"
+          expected_actions:
+            next_state: "idle"
+            response: "cancel_session"
+        - description: "waiting_for_pin + timeout"
+          condition_values:
+            current_state: "waiting_for_pin"
+            event: "timeout"
+          expected_actions:
+            next_state: "idle"
+            response: "eject_card_timeout"
+        - description: "waiting_for_pin + card_inserted"
+          condition_values:
+            current_state: "waiting_for_pin"
+            event: "card_inserted"
+          expected_actions:
+            next_state: "waiting_for_pin"
+            response: "rejected"
+        - description: "account_access + session_complete"
+          condition_values:
+            current_state: "account_access"
+            event: "session_complete"
+          expected_actions:
+            next_state: "idle"
+            response: "eject_card"
+        - description: "account_access + inactivity_timeout"
+          condition_values:
+            current_state: "account_access"
+            event: "inactivity_timeout"
+          expected_actions:
+            next_state: "idle"
+            response: "eject_card_timeout"
+        - description: "account_access + card_inserted"
+          condition_values:
+            current_state: "account_access"
+            event: "card_inserted"
+          expected_actions:
+            next_state: "account_access"
+            response: "rejected"
+        - description: "account_access + pin_entered"
+          condition_values:
+            current_state: "account_access"
+            event: "pin_entered"
+          expected_actions:
+            next_state: "account_access"
+            response: "ignored"
+        - description: "card_confiscated + confiscation_complete"
+          condition_values:
+            current_state: "card_confiscated"
+            event: "confiscation_complete"
+          expected_actions:
+            next_state: "idle"
+            response: "return_to_idle"
+        - description: "card_confiscated + pin_entered"
+          condition_values:
+            current_state: "card_confiscated"
+            event: "pin_entered"
+          expected_actions:
+            next_state: "card_confiscated"
+            response: "ignored"
+        - description: "card_confiscated + card_inserted"
+          condition_values:
+            current_state: "card_confiscated"
+            event: "card_inserted"
+          expected_actions:
+            next_state: "card_confiscated"
+            response: "rejected"
+    examples:
+      - input:
+          test_type: "state_event_matrix"
+          total_states: 4
+          total_events: 7
+          total_combinations: 28
+        expected:
+          all_combinations_defined: true
+          no_undefined_behavior: true
+        description: "All 4 states x 7 events = 28 combinations must have defined behavior."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - completeness
+      - state-machine
+      - decision-table
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As an ATM user, I want to authenticate using my card and PIN so that I
+    can securely access my bank account at the ATM.
+  rules:
+    - rule_name: "Card insertion transitions ATM from idle to PIN entry"
+      examples:
+        - "Valid card inserted while idle -> transition to waiting_for_pin, prompt for PIN"
+        - "Invalid/unreadable card inserted -> reject, eject card, stay idle"
+        - "Expired card inserted -> reject with expiry message, eject, stay idle"
+        - "Blocked account card inserted -> reject immediately without PIN prompt, eject, stay idle"
+        - "Card inserted while already processing another card -> reject second card"
+
+    - rule_name: "Correct PIN grants account access"
+      examples:
+        - "Correct PIN on 1st attempt -> grant access (3 remaining attempts)"
+        - "Correct PIN on 2nd attempt -> grant access (2 remaining attempts, after 1 failure)"
+        - "Correct PIN on 3rd attempt -> grant access (1 remaining attempt, after 2 failures)"
+
+    - rule_name: "Incorrect PIN decrements attempt counter"
+      examples:
+        - "1st wrong PIN -> stay in waiting_for_pin, 2 attempts remaining"
+        - "2nd wrong PIN -> stay in waiting_for_pin, 1 attempt remaining, show final warning"
+        - "Counter correctly tracks failures across consecutive wrong entries"
+
+    - rule_name: "3 consecutive incorrect PINs confiscates card and blocks account"
+      examples:
+        - "3rd wrong PIN -> card confiscated, account blocked, display contact-bank message"
+        - "After confiscation, ATM returns to idle for next customer"
+        - "Confiscation is irreversible at the ATM — requires bank intervention"
+        - "Counter persists across card removal/reinsertion to prevent brute-force bypass"
+
+    - rule_name: "ATM returns to idle after session completion or cancellation"
+      examples:
+        - "User completes transactions -> card ejected, return to idle"
+        - "User removes card during PIN entry -> session cancelled, return to idle"
+        - "PIN entry timeout -> card ejected, return to idle"
+        - "Inactivity timeout during account access -> card ejected, session terminated, return to idle"
+
+    - rule_name: "Invalid events are rejected in every state"
+      examples:
+        - "PIN entry in idle state (no card) -> ignored"
+        - "Second card insertion during active session -> rejected"
+        - "PIN entry during confiscation -> ignored"
+        - "All state-event combinations have defined behavior — no undefined transitions"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

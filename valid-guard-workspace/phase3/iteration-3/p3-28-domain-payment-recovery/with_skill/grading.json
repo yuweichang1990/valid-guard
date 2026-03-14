@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-28-domain-payment-recovery",
+  "eval_name": "Payment failure recovery flow",
+  "category": "domain_specific",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Insufficient funds scenario",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: fund"
+    },
+    {
+      "text": "Declined card scenario",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Decline"
+    },
+    {
+      "text": "Gateway error/timeout scenario",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('network', 'timeout')"
+    },
+    {
+      "text": "User guidance to resolve",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('prompt', 'user')"
+    },
+    {
+      "text": "Retry/alternative payment method",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('different', 'method')"
+    },
+    {
+      "text": "Transaction rollback/compensation",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: rollback"
+    },
+    {
+      "text": "Notification of failure",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('message', 'decline')"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: feature:"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Impact"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: technique_rationale:"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: uncovered"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priority: 1"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: test_ref:"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: error_handling"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence_partitioning"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: example_mapping:"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: metadata:"
+    }
+  ],
+  "summary": {
+    "passed": 17,
+    "total": 17,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 1.0
+  }
+}

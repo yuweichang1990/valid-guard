@@ -1,0 +1,2440 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Valid Guard — Test Plan Report</title>
+<!-- VG_DATA_INJECT -->
+<script>
+window.VG_DATA = window.VG_DATA || {
+  project_name: "Sample Project",
+  generated_at: "2026-03-13T12:00:00Z",
+  features: [
+    {
+      feature: "User Authentication",
+      feature_description: "Handles user login, registration, and session management for the application.",
+      risk_level: "high",
+      entry_point: "brownfield",
+      source: { type: "code_analysis", path: "src/auth/" },
+      example_mapping: {
+        story: "As a user, I want to log in securely so that I can access my account.",
+        rules: [
+          {
+            rule_name: "Valid credentials grant access",
+            examples: [
+              "Login with correct email and password",
+              "Login with uppercase email variation"
+            ]
+          },
+          {
+            rule_name: "Invalid credentials are rejected",
+            examples: [
+              "Wrong password returns 401",
+              "Non-existent email returns 401",
+              "Empty password field returns 400"
+            ]
+          },
+          {
+            rule_name: "Account lockout after repeated failures",
+            examples: [
+              "Lock after 5 failed attempts",
+              "Reset counter after successful login"
+            ]
+          }
+        ]
+      },
+      scenarios: [
+        {
+          name: "Successful login with valid credentials",
+          description: "User provides correct email and password and receives an access token.",
+          type: "happy_path",
+          risk: "high",
+          risk_rationale: "Core authentication path — failure blocks all authenticated features.",
+          techniques: ["equivalence_partitioning"],
+          technique_rationale: "Single valid-class representative confirms the golden path.",
+          preconditions: ["User account exists", "Account is not locked"],
+          status: "covered",
+          test_ref: "tests/auth/test_login.py::test_successful_login",
+          priority: 1,
+          tags: ["smoke", "critical-path"],
+          examples: [{ input: { email: "user@test.com", password: "Valid123!" }, expected: { status: 200, token: "non-empty" } }]
+        },
+        {
+          name: "Login fails with wrong password",
+          description: "User provides incorrect password and receives a 401 response.",
+          type: "happy_path",
+          risk: "high",
+          risk_rationale: "Incorrect rejection can lock out valid users or leak info.",
+          techniques: ["equivalence_partitioning"],
+          status: "covered",
+          test_ref: "tests/auth/test_login.py::test_wrong_password",
+          priority: 1,
+          tags: ["security"],
+          examples: [{ input: { email: "user@test.com", password: "wrong" }, expected: { status: 401 } }]
+        },
+        {
+          name: "Login with non-existent email",
+          description: "User provides an email that does not exist in the system.",
+          type: "edge_case",
+          risk: "medium",
+          techniques: ["equivalence_partitioning"],
+          status: "covered",
+          test_ref: "tests/auth/test_login.py::test_nonexistent_email",
+          priority: 2,
+          tags: ["security"],
+          examples: [{ input: { email: "nobody@test.com", password: "any" }, expected: { status: 401 } }]
+        },
+        {
+          name: "Empty password field rejected",
+          description: "User submits the login form with an empty password field.",
+          type: "boundary",
+          risk: "medium",
+          techniques: ["boundary_value"],
+          status: "uncovered",
+          test_ref: null,
+          priority: 3,
+          tags: ["validation"],
+          examples: [{ input: { email: "user@test.com", password: "" }, expected: { status: 400 } }]
+        },
+        {
+          name: "Account lockout after 5 failed attempts",
+          description: "After 5 consecutive failed login attempts, the account is temporarily locked.",
+          type: "state_transition",
+          risk: "high",
+          risk_rationale: "Lockout mechanism prevents brute-force attacks.",
+          techniques: ["state_transition", "boundary_value"],
+          technique_rationale: "State transition covers the lockout lifecycle; boundary value tests the threshold.",
+          status: "failing",
+          test_ref: "tests/auth/test_lockout.py::test_lockout_after_5_failures",
+          priority: 1,
+          tags: ["security", "state-machine"],
+          state_transition: {
+            states: ["active", "warning", "locked", "cooldown"],
+            transitions: [
+              { from: "active", to: "active", trigger: "successful_login" },
+              { from: "active", to: "warning", trigger: "failed_login", guard: "fail_count < 4" },
+              { from: "warning", to: "warning", trigger: "failed_login", guard: "fail_count < 4" },
+              { from: "warning", to: "locked", trigger: "failed_login", guard: "fail_count >= 4" },
+              { from: "locked", to: "cooldown", trigger: "timeout_30min" },
+              { from: "cooldown", to: "active", trigger: "successful_login" },
+              { from: "warning", to: "active", trigger: "successful_login" }
+            ]
+          },
+          examples: [{ input: { attempts: 5 }, expected: { locked: true } }]
+        },
+        {
+          name: "SQL injection in email field",
+          description: "Attacker attempts SQL injection via the email field; input must be sanitized.",
+          type: "security",
+          risk: "high",
+          risk_rationale: "SQL injection can expose or destroy the entire user database.",
+          techniques: ["error_guessing"],
+          status: "uncovered",
+          test_ref: null,
+          priority: 1,
+          tags: ["security", "injection"],
+          examples: [{ input: { email: "' OR 1=1 --", password: "any" }, expected: { status: 400 } }]
+        }
+      ],
+      metadata: {
+        created_at: "2026-03-10T09:00:00Z",
+        updated_at: "2026-03-13T12:00:00Z",
+        created_by: "valid-guard/v0.1",
+        language: "python",
+        test_framework: "pytest"
+      }
+    },
+    {
+      feature: "Payment Processing",
+      feature_description: "Processes credit card payments including validation, charging, and refund workflows.",
+      risk_level: "high",
+      entry_point: "brownfield",
+      source: { type: "prd", path: "docs/prd/payments-v1.md" },
+      example_mapping: {
+        story: "As a customer, I want to pay with my credit card so that I can complete my purchase.",
+        rules: [
+          {
+            rule_name: "Valid card is charged successfully",
+            examples: [
+              "Charge Visa card with sufficient funds",
+              "Charge Mastercard with exact balance"
+            ]
+          },
+          {
+            rule_name: "Insufficient funds are declined",
+            examples: [
+              "Decline when balance is zero",
+              "Decline when amount exceeds balance by 1 cent"
+            ]
+          }
+        ]
+      },
+      scenarios: [
+        {
+          name: "Charge valid Visa card",
+          description: "Customer pays with a valid Visa card that has sufficient funds.",
+          type: "happy_path",
+          risk: "high",
+          risk_rationale: "Core payment path — failure directly blocks revenue.",
+          techniques: ["equivalence_partitioning"],
+          status: "covered",
+          test_ref: "tests/payment/test_charge.py::test_visa",
+          priority: 1,
+          tags: ["smoke", "critical-path"],
+          examples: [{ input: { card: "4111111111111111", amount: 50.00 }, expected: { status: "success" } }]
+        },
+        {
+          name: "Decline insufficient funds",
+          description: "Card issuer declines the transaction due to insufficient funds.",
+          type: "error_handling",
+          risk: "high",
+          risk_rationale: "Poor decline handling leads to customer abandonment.",
+          techniques: ["equivalence_partitioning", "boundary_value"],
+          status: "covered",
+          test_ref: "tests/payment/test_charge.py::test_insufficient",
+          priority: 1,
+          tags: ["payment", "error-handling"],
+          examples: [{ input: { card: "4111111111111111", amount: 99999.00 }, expected: { status: "declined" } }]
+        },
+        {
+          name: "Boundary: charge exactly available balance",
+          description: "Charge amount is exactly equal to the card's available balance.",
+          type: "boundary",
+          risk: "medium",
+          techniques: ["boundary_value"],
+          status: "uncovered",
+          test_ref: null,
+          priority: 2,
+          tags: ["boundary", "payment"],
+          examples: [{ input: { amount: "exact_balance" }, expected: { status: "success" } }]
+        },
+        {
+          name: "Refund lifecycle",
+          description: "Verifies the complete refund state machine from request through completion.",
+          type: "state_transition",
+          risk: "high",
+          risk_rationale: "Invalid refund state transitions can cause duplicate refunds or lost money.",
+          techniques: ["state_transition"],
+          technique_rationale: "Refund lifecycle is a classic finite state machine.",
+          status: "uncovered",
+          test_ref: null,
+          priority: 1,
+          tags: ["state-machine", "payment"],
+          state_transition: {
+            states: ["charged", "refund_requested", "refund_processing", "refunded", "refund_failed"],
+            transitions: [
+              { from: "charged", to: "refund_requested", trigger: "customer_requests_refund", guard: "within_refund_window" },
+              { from: "refund_requested", to: "refund_processing", trigger: "refund_approved" },
+              { from: "refund_processing", to: "refunded", trigger: "refund_completed" },
+              { from: "refund_processing", to: "refund_failed", trigger: "refund_error" },
+              { from: "refund_failed", to: "refund_processing", trigger: "retry_refund", guard: "retry_count < 3" }
+            ]
+          },
+          examples: [
+            { input: { current_state: "charged", trigger: "customer_requests_refund" }, expected: { new_state: "refund_requested" }, description: "Initiate refund from charged state." }
+          ],
+          decision_table: {
+            conditions: ["within_refund_window", "order_status", "refund_amount_valid"],
+            actions: ["allow_refund", "show_error"],
+            rules: [
+              {
+                description: "Valid refund within window",
+                condition_values: { within_refund_window: true, order_status: "delivered", refund_amount_valid: true },
+                expected_actions: { allow_refund: true, show_error: false }
+              },
+              {
+                description: "Refund window expired",
+                condition_values: { within_refund_window: false, order_status: "delivered", refund_amount_valid: true },
+                expected_actions: { allow_refund: false, show_error: true }
+              }
+            ]
+          }
+        }
+      ],
+      metadata: {
+        created_at: "2026-03-11T14:00:00Z",
+        updated_at: "2026-03-13T12:00:00Z",
+        created_by: "valid-guard/v0.1",
+        language: "python",
+        test_framework: "pytest"
+      }
+    }
+  ],
+  coverage: {
+    scenario: {
+      total: 10, covered: 5,
+      by_risk: { high: { total: 6, covered: 3 }, medium: { total: 3, covered: 2 }, low: { total: 1, covered: 0 } }
+    },
+    line: { percentage: 72 }
+  }
+};
+</script>
+<style>
+/* ===== RESET & BASE ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+  --transition: 0.2s ease;
+}
+
+/* ===== LIGHT THEME ===== */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-tertiary: #eef1f5;
+  --bg-hover: #f0f2f5;
+  --bg-sidebar: #fafbfc;
+  --border-primary: #d1d9e0;
+  --border-secondary: #e5e9ed;
+  --text-primary: #1a1e24;
+  --text-secondary: #5a6370;
+  --text-tertiary: #8b95a2;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-bg: #eff6ff;
+  --risk-high: #dc2626;
+  --risk-high-bg: #fef2f2;
+  --risk-high-border: #fecaca;
+  --risk-medium: #d97706;
+  --risk-medium-bg: #fffbeb;
+  --risk-medium-border: #fde68a;
+  --risk-low: #16a34a;
+  --risk-low-bg: #f0fdf4;
+  --risk-low-border: #bbf7d0;
+  --status-covered: #16a34a;
+  --status-covered-bg: #f0fdf4;
+  --status-uncovered: #dc2626;
+  --status-uncovered-bg: #fef2f2;
+  --status-failing: #d97706;
+  --status-failing-bg: #fffbeb;
+  --status-skipped: #6b7280;
+  --status-skipped-bg: #f3f4f6;
+  --chart-bg: #e5e7eb;
+  --donut-empty: #e5e7eb;
+  --table-header-bg: #f1f5f9;
+  --table-row-hover: #f8fafc;
+  --card-bg: #ffffff;
+  --pill-bg: #e5e7eb;
+  --pill-text: #374151;
+  --scrollbar-track: #f1f1f1;
+  --scrollbar-thumb: #c1c1c1;
+}
+
+/* ===== DARK THEME ===== */
+[data-theme="dark"] {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #1c2129;
+  --bg-hover: #21262d;
+  --bg-sidebar: #0d1117;
+  --border-primary: #30363d;
+  --border-secondary: #21262d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-tertiary: #6e7681;
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --accent-bg: #0d1b2e;
+  --risk-high: #f85149;
+  --risk-high-bg: #2a1215;
+  --risk-high-border: #5c2020;
+  --risk-medium: #d29922;
+  --risk-medium-bg: #2a2012;
+  --risk-medium-border: #5c4a14;
+  --risk-low: #3fb950;
+  --risk-low-bg: #122a17;
+  --risk-low-border: #1a5028;
+  --status-covered: #3fb950;
+  --status-covered-bg: #122a17;
+  --status-uncovered: #f85149;
+  --status-uncovered-bg: #2a1215;
+  --status-failing: #d29922;
+  --status-failing-bg: #2a2012;
+  --status-skipped: #6e7681;
+  --status-skipped-bg: #21262d;
+  --chart-bg: #30363d;
+  --donut-empty: #30363d;
+  --table-header-bg: #161b22;
+  --table-row-hover: #161b22;
+  --card-bg: #161b22;
+  --pill-bg: #21262d;
+  --pill-text: #c9d1d9;
+  --scrollbar-track: #161b22;
+  --scrollbar-thumb: #30363d;
+}
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+
+/* ===== LAYOUT ===== */
+.vg-app { display: flex; min-height: 100vh; }
+
+/* ===== SIDEBAR ===== */
+.vg-sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  z-index: 20;
+}
+
+.vg-sidebar-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border-secondary);
+  flex-shrink: 0;
+}
+
+.vg-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.vg-logo-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--accent);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.vg-logo-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.vg-sidebar-subtitle {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.vg-feature-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.vg-feature-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition);
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+}
+
+.vg-feature-item:hover { background: var(--bg-hover); }
+.vg-feature-item.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+.vg-feature-risk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.vg-feature-risk-dot.high { background: var(--risk-high); }
+.vg-feature-risk-dot.medium { background: var(--risk-medium); }
+.vg-feature-risk-dot.low { background: var(--risk-low); }
+
+.vg-feature-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vg-feature-item-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 7px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.vg-sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-secondary);
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.vg-sidebar-btn {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: center;
+}
+
+.vg-sidebar-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ===== MAIN CONTENT ===== */
+.vg-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== TOP BAR ===== */
+.vg-topbar {
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-primary);
+  padding: 14px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.vg-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.vg-topbar-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.vg-topbar-date {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.vg-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.vg-theme-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all var(--transition);
+}
+
+.vg-theme-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.vg-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vg-btn:hover { background: var(--bg-hover); }
+
+.vg-btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.vg-btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* ===== CONTENT AREA ===== */
+.vg-content {
+  flex: 1;
+  padding: 28px 32px;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ===== DASHBOARD ===== */
+.vg-dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  margin-bottom: 32px;
+}
+
+.vg-stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.vg-stat-card-wide {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== DONUT CHART ===== */
+.vg-donut-wrap {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin-bottom: 16px;
+}
+
+.vg-donut-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+
+.vg-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.vg-donut-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.vg-donut-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.vg-stat-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.vg-stat-subtitle {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ===== PROGRESS BAR ===== */
+.vg-progress-container { width: 100%; margin-top: 12px; }
+
+.vg-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.vg-progress-label { font-size: 12px; color: var(--text-secondary); }
+.vg-progress-value { font-size: 14px; font-weight: 700; }
+
+.vg-progress-bar {
+  width: 100%;
+  height: 10px;
+  background: var(--chart-bg);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.vg-progress-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.6s ease;
+}
+
+/* ===== RISK BREAKDOWN BAR ===== */
+.vg-risk-bars { width: 100%; margin-top: 8px; }
+
+.vg-risk-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.vg-risk-bar-label {
+  font-size: 12px;
+  font-weight: 500;
+  width: 60px;
+  text-align: right;
+}
+
+.vg-risk-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--chart-bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.vg-risk-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+.vg-risk-bar-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  width: 40px;
+}
+
+/* ===== COVERAGE MATRIX ===== */
+.vg-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.vg-matrix-table th,
+.vg-matrix-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.vg-matrix-table th {
+  background: var(--table-header-bg);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vg-matrix-table tr:hover td { background: var(--table-row-hover); }
+
+.vg-matrix-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ===== FILTERS ===== */
+.vg-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+}
+
+.vg-filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-right: 2px;
+}
+
+.vg-filter-group {
+  display: flex;
+  gap: 4px;
+}
+
+.vg-filter-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.vg-filter-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.vg-filter-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.vg-filter-sep {
+  width: 1px;
+  height: 24px;
+  background: var(--border-secondary);
+  margin: 0 4px;
+}
+
+/* ===== FEATURE DETAIL ===== */
+.vg-feature-header {
+  margin-bottom: 24px;
+}
+
+.vg-feature-title {
+  font-size: 22px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.vg-feature-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ===== RISK BADGE ===== */
+.vg-risk-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vg-risk-badge.high { background: var(--risk-high-bg); color: var(--risk-high); border: 1px solid var(--risk-high-border); }
+.vg-risk-badge.medium { background: var(--risk-medium-bg); color: var(--risk-medium); border: 1px solid var(--risk-medium-border); }
+.vg-risk-badge.low { background: var(--risk-low-bg); color: var(--risk-low); border: 1px solid var(--risk-low-border); }
+
+/* ===== STATUS BADGE ===== */
+.vg-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.vg-status-badge.covered { background: var(--status-covered-bg); color: var(--status-covered); }
+.vg-status-badge.uncovered { background: var(--status-uncovered-bg); color: var(--status-uncovered); }
+.vg-status-badge.failing { background: var(--status-failing-bg); color: var(--status-failing); }
+.vg-status-badge.skipped { background: var(--status-skipped-bg); color: var(--status-skipped); }
+
+/* ===== SECTION ===== */
+.vg-section {
+  background: var(--card-bg);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  margin-bottom: 20px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.vg-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.vg-section-header:hover { background: var(--bg-hover); }
+
+.vg-section-chevron {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--transition);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.vg-section-header.collapsed .vg-section-chevron { transform: rotate(-90deg); }
+
+.vg-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.vg-section-body { padding: 0 20px 20px; }
+.vg-section-body.collapsed { display: none; }
+
+/* ===== EXAMPLE MAPPING TREE ===== */
+.vg-tree { padding: 4px 0; }
+
+.vg-tree-rule {
+  margin-bottom: 12px;
+}
+
+.vg-tree-rule-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.vg-tree-rule-icon {
+  width: 22px;
+  height: 22px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.vg-tree-examples {
+  margin-left: 20px;
+  padding-left: 16px;
+  border-left: 2px solid var(--border-secondary);
+}
+
+.vg-tree-example {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vg-tree-example-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.vg-tree-example-dot.happy_path { background: var(--risk-low); }
+.vg-tree-example-dot.edge_case { background: var(--risk-medium); }
+.vg-tree-example-dot.boundary { background: var(--accent); }
+.vg-tree-example-dot.error { background: var(--risk-high); }
+.vg-tree-example-dot.state_transition { background: #8b5cf6; }
+
+.vg-tree-example-type {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--pill-bg);
+  color: var(--pill-text);
+  flex-shrink: 0;
+}
+
+/* ===== DECISION TABLE ===== */
+.vg-decision-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.vg-decision-table th,
+.vg-decision-table td {
+  padding: 8px 12px;
+  border: 1px solid var(--border-secondary);
+  text-align: center;
+}
+
+.vg-decision-table th {
+  background: var(--table-header-bg);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.vg-decision-table .vg-dt-label {
+  text-align: left;
+  font-weight: 500;
+}
+
+.vg-decision-table .vg-dt-section {
+  background: var(--bg-tertiary);
+  font-weight: 700;
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.vg-dt-yes { color: var(--status-covered); font-weight: 600; }
+.vg-dt-no { color: var(--status-uncovered); font-weight: 600; }
+.vg-dt-dash { color: var(--text-tertiary); }
+
+/* ===== SCENARIO LIST ===== */
+.vg-scenario-list { display: flex; flex-direction: column; gap: 8px; }
+
+.vg-scenario-card {
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.vg-scenario-card:hover {
+  border-color: var(--border-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.vg-scenario-card.approved { border-left: 3px solid var(--status-covered); }
+.vg-scenario-card.rejected { border-left: 3px solid var(--status-uncovered); }
+
+.vg-scenario-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.vg-scenario-header:hover { background: var(--bg-hover); }
+
+.vg-scenario-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.vg-scenario-drag {
+  cursor: grab;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+}
+
+.vg-scenario-drag:active { cursor: grabbing; }
+
+.vg-scenario-name {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+}
+
+.vg-scenario-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.vg-scenario-type-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--pill-bg);
+  color: var(--pill-text);
+}
+
+.vg-technique-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.vg-scenario-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+  transition: transform var(--transition);
+  flex-shrink: 0;
+}
+
+.vg-scenario-chevron.expanded { transform: rotate(90deg); }
+
+.vg-scenario-detail {
+  display: none;
+  padding: 0 16px 16px 58px;
+  font-size: 13px;
+}
+
+.vg-scenario-detail.expanded { display: block; }
+
+.vg-scenario-detail-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.vg-scenario-detail-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.vg-scenario-detail-value {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.vg-scenario-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.vg-scenario-test-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.vg-scenario-test-link:hover { text-decoration: underline; }
+
+/* ===== RISK OVERRIDE ===== */
+.vg-risk-select {
+  padding: 2px 6px;
+  font-size: 11px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+/* ===== ORDER BUTTONS ===== */
+.vg-order-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.vg-order-btn {
+  width: 18px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+  line-height: 1;
+}
+
+.vg-order-btn:hover { color: var(--accent); }
+
+/* ===== ADD SCENARIO FORM ===== */
+.vg-add-form {
+  display: none;
+  padding: 20px;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-primary);
+  border-radius: var(--radius-md);
+  margin-top: 12px;
+}
+
+.vg-add-form.visible { display: block; }
+
+.vg-add-form-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.vg-form-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.vg-form-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vg-form-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.vg-form-input,
+.vg-form-select,
+.vg-form-textarea {
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.vg-form-textarea { min-height: 60px; resize: vertical; }
+
+.vg-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* ===== MOBILE SIDEBAR TOGGLE ===== */
+.vg-menu-toggle {
+  display: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+/* ===== OVERLAY ===== */
+.vg-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 15;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 860px) {
+  .vg-sidebar {
+    position: fixed;
+    left: -280px;
+    transition: left 0.25s ease;
+    z-index: 30;
+  }
+  .vg-sidebar.open { left: 0; }
+  .vg-overlay.open { display: block; }
+  .vg-menu-toggle { display: flex; }
+  .vg-content { padding: 20px 16px; }
+  .vg-topbar { padding: 14px 16px; }
+  .vg-dashboard { grid-template-columns: 1fr; }
+  .vg-stat-card-wide { grid-column: span 1; }
+  .vg-scenario-meta { flex-wrap: wrap; }
+  .vg-form-row { flex-direction: column; }
+}
+
+/* ===== HIDDEN UTILITY ===== */
+.vg-hidden { display: none !important; }
+
+/* ===== FEATURE VIEW CONTAINER ===== */
+.vg-feature-view { display: none; }
+.vg-feature-view.active { display: block; }
+.vg-dashboard-view { display: block; }
+.vg-dashboard-view.hidden { display: none; }
+
+/* ===== NOTIFICATION ===== */
+.vg-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s ease;
+}
+
+.vg-toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+</style>
+</head>
+<body>
+
+<div class="vg-app">
+  <!-- OVERLAY (mobile) -->
+  <div class="vg-overlay" id="vg-overlay" onclick="VG.closeSidebar()"></div>
+
+  <!-- SIDEBAR -->
+  <aside class="vg-sidebar" id="vg-sidebar">
+    <div class="vg-sidebar-header">
+      <div class="vg-logo">
+        <div class="vg-logo-icon">VG</div>
+        <div class="vg-logo-text">Valid Guard</div>
+      </div>
+      <div class="vg-sidebar-subtitle">Test Plan Review Report</div>
+    </div>
+    <div class="vg-feature-list" id="vg-feature-list">
+      <div class="vg-feature-item active" data-view="dashboard" onclick="VG.showDashboard()">
+        <div class="vg-feature-risk-dot" style="background:var(--accent)"></div>
+        <div class="vg-feature-item-name">Dashboard</div>
+      </div>
+      <!-- feature items injected here -->
+    </div>
+    <div class="vg-sidebar-footer">
+      <button class="vg-sidebar-btn" onclick="VG.exportJSON()">Export JSON</button>
+      <button class="vg-sidebar-btn" onclick="VG.exportAllApproved()">Export Approved</button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="vg-main">
+    <!-- TOP BAR -->
+    <header class="vg-topbar">
+      <div class="vg-topbar-left">
+        <button class="vg-menu-toggle" onclick="VG.toggleSidebar()">&#9776;</button>
+        <div>
+          <div class="vg-topbar-title" id="vg-project-name"></div>
+          <div class="vg-topbar-date" id="vg-generated-at"></div>
+        </div>
+      </div>
+      <div class="vg-topbar-right">
+        <button class="vg-theme-toggle" onclick="VG.toggleTheme()" title="Toggle dark/light mode" id="vg-theme-btn">&#9789;</button>
+      </div>
+    </header>
+
+    <!-- CONTENT -->
+    <div class="vg-content" id="vg-content">
+      <!-- Dashboard view -->
+      <div class="vg-dashboard-view" id="vg-dashboard-view">
+        <div class="vg-dashboard" id="vg-dashboard"></div>
+        <!-- Coverage matrix -->
+        <div class="vg-section">
+          <div class="vg-section-header" onclick="VG.toggleSection(this)">
+            <div class="vg-section-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg></div>
+            <div class="vg-section-title">Feature Coverage Matrix</div>
+          </div>
+          <div class="vg-section-body" id="vg-coverage-matrix"></div>
+        </div>
+      </div>
+
+      <!-- Feature views container -->
+      <div id="vg-feature-views"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="vg-toast" id="vg-toast"></div>
+
+<script>
+(function() {
+  "use strict";
+
+  var data = window.VG_DATA;
+  var reviewState = { scenarios: {}, features: {} };
+
+  /* ===== UTILITIES ===== */
+  function esc(str) {
+    var d = document.createElement("div");
+    d.textContent = str || "";
+    return d.innerHTML;
+  }
+
+  function fmt(key) {
+    return (key || "").replace(/_/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+  }
+
+  function pct(n, d) {
+    if (!d) return 0;
+    return Math.round((n / d) * 100);
+  }
+
+  function statusIcon(s) {
+    if (s === "covered") return "&#10003;";
+    if (s === "uncovered") return "&#10007;";
+    if (s === "failing") return "&#9888;";
+    if (s === "skipped") return "&#8856;";
+    return "";
+  }
+
+  function donutSVG(percentage, color, size) {
+    size = size || 120;
+    var r = 48;
+    var circ = 2 * Math.PI * r;
+    var offset = circ - (percentage / 100) * circ;
+    return '<svg viewBox="0 0 120 120">' +
+      '<circle cx="60" cy="60" r="' + r + '" fill="none" stroke="var(--donut-empty)" stroke-width="12"/>' +
+      '<circle cx="60" cy="60" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="12" ' +
+      'stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '" stroke-linecap="round"/>' +
+      '</svg>';
+  }
+
+  /* ===== TOAST ===== */
+  function toast(msg) {
+    var el = document.getElementById("vg-toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    setTimeout(function() { el.classList.remove("show"); }, 2500);
+  }
+
+  /* ===== INIT ===== */
+  function init() {
+    document.getElementById("vg-project-name").textContent = data.project_name;
+    var dt = new Date(data.generated_at);
+    document.getElementById("vg-generated-at").textContent = "Generated: " + dt.toLocaleString();
+    buildSidebar();
+    buildDashboard();
+    buildCoverageMatrix();
+    buildFeatureViews();
+    applyStoredTheme();
+  }
+
+  /* ===== HELPERS: schema-aligned field accessors ===== */
+  function featureName(f) { return f.feature || f.name || "Unnamed Feature"; }
+  function featureDesc(f) { return f.feature_description || f.description || ""; }
+
+  /* ===== SIDEBAR ===== */
+  function buildSidebar() {
+    var list = document.getElementById("vg-feature-list");
+    data.features.forEach(function(f, i) {
+      var item = document.createElement("div");
+      item.className = "vg-feature-item";
+      item.setAttribute("data-feature-idx", i);
+      item.innerHTML =
+        '<div class="vg-feature-risk-dot ' + esc(f.risk_level) + '"></div>' +
+        '<div class="vg-feature-item-name" title="' + esc(featureName(f)) + '">' + esc(featureName(f)) + '</div>' +
+        '<div class="vg-feature-item-count">' + f.scenarios.length + '</div>';
+      item.onclick = function() { showFeature(i); };
+      list.appendChild(item);
+    });
+  }
+
+  /* ===== DASHBOARD ===== */
+  function buildDashboard() {
+    var cov = data.coverage;
+    var scenPct = pct(cov.scenario.covered, cov.scenario.total);
+    var linePct = cov.line.percentage;
+
+    var html = '';
+    // Scenario coverage donut
+    html += '<div class="vg-stat-card">';
+    html += '<div class="vg-donut-wrap">' + donutSVG(scenPct, "var(--accent)") +
+            '<div class="vg-donut-center"><div class="vg-donut-value">' + scenPct + '%</div><div class="vg-donut-label">covered</div></div></div>';
+    html += '<div class="vg-stat-title">Scenario Coverage</div>';
+    html += '<div class="vg-stat-subtitle">' + cov.scenario.covered + ' / ' + cov.scenario.total + ' scenarios</div>';
+    html += '</div>';
+
+    // Line coverage donut
+    html += '<div class="vg-stat-card">';
+    html += '<div class="vg-donut-wrap">' + donutSVG(linePct, "var(--status-covered)") +
+            '<div class="vg-donut-center"><div class="vg-donut-value">' + linePct + '%</div><div class="vg-donut-label">lines</div></div></div>';
+    html += '<div class="vg-stat-title">Line Coverage</div>';
+    html += '<div class="vg-stat-subtitle">Traditional code coverage</div>';
+    html += '</div>';
+
+    // Risk breakdown
+    html += '<div class="vg-stat-card vg-stat-card-wide">';
+    html += '<div class="vg-stat-title" style="align-self:flex-start;margin-bottom:8px;">Coverage by Risk Level</div>';
+    html += '<div class="vg-risk-bars" style="width:100%">';
+    var risks = ["high", "medium", "low"];
+    var riskColors = { high: "var(--risk-high)", medium: "var(--risk-medium)", low: "var(--risk-low)" };
+    risks.forEach(function(r) {
+      var rData = cov.scenario.by_risk[r] || { total: 0, covered: 0 };
+      var p = pct(rData.covered, rData.total);
+      html += '<div class="vg-risk-bar-row">';
+      html += '<div class="vg-risk-bar-label" style="color:' + riskColors[r] + '">' + fmt(r) + '</div>';
+      html += '<div class="vg-risk-bar-track"><div class="vg-risk-bar-fill" style="width:' + p + '%;background:' + riskColors[r] + '"></div></div>';
+      html += '<div class="vg-risk-bar-count">' + rData.covered + '/' + rData.total + '</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+
+    document.getElementById("vg-dashboard").innerHTML = html;
+  }
+
+  /* ===== COVERAGE MATRIX ===== */
+  function buildCoverageMatrix() {
+    var html = '<table class="vg-matrix-table">';
+    html += '<thead><tr><th>Feature</th><th>Risk</th><th>Scenarios</th><th>Covered</th><th>Uncovered</th><th>Failing</th><th>Coverage</th></tr></thead><tbody>';
+    data.features.forEach(function(f) {
+      var total = f.scenarios.length;
+      var covered = 0, uncovered = 0, failing = 0, skipped = 0;
+      f.scenarios.forEach(function(s) {
+        if (s.status === "covered") covered++;
+        else if (s.status === "uncovered") uncovered++;
+        else if (s.status === "failing") failing++;
+        else if (s.status === "skipped") skipped++;
+      });
+      var p = pct(covered, total);
+      var color = p >= 80 ? "var(--status-covered)" : p >= 50 ? "var(--status-failing)" : "var(--status-uncovered)";
+      html += '<tr>';
+      html += '<td style="font-weight:500">' + esc(featureName(f)) + '</td>';
+      html += '<td><span class="vg-risk-badge ' + f.risk_level + '">' + f.risk_level + '</span></td>';
+      html += '<td>' + total + '</td>';
+      html += '<td style="color:var(--status-covered);font-weight:600">' + covered + '</td>';
+      html += '<td style="color:var(--status-uncovered);font-weight:600">' + uncovered + '</td>';
+      html += '<td style="color:var(--status-failing);font-weight:600">' + failing + '</td>';
+      html += '<td><div class="vg-progress-bar" style="width:120px;display:inline-block;vertical-align:middle;margin-right:8px"><div class="vg-progress-fill" style="width:' + p + '%;background:' + color + '"></div></div><span style="font-weight:600;color:' + color + '">' + p + '%</span></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById("vg-coverage-matrix").innerHTML = html;
+  }
+
+  /* ===== FEATURE VIEWS ===== */
+  function buildFeatureViews() {
+    var container = document.getElementById("vg-feature-views");
+    data.features.forEach(function(f, fi) {
+      var el = document.createElement("div");
+      el.className = "vg-feature-view";
+      el.id = "vg-feature-" + fi;
+      el.innerHTML = buildFeatureHTML(f, fi);
+      container.appendChild(el);
+    });
+  }
+
+  function buildFeatureHTML(f, fi) {
+    var html = '';
+    // Header
+    html += '<div class="vg-feature-header">';
+    html += '<div class="vg-feature-title">' + esc(featureName(f)) + ' <span class="vg-risk-badge ' + f.risk_level + '">' + f.risk_level + ' risk</span></div>';
+    html += '<div class="vg-feature-desc">' + esc(featureDesc(f)) + '</div>';
+    if (f.metadata) {
+      html += '<div style="margin-top:8px;font-size:12px;color:var(--text-tertiary)">';
+      if (f.metadata.language) html += '<span style="margin-right:12px">Language: <strong>' + esc(f.metadata.language) + '</strong></span>';
+      if (f.metadata.test_framework) html += '<span style="margin-right:12px">Framework: <strong>' + esc(f.metadata.test_framework) + '</strong></span>';
+      if (f.metadata.created_by) html += '<span style="margin-right:12px">Created by: <strong>' + esc(f.metadata.created_by) + '</strong></span>';
+      if (f.metadata.updated_at) html += '<span>Updated: <strong>' + new Date(f.metadata.updated_at).toLocaleDateString() + '</strong></span>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // Filters
+    html += '<div class="vg-filters" data-feature="' + fi + '">';
+    html += '<span class="vg-filter-label">Risk:</span>';
+    html += '<div class="vg-filter-group">';
+    html += '<button class="vg-filter-btn active" data-filter-type="risk" data-filter-value="all" onclick="VG.applyFilter(this)">All</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="risk" data-filter-value="high" onclick="VG.applyFilter(this)">High</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="risk" data-filter-value="medium" onclick="VG.applyFilter(this)">Medium</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="risk" data-filter-value="low" onclick="VG.applyFilter(this)">Low</button>';
+    html += '</div>';
+    html += '<div class="vg-filter-sep"></div>';
+    html += '<span class="vg-filter-label">Status:</span>';
+    html += '<div class="vg-filter-group">';
+    html += '<button class="vg-filter-btn active" data-filter-type="status" data-filter-value="all" onclick="VG.applyFilter(this)">All</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="status" data-filter-value="covered" onclick="VG.applyFilter(this)">Covered</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="status" data-filter-value="uncovered" onclick="VG.applyFilter(this)">Uncovered</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="status" data-filter-value="failing" onclick="VG.applyFilter(this)">Failing</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="status" data-filter-value="skipped" onclick="VG.applyFilter(this)">Skipped</button>';
+    html += '</div>';
+    html += '<div class="vg-filter-sep"></div>';
+    html += '<span class="vg-filter-label">Type:</span>';
+    html += '<div class="vg-filter-group">';
+    html += '<button class="vg-filter-btn active" data-filter-type="type" data-filter-value="all" onclick="VG.applyFilter(this)">All</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="type" data-filter-value="happy_path" onclick="VG.applyFilter(this)">Happy Path</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="type" data-filter-value="edge_case" onclick="VG.applyFilter(this)">Edge Case</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="type" data-filter-value="boundary" onclick="VG.applyFilter(this)">Boundary</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="type" data-filter-value="error_handling" onclick="VG.applyFilter(this)">Error Handling</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="type" data-filter-value="state_transition" onclick="VG.applyFilter(this)">State Trans.</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="type" data-filter-value="combinatorial" onclick="VG.applyFilter(this)">Combinatorial</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="type" data-filter-value="security" onclick="VG.applyFilter(this)">Security</button>';
+    html += '<button class="vg-filter-btn" data-filter-type="type" data-filter-value="performance" onclick="VG.applyFilter(this)">Performance</button>';
+    html += '</div>';
+    html += '</div>';
+
+    // Example Mapping
+    if (f.example_mapping && f.example_mapping.rules && f.example_mapping.rules.length > 0) {
+      html += '<div class="vg-section">';
+      html += '<div class="vg-section-header" onclick="VG.toggleSection(this)">';
+      html += '<div class="vg-section-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg></div>';
+      html += '<div class="vg-section-title">Example Mapping</div>';
+      html += '</div>';
+      html += '<div class="vg-section-body">';
+      if (f.example_mapping.story) {
+        html += '<div style="margin-bottom:12px;padding:10px 14px;background:var(--bg-tertiary);border-radius:var(--radius-sm);font-size:13px;color:var(--text-secondary);font-style:italic">';
+        html += esc(f.example_mapping.story);
+        html += '</div>';
+      }
+      html += '<div class="vg-tree">';
+      f.example_mapping.rules.forEach(function(rule, ri) {
+        var ruleName = rule.rule_name || rule.name || "Rule " + (ri + 1);
+        html += '<div class="vg-tree-rule">';
+        html += '<div class="vg-tree-rule-header"><div class="vg-tree-rule-icon">R' + (ri+1) + '</div>' + esc(ruleName) + '</div>';
+        html += '<div class="vg-tree-examples">';
+        (rule.examples || []).forEach(function(ex) {
+          var exText = (typeof ex === "string") ? ex : (ex.description || JSON.stringify(ex));
+          html += '<div class="vg-tree-example">';
+          html += '<div class="vg-tree-example-dot happy_path"></div>';
+          html += '<span>' + esc(exText) + '</span>';
+          html += '</div>';
+        });
+        html += '</div></div>';
+      });
+      html += '</div></div></div>';
+    }
+
+    // Decision Tables — collected from scenarios (schema-aligned: decision_table per scenario)
+    var decisionTables = [];
+    f.scenarios.forEach(function(s) {
+      if (s.decision_table) {
+        decisionTables.push({ scenario_name: s.name, table: s.decision_table });
+      }
+    });
+    if (decisionTables.length > 0) {
+      decisionTables.forEach(function(dtEntry) {
+        html += '<div class="vg-section">';
+        html += '<div class="vg-section-header" onclick="VG.toggleSection(this)">';
+        html += '<div class="vg-section-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg></div>';
+        html += '<div class="vg-section-title">Decision Table: ' + esc(dtEntry.scenario_name) + '</div>';
+        html += '</div>';
+        html += '<div class="vg-section-body">';
+        html += buildDecisionTable(dtEntry.table);
+        html += '</div></div>';
+      });
+    }
+
+    // State Transition Diagrams — collected from scenarios
+    var stateTransitions = [];
+    f.scenarios.forEach(function(s) {
+      if (s.state_transition) {
+        stateTransitions.push({ scenario_name: s.name, st: s.state_transition });
+      }
+    });
+    if (stateTransitions.length > 0) {
+      stateTransitions.forEach(function(stEntry) {
+        html += '<div class="vg-section">';
+        html += '<div class="vg-section-header" onclick="VG.toggleSection(this)">';
+        html += '<div class="vg-section-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg></div>';
+        html += '<div class="vg-section-title">State Transition: ' + esc(stEntry.scenario_name) + '</div>';
+        html += '</div>';
+        html += '<div class="vg-section-body">';
+        html += buildStateTransitionDiagram(stEntry.st);
+        html += '</div></div>';
+      });
+    }
+
+    // Scenarios
+    html += '<div class="vg-section">';
+    html += '<div class="vg-section-header" onclick="VG.toggleSection(this)">';
+    html += '<div class="vg-section-chevron"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg></div>';
+    html += '<div class="vg-section-title">Scenarios (' + f.scenarios.length + ')</div>';
+    html += '</div>';
+    html += '<div class="vg-section-body">';
+    html += '<div class="vg-scenario-list" id="vg-scenarios-' + fi + '">';
+    f.scenarios.forEach(function(s, si) {
+      html += buildScenarioCard(s, fi, si);
+    });
+    html += '</div>';
+    html += '<button class="vg-btn" style="margin-top:12px" onclick="VG.toggleAddForm(' + fi + ')">+ Add Scenario</button>';
+    html += buildAddForm(fi);
+    html += '</div></div>';
+
+    return html;
+  }
+
+  function buildDecisionTable(dt) {
+    // Schema-aligned format: dt.rules is an array of { description, condition_values: {}, expected_actions: {} }
+    var rules = dt.rules || [];
+    var numRules = rules.length;
+    if (numRules === 0) return '<div style="color:var(--text-tertiary);font-style:italic">No rules defined.</div>';
+
+    var html = '<div style="overflow-x:auto"><table class="vg-decision-table">';
+    // Header
+    html += '<thead><tr><th></th>';
+    for (var r = 0; r < numRules; r++) {
+      var ruleLabel = rules[r].description ? esc(rules[r].description) : "Rule " + (r + 1);
+      html += '<th title="' + ruleLabel + '">R' + (r+1) + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    // Rule descriptions row
+    html += '<tr><td class="vg-dt-label" style="font-style:italic;color:var(--text-tertiary)">Description</td>';
+    rules.forEach(function(rule) {
+      html += '<td style="font-size:11px;color:var(--text-secondary)">' + esc(rule.description || "-") + '</td>';
+    });
+    html += '</tr>';
+
+    // Conditions header
+    html += '<tr><td class="vg-dt-section" colspan="' + (numRules + 1) + '">Conditions</td></tr>';
+    (dt.conditions || []).forEach(function(c) {
+      html += '<tr><td class="vg-dt-label">' + esc(c) + '</td>';
+      rules.forEach(function(rule) {
+        var v = rule.condition_values ? rule.condition_values[c] : "-";
+        var display = (v === true) ? "Y" : (v === false) ? "N" : String(v != null ? v : "-");
+        var cls = (v === true || display === "Y") ? "vg-dt-yes" : (v === false || display === "N") ? "vg-dt-no" : "vg-dt-dash";
+        html += '<td class="' + cls + '">' + esc(display) + '</td>';
+      });
+      html += '</tr>';
+    });
+    // Actions header
+    html += '<tr><td class="vg-dt-section" colspan="' + (numRules + 1) + '">Actions</td></tr>';
+    (dt.actions || []).forEach(function(a) {
+      html += '<tr><td class="vg-dt-label">' + esc(a) + '</td>';
+      rules.forEach(function(rule) {
+        var v = rule.expected_actions ? rule.expected_actions[a] : "-";
+        var display = (v === true) ? "Y" : (v === false) ? "N" : String(v != null ? v : "-");
+        var cls = (v === true || display === "Y") ? "vg-dt-yes" : (v === false || display === "N") ? "vg-dt-no" : "vg-dt-dash";
+        html += '<td class="' + cls + '">' + esc(display) + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  /* ===== STATE TRANSITION DIAGRAM (SVG) ===== */
+  var stDiagramCounter = 0;
+  function buildStateTransitionDiagram(st) {
+    if (!st || !st.states || !st.transitions) return '';
+    stDiagramCounter++;
+    var diagramId = stDiagramCounter;
+    var states = st.states;
+    var transitions = st.transitions;
+    var n = states.length;
+
+    // Layout: arrange states in an elliptical pattern
+    var padX = 30, padY = 30;
+    var boxW = 120, boxH = 36;
+    // Calculate layout dimensions based on state count
+    var cols = Math.min(n, Math.ceil(Math.sqrt(n * 1.8)));
+    var rows = Math.ceil(n / cols);
+    var spacingX = boxW + 80;
+    var spacingY = boxH + 100;
+    var svgW = padX * 2 + cols * spacingX;
+    var svgH = padY * 2 + rows * spacingY + 40;
+
+    // Position each state
+    var positions = {};
+    states.forEach(function(s, i) {
+      var col = i % cols;
+      var row = Math.floor(i / cols);
+      positions[s] = {
+        x: padX + col * spacingX + spacingX / 2,
+        y: padY + row * spacingY + spacingY / 2 + 20
+      };
+    });
+
+    var html = '<div style="overflow-x:auto">';
+    html += '<svg xmlns="http://www.w3.org/2000/svg" width="' + svgW + '" height="' + svgH + '" viewBox="0 0 ' + svgW + ' ' + svgH + '" style="font-family:var(--font-sans);max-width:100%">';
+
+    // Defs for arrowheads (unique per diagram to avoid ID collisions)
+    var arrowNormal = 'vg-arrow-' + diagramId;
+    var arrowGuard = 'vg-arrow-guard-' + diagramId;
+    html += '<defs>';
+    html += '<marker id="' + arrowNormal + '" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">';
+    html += '<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" />';
+    html += '</marker>';
+    html += '<marker id="' + arrowGuard + '" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">';
+    html += '<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--risk-medium)" />';
+    html += '</marker>';
+    html += '</defs>';
+
+    // Group transitions by from-to pair to handle multiple transitions between same states
+    var transMap = {};
+    transitions.forEach(function(t, ti) {
+      var key = t.from + "->" + t.to;
+      if (!transMap[key]) transMap[key] = [];
+      transMap[key].push(t);
+    });
+
+    // Draw transitions (edges)
+    Object.keys(transMap).forEach(function(key) {
+      var group = transMap[key];
+      var t0 = group[0];
+      var fromPos = positions[t0.from];
+      var toPos = positions[t0.to];
+      if (!fromPos || !toPos) return;
+
+      var isSelfLoop = t0.from === t0.to;
+
+      group.forEach(function(t, gi) {
+        var hasGuard = !!t.guard;
+        var arrowId = hasGuard ? arrowGuard : arrowNormal;
+        var strokeColor = hasGuard ? "var(--risk-medium)" : "var(--accent)";
+        var offset = (gi - (group.length - 1) / 2) * 18;
+
+        if (isSelfLoop) {
+          // Self-loop: draw a curved path above the state
+          var cx = fromPos.x;
+          var cy = fromPos.y - boxH / 2;
+          var loopR = 20 + gi * 10;
+          html += '<path d="M ' + (cx - 15) + ' ' + cy + ' C ' + (cx - 15 - loopR) + ' ' + (cy - loopR * 2) + ' ' + (cx + 15 + loopR) + ' ' + (cy - loopR * 2) + ' ' + (cx + 15) + ' ' + cy + '"';
+          html += ' fill="none" stroke="' + strokeColor + '" stroke-width="1.5" marker-end="url(#' + arrowId + ')" />';
+          // Label
+          var labelY = cy - loopR * 1.3 - 4;
+          html += '<text x="' + cx + '" y="' + labelY + '" text-anchor="middle" font-size="10" fill="' + strokeColor + '" font-weight="500">' + esc(t.trigger) + '</text>';
+          if (t.guard) {
+            html += '<text x="' + cx + '" y="' + (labelY + 12) + '" text-anchor="middle" font-size="9" fill="var(--risk-medium)" font-style="italic">[' + esc(t.guard) + ']</text>';
+          }
+        } else {
+          // Normal edge: draw a line or curved path
+          var dx = toPos.x - fromPos.x;
+          var dy = toPos.y - fromPos.y;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          var nx = dx / dist;
+          var ny = dy / dist;
+
+          // Start and end points clamped to box edges
+          var sx = fromPos.x + nx * (boxW / 2 + 2);
+          var sy = fromPos.y + ny * (boxH / 2 + 2);
+          var ex = toPos.x - nx * (boxW / 2 + 10);
+          var ey = toPos.y - ny * (boxH / 2 + 10);
+
+          // Check for reverse edge
+          var reverseKey = t0.to + "->" + t0.from;
+          var hasReverse = !!transMap[reverseKey];
+
+          // Curve offset for multiple edges or bidirectional
+          var curveOffset = offset + (hasReverse ? 15 : 0);
+
+          // Perpendicular direction
+          var px = -ny * curveOffset;
+          var py = nx * curveOffset;
+          var mx = (sx + ex) / 2 + px;
+          var my = (sy + ey) / 2 + py;
+
+          html += '<path d="M ' + sx + ' ' + sy + ' Q ' + mx + ' ' + my + ' ' + ex + ' ' + ey + '"';
+          html += ' fill="none" stroke="' + strokeColor + '" stroke-width="1.5" marker-end="url(#' + arrowId + ')" />';
+
+          // Label along the curve
+          var labelX = mx;
+          var labelY = my - 6;
+          html += '<text x="' + labelX + '" y="' + labelY + '" text-anchor="middle" font-size="10" fill="' + strokeColor + '" font-weight="500">' + esc(t.trigger) + '</text>';
+          if (t.guard) {
+            html += '<text x="' + labelX + '" y="' + (labelY + 12) + '" text-anchor="middle" font-size="9" fill="var(--risk-medium)" font-style="italic">[' + esc(t.guard) + ']</text>';
+          }
+        }
+      });
+    });
+
+    // Draw states (nodes) — on top of edges
+    states.forEach(function(s) {
+      var pos = positions[s];
+      var rx = boxW / 2, ry = boxH / 2;
+      html += '<rect x="' + (pos.x - rx) + '" y="' + (pos.y - ry) + '" width="' + boxW + '" height="' + boxH + '"';
+      html += ' rx="6" ry="6" fill="var(--card-bg)" stroke="var(--border-primary)" stroke-width="1.5" />';
+      html += '<text x="' + pos.x + '" y="' + (pos.y + 4) + '" text-anchor="middle" font-size="11" font-weight="600" fill="var(--text-primary)">' + esc(s) + '</text>';
+    });
+
+    html += '</svg></div>';
+
+    // Also render a text-based transition table for accessibility
+    html += '<details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);font-weight:500">Transition Table</summary>';
+    html += '<table class="vg-decision-table" style="margin-top:8px">';
+    html += '<thead><tr><th>From</th><th>To</th><th>Trigger</th><th>Guard</th></tr></thead><tbody>';
+    transitions.forEach(function(t) {
+      html += '<tr>';
+      html += '<td>' + esc(t.from) + '</td>';
+      html += '<td>' + esc(t.to) + '</td>';
+      html += '<td style="font-weight:500">' + esc(t.trigger) + '</td>';
+      html += '<td style="font-style:italic;color:var(--text-secondary)">' + esc(t.guard || "-") + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></details>';
+
+    return html;
+  }
+
+  function buildScenarioCard(s, fi, si) {
+    var key = fi + "-" + si;
+    var html = '';
+    html += '<div class="vg-scenario-card" id="vg-sc-' + key + '" data-risk="' + s.risk + '" data-status="' + s.status + '" data-type="' + s.type + '">';
+
+    // Header row
+    html += '<div class="vg-scenario-header" onclick="VG.toggleScenarioDetail(\'' + key + '\', event)">';
+    html += '<input type="checkbox" class="vg-scenario-checkbox" data-key="' + key + '" onclick="VG.toggleApproval(event, \'' + key + '\')" title="Approve/reject scenario">';
+    html += '<div class="vg-scenario-drag" draggable="true" ondragstart="VG.dragStart(event, ' + fi + ', ' + si + ')" title="Drag to reorder">&#8942;&#8942;</div>';
+    html += '<div class="vg-order-btns">';
+    html += '<button class="vg-order-btn" onclick="VG.moveScenario(event, ' + fi + ', ' + si + ', -1)" title="Move up">&#9650;</button>';
+    html += '<button class="vg-order-btn" onclick="VG.moveScenario(event, ' + fi + ', ' + si + ', 1)" title="Move down">&#9660;</button>';
+    html += '</div>';
+    html += '<div class="vg-scenario-name">' + esc(s.name) + '</div>';
+    html += '<div class="vg-scenario-meta">';
+    html += '<span class="vg-scenario-type-pill">' + fmt(s.type) + '</span>';
+    (s.techniques || []).forEach(function(t) {
+      html += '<span class="vg-technique-pill">' + fmt(t) + '</span>';
+    });
+    html += '<select class="vg-risk-select" data-key="' + key + '" onchange="VG.overrideRisk(this)" title="Override risk level">';
+    ["high","medium","low"].forEach(function(r) {
+      html += '<option value="' + r + '"' + (s.risk === r ? ' selected' : '') + '>' + fmt(r) + '</option>';
+    });
+    html += '</select>';
+    html += '<span class="vg-status-badge ' + s.status + '">' + statusIcon(s.status) + ' ' + fmt(s.status) + '</span>';
+    html += '<div class="vg-scenario-chevron" id="vg-sc-chev-' + key + '"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg></div>';
+    html += '</div></div>';
+
+    // Detail panel
+    html += '<div class="vg-scenario-detail" id="vg-sc-detail-' + key + '">';
+
+    // Description
+    if (s.description) {
+      html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Description:</div>';
+      html += '<div class="vg-scenario-detail-value">' + esc(s.description) + '</div></div>';
+    }
+    // Risk rationale
+    if (s.risk_rationale) {
+      html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Risk Rationale:</div>';
+      html += '<div class="vg-scenario-detail-value" style="color:var(--text-secondary);font-style:italic">' + esc(s.risk_rationale) + '</div></div>';
+    }
+    // Technique rationale
+    if (s.technique_rationale) {
+      html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Tech. Rationale:</div>';
+      html += '<div class="vg-scenario-detail-value" style="color:var(--text-secondary);font-style:italic">' + esc(s.technique_rationale) + '</div></div>';
+    }
+    // Preconditions
+    if (s.preconditions && s.preconditions.length > 0) {
+      html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Preconditions:</div>';
+      html += '<div class="vg-scenario-detail-value"><ul style="margin:0;padding-left:18px">';
+      s.preconditions.forEach(function(p) { html += '<li style="font-size:12px">' + esc(p) + '</li>'; });
+      html += '</ul></div></div>';
+    }
+    // Priority
+    if (s.priority) {
+      html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Priority:</div>';
+      html += '<div class="vg-scenario-detail-value"><span style="font-weight:600">P' + s.priority + '</span><span style="color:var(--text-tertiary);margin-left:6px">(' + (s.priority === 1 ? 'highest' : s.priority === 2 ? 'high' : s.priority === 3 ? 'medium' : s.priority === 4 ? 'low' : 'lowest') + ')</span></div></div>';
+    }
+    // Tags
+    if (s.tags && s.tags.length > 0) {
+      html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Tags:</div>';
+      html += '<div class="vg-scenario-detail-value">';
+      s.tags.forEach(function(tag) {
+        html += '<span style="display:inline-block;padding:2px 8px;margin:2px 4px 2px 0;border-radius:8px;font-size:10px;background:var(--pill-bg);color:var(--pill-text)">' + esc(tag) + '</span>';
+      });
+      html += '</div></div>';
+    }
+    // Examples
+    if (s.examples && s.examples.length > 0) {
+      s.examples.forEach(function(ex, ei) {
+        if (ex.description) {
+          html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Example ' + (ei + 1) + ':</div>';
+          html += '<div class="vg-scenario-detail-value" style="font-style:italic;color:var(--text-secondary)">' + esc(ex.description) + '</div></div>';
+        }
+        html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Input' + (s.examples.length > 1 ? ' ' + (ei + 1) : '') + ':</div>';
+        html += '<div class="vg-scenario-detail-value"><div class="vg-scenario-code">' + esc(JSON.stringify(ex.input, null, 2)) + '</div></div></div>';
+        html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Expected:</div>';
+        html += '<div class="vg-scenario-detail-value"><div class="vg-scenario-code">' + esc(JSON.stringify(ex.expected, null, 2)) + '</div></div></div>';
+      });
+    }
+    // Inline state transition diagram
+    if (s.state_transition) {
+      html += '<div style="margin-top:12px;border-top:1px solid var(--border-secondary);padding-top:12px">';
+      html += '<div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text-secondary)">State Transition Diagram</div>';
+      html += buildStateTransitionDiagram(s.state_transition);
+      html += '</div>';
+    }
+    // Inline decision table
+    if (s.decision_table) {
+      html += '<div style="margin-top:12px;border-top:1px solid var(--border-secondary);padding-top:12px">';
+      html += '<div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--text-secondary)">Decision Table</div>';
+      html += buildDecisionTable(s.decision_table);
+      html += '</div>';
+    }
+    // Test ref
+    if (s.test_ref) {
+      html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Test Ref:</div>';
+      html += '<div class="vg-scenario-detail-value"><span class="vg-scenario-test-link">' + esc(s.test_ref) + '</span></div></div>';
+    } else {
+      html += '<div class="vg-scenario-detail-row"><div class="vg-scenario-detail-label">Test Ref:</div>';
+      html += '<div class="vg-scenario-detail-value" style="color:var(--text-tertiary);font-style:italic">No test linked</div></div>';
+    }
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+  }
+
+  function buildAddForm(fi) {
+    var html = '<div class="vg-add-form" id="vg-add-form-' + fi + '">';
+    html += '<div class="vg-add-form-title">Add New Scenario</div>';
+    html += '<div class="vg-form-row">';
+    html += '<div class="vg-form-group"><label class="vg-form-label">Name</label><input class="vg-form-input" id="vg-add-name-' + fi + '" placeholder="Scenario name"></div>';
+    html += '<div class="vg-form-group"><label class="vg-form-label">Type</label><select class="vg-form-select" id="vg-add-type-' + fi + '">';
+    ["happy_path","edge_case","boundary","error_handling","state_transition","combinatorial","security","performance"].forEach(function(t) {
+      html += '<option value="' + t + '">' + fmt(t) + '</option>';
+    });
+    html += '</select></div>';
+    html += '<div class="vg-form-group"><label class="vg-form-label">Risk</label><select class="vg-form-select" id="vg-add-risk-' + fi + '">';
+    ["high","medium","low"].forEach(function(r) {
+      html += '<option value="' + r + '">' + fmt(r) + '</option>';
+    });
+    html += '</select></div>';
+    html += '</div>';
+    html += '<div class="vg-form-row">';
+    html += '<div class="vg-form-group"><label class="vg-form-label">Input (JSON)</label><textarea class="vg-form-textarea" id="vg-add-input-' + fi + '" placeholder=\'{"key": "value"}\'></textarea></div>';
+    html += '<div class="vg-form-group"><label class="vg-form-label">Expected Output (JSON)</label><textarea class="vg-form-textarea" id="vg-add-expected-' + fi + '" placeholder=\'{"status": 200}\'></textarea></div>';
+    html += '</div>';
+    html += '<div class="vg-form-row">';
+    html += '<div class="vg-form-group"><label class="vg-form-label">Techniques (comma-separated)</label><input class="vg-form-input" id="vg-add-tech-' + fi + '" placeholder="equivalence_partitioning, boundary_value"></div>';
+    html += '<div class="vg-form-group"><label class="vg-form-label">Test Reference</label><input class="vg-form-input" id="vg-add-ref-' + fi + '" placeholder="tests/module/test_file.py::test_name"></div>';
+    html += '</div>';
+    html += '<div class="vg-form-actions">';
+    html += '<button class="vg-btn" onclick="VG.toggleAddForm(' + fi + ')">Cancel</button>';
+    html += '<button class="vg-btn vg-btn-primary" onclick="VG.addScenario(' + fi + ')">Add Scenario</button>';
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  /* ===== NAVIGATION ===== */
+  function setActiveFeatureItem(idx) {
+    var items = document.querySelectorAll(".vg-feature-item");
+    items.forEach(function(el) { el.classList.remove("active"); });
+    if (idx === "dashboard") {
+      items[0].classList.add("active");
+    } else {
+      // +1 because dashboard is the first item
+      if (items[idx + 1]) items[idx + 1].classList.add("active");
+    }
+  }
+
+  function showDashboard() {
+    setActiveFeatureItem("dashboard");
+    document.getElementById("vg-dashboard-view").classList.remove("hidden");
+    document.querySelectorAll(".vg-feature-view").forEach(function(el) { el.classList.remove("active"); });
+    closeSidebar();
+  }
+
+  function showFeature(idx) {
+    setActiveFeatureItem(idx);
+    document.getElementById("vg-dashboard-view").classList.add("hidden");
+    document.querySelectorAll(".vg-feature-view").forEach(function(el) { el.classList.remove("active"); });
+    var view = document.getElementById("vg-feature-" + idx);
+    if (view) view.classList.add("active");
+    closeSidebar();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /* ===== SIDEBAR MOBILE ===== */
+  function toggleSidebar() {
+    document.getElementById("vg-sidebar").classList.toggle("open");
+    document.getElementById("vg-overlay").classList.toggle("open");
+  }
+
+  function closeSidebar() {
+    document.getElementById("vg-sidebar").classList.remove("open");
+    document.getElementById("vg-overlay").classList.remove("open");
+  }
+
+  /* ===== THEME ===== */
+  function toggleTheme() {
+    var html = document.documentElement;
+    var current = html.getAttribute("data-theme");
+    var next = current === "light" ? "dark" : "light";
+    html.setAttribute("data-theme", next);
+    document.getElementById("vg-theme-btn").innerHTML = next === "dark" ? "&#9788;" : "&#9789;";
+    try { localStorage.setItem("vg-theme", next); } catch(e) {}
+  }
+
+  function applyStoredTheme() {
+    try {
+      var stored = localStorage.getItem("vg-theme");
+      if (stored) {
+        document.documentElement.setAttribute("data-theme", stored);
+        document.getElementById("vg-theme-btn").innerHTML = stored === "dark" ? "&#9788;" : "&#9789;";
+      }
+    } catch(e) {}
+  }
+
+  /* ===== COLLAPSIBLE SECTIONS ===== */
+  function toggleSection(headerEl) {
+    headerEl.classList.toggle("collapsed");
+    var body = headerEl.nextElementSibling;
+    if (body) body.classList.toggle("collapsed");
+  }
+
+  /* ===== SCENARIO DETAIL ===== */
+  function toggleScenarioDetail(key, event) {
+    if (event.target.closest(".vg-scenario-checkbox") ||
+        event.target.closest(".vg-risk-select") ||
+        event.target.closest(".vg-order-btn") ||
+        event.target.closest(".vg-scenario-drag")) return;
+    var detail = document.getElementById("vg-sc-detail-" + key);
+    var chev = document.getElementById("vg-sc-chev-" + key);
+    if (detail) {
+      detail.classList.toggle("expanded");
+      if (chev) chev.classList.toggle("expanded");
+    }
+  }
+
+  /* ===== FILTERS ===== */
+  var activeFilters = {};
+
+  function applyFilter(btnEl) {
+    var filterBar = btnEl.closest(".vg-filters");
+    var fi = parseInt(filterBar.getAttribute("data-feature"), 10);
+    var filterType = btnEl.getAttribute("data-filter-type");
+    var filterValue = btnEl.getAttribute("data-filter-value");
+
+    // Toggle active in same group
+    var group = btnEl.closest(".vg-filter-group");
+    group.querySelectorAll(".vg-filter-btn").forEach(function(b) { b.classList.remove("active"); });
+    btnEl.classList.add("active");
+
+    // Store active filters
+    if (!activeFilters[fi]) activeFilters[fi] = {};
+    activeFilters[fi][filterType] = filterValue;
+
+    // Apply to scenarios
+    var list = document.getElementById("vg-scenarios-" + fi);
+    if (!list) return;
+    var cards = list.querySelectorAll(".vg-scenario-card");
+    var filters = activeFilters[fi];
+    cards.forEach(function(card) {
+      var show = true;
+      if (filters.risk && filters.risk !== "all" && card.getAttribute("data-risk") !== filters.risk) show = false;
+      if (filters.status && filters.status !== "all" && card.getAttribute("data-status") !== filters.status) show = false;
+      if (filters.type && filters.type !== "all" && card.getAttribute("data-type") !== filters.type) show = false;
+      card.style.display = show ? "" : "none";
+    });
+  }
+
+  /* ===== APPROVAL ===== */
+  function toggleApproval(event, key) {
+    event.stopPropagation();
+    var cb = event.target;
+    var card = document.getElementById("vg-sc-" + key);
+    if (!card) return;
+    if (cb.checked) {
+      card.classList.add("approved");
+      card.classList.remove("rejected");
+      reviewState.scenarios[key] = { approved: true };
+    } else {
+      card.classList.remove("approved");
+      reviewState.scenarios[key] = { approved: false };
+    }
+  }
+
+  /* ===== RISK OVERRIDE ===== */
+  function overrideRisk(selectEl) {
+    var key = selectEl.getAttribute("data-key");
+    var newRisk = selectEl.value;
+    var parts = key.split("-");
+    var fi = parseInt(parts[0], 10);
+    var si = parseInt(parts[1], 10);
+    data.features[fi].scenarios[si].risk = newRisk;
+    // Update card data attribute
+    var card = document.getElementById("vg-sc-" + key);
+    if (card) card.setAttribute("data-risk", newRisk);
+    if (!reviewState.scenarios[key]) reviewState.scenarios[key] = {};
+    reviewState.scenarios[key].risk_override = newRisk;
+    toast("Risk level updated to " + newRisk);
+  }
+
+  /* ===== REORDER ===== */
+  function moveScenario(event, fi, si, direction) {
+    event.stopPropagation();
+    var scenarios = data.features[fi].scenarios;
+    var newIdx = si + direction;
+    if (newIdx < 0 || newIdx >= scenarios.length) return;
+    // Swap
+    var tmp = scenarios[si];
+    scenarios[si] = scenarios[newIdx];
+    scenarios[newIdx] = tmp;
+    // Rebuild scenario list
+    rebuildScenarioList(fi);
+    toast("Scenario moved " + (direction < 0 ? "up" : "down"));
+  }
+
+  var dragState = {};
+
+  function dragStart(event, fi, si) {
+    event.stopPropagation();
+    dragState.fi = fi;
+    dragState.si = si;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", fi + "-" + si);
+    var list = document.getElementById("vg-scenarios-" + fi);
+    if (!list) return;
+    list.ondragover = function(e) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+    list.ondrop = function(e) {
+      e.preventDefault();
+      // Find the target scenario card
+      var target = e.target.closest(".vg-scenario-card");
+      if (!target) return;
+      var allCards = Array.from(list.querySelectorAll(".vg-scenario-card"));
+      var targetIdx = allCards.indexOf(target);
+      if (targetIdx < 0 || targetIdx === dragState.si) return;
+      // Reorder data
+      var scenarios = data.features[fi].scenarios;
+      var moved = scenarios.splice(dragState.si, 1)[0];
+      scenarios.splice(targetIdx, 0, moved);
+      rebuildScenarioList(fi);
+      toast("Scenario reordered");
+    };
+  }
+
+  function rebuildScenarioList(fi) {
+    var list = document.getElementById("vg-scenarios-" + fi);
+    if (!list) return;
+    var html = '';
+    data.features[fi].scenarios.forEach(function(s, si) {
+      html += buildScenarioCard(s, fi, si);
+    });
+    list.innerHTML = html;
+    // Re-apply filters
+    if (activeFilters[fi]) {
+      var filterBar = document.querySelector('.vg-filters[data-feature="' + fi + '"]');
+      if (filterBar) {
+        filterBar.querySelectorAll(".vg-filter-btn.active").forEach(function(btn) {
+          applyFilter(btn);
+        });
+      }
+    }
+  }
+
+  /* ===== ADD SCENARIO ===== */
+  function toggleAddForm(fi) {
+    var form = document.getElementById("vg-add-form-" + fi);
+    if (form) form.classList.toggle("visible");
+  }
+
+  function addScenario(fi) {
+    var name = document.getElementById("vg-add-name-" + fi).value.trim();
+    if (!name) { toast("Please enter a scenario name"); return; }
+    var type = document.getElementById("vg-add-type-" + fi).value;
+    var risk = document.getElementById("vg-add-risk-" + fi).value;
+    var inputStr = document.getElementById("vg-add-input-" + fi).value.trim();
+    var expectedStr = document.getElementById("vg-add-expected-" + fi).value.trim();
+    var techStr = document.getElementById("vg-add-tech-" + fi).value.trim();
+    var ref = document.getElementById("vg-add-ref-" + fi).value.trim();
+
+    var inputObj = {};
+    var expectedObj = {};
+    try { if (inputStr) inputObj = JSON.parse(inputStr); } catch(e) { toast("Invalid input JSON"); return; }
+    try { if (expectedStr) expectedObj = JSON.parse(expectedStr); } catch(e) { toast("Invalid expected JSON"); return; }
+
+    var techniques = techStr ? techStr.split(",").map(function(t) { return t.trim(); }).filter(Boolean) : [];
+
+    var newScenario = {
+      name: name,
+      type: type,
+      risk: risk,
+      techniques: techniques,
+      status: "uncovered",
+      test_ref: ref || null,
+      examples: [{ input: inputObj, expected: expectedObj }]
+    };
+
+    data.features[fi].scenarios.push(newScenario);
+    rebuildScenarioList(fi);
+    toggleAddForm(fi);
+
+    // Clear form
+    document.getElementById("vg-add-name-" + fi).value = "";
+    document.getElementById("vg-add-input-" + fi).value = "";
+    document.getElementById("vg-add-expected-" + fi).value = "";
+    document.getElementById("vg-add-tech-" + fi).value = "";
+    document.getElementById("vg-add-ref-" + fi).value = "";
+
+    toast("Scenario added: " + name);
+  }
+
+  /* ===== EXPORT ===== */
+  function exportJSON() {
+    var output = {
+      project_name: data.project_name,
+      exported_at: new Date().toISOString(),
+      review_decisions: reviewState,
+      features: data.features.map(function(f, fi) {
+        return {
+          feature: featureName(f),
+          feature_description: featureDesc(f),
+          risk_level: f.risk_level,
+          entry_point: f.entry_point || null,
+          source: f.source || null,
+          example_mapping: f.example_mapping || null,
+          metadata: f.metadata || null,
+          scenarios: f.scenarios.map(function(s, si) {
+            var key = fi + "-" + si;
+            var state = reviewState.scenarios[key] || {};
+            return {
+              name: s.name,
+              description: s.description || null,
+              type: s.type,
+              risk: s.risk,
+              risk_rationale: s.risk_rationale || null,
+              risk_override: state.risk_override || null,
+              techniques: s.techniques,
+              technique_rationale: s.technique_rationale || null,
+              preconditions: s.preconditions || null,
+              status: s.status,
+              approved: state.approved || false,
+              priority: s.priority || null,
+              tags: s.tags || null,
+              test_ref: s.test_ref,
+              examples: s.examples,
+              state_transition: s.state_transition || null,
+              decision_table: s.decision_table || null
+            };
+          })
+        };
+      })
+    };
+    downloadJSON(output, "valid-guard-review.json");
+  }
+
+  function exportAllApproved() {
+    var approved = [];
+    data.features.forEach(function(f, fi) {
+      f.scenarios.forEach(function(s, si) {
+        var key = fi + "-" + si;
+        var state = reviewState.scenarios[key] || {};
+        if (state.approved) {
+          approved.push({
+            feature: featureName(f),
+            scenario: s.name,
+            type: s.type,
+            risk: s.risk,
+            test_ref: s.test_ref
+          });
+        }
+      });
+    });
+    if (approved.length === 0) {
+      toast("No scenarios approved yet");
+      return;
+    }
+    downloadJSON({ approved_scenarios: approved, exported_at: new Date().toISOString() }, "valid-guard-approved.json");
+  }
+
+  function downloadJSON(obj, filename) {
+    var blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast("Exported: " + filename);
+  }
+
+  /* ===== PUBLIC API ===== */
+  window.VG = {
+    showDashboard: showDashboard,
+    showFeature: showFeature,
+    toggleSidebar: toggleSidebar,
+    closeSidebar: closeSidebar,
+    toggleTheme: toggleTheme,
+    toggleSection: toggleSection,
+    toggleScenarioDetail: toggleScenarioDetail,
+    applyFilter: applyFilter,
+    toggleApproval: toggleApproval,
+    overrideRisk: overrideRisk,
+    moveScenario: moveScenario,
+    dragStart: dragStart,
+    toggleAddForm: toggleAddForm,
+    addScenario: addScenario,
+    exportJSON: exportJSON,
+    exportAllApproved: exportAllApproved
+  };
+
+  /* ===== BOOT ===== */
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>

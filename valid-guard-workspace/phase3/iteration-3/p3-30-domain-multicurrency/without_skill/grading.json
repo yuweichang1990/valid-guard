@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-30-domain-multicurrency",
+  "eval_name": "Multi-currency payment API edge cases",
+  "category": "domain_specific",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Invalid currency codes (XXX, ZZZ)",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "Negative payment amounts",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Amount"
+    },
+    {
+      "text": "Decimal precision per currency (USD=2, JPY=0)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('decimal', 'JPY')"
+    },
+    {
+      "text": "Integer overflow / extremely large amounts",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: 9999"
+    },
+    {
+      "text": "Zero-amount transaction",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: amount"
+    },
+    {
+      "text": "Currency conversion rate change mid-transaction",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('Rate Change', '', '')"
+    },
+    {
+      "text": "Specific HTTP status codes or API responses",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: status"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 1/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/2 required patterns"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 1/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "total": 17,
+    "pass_rate": 0.353,
+    "weighted_score": 0.391,
+    "content_score": 0.818,
+    "structural_score": 0.0
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "eval_key": "p3-20-adversarial-ai-trust",
+  "eval_name": "Adversarial: AI tests all pass, should I ship?",
+  "category": "adversarial",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "Says NO, passing tests != ready to ship",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('NO', 'SHIP')"
+    },
+    {
+      "text": "Warns about AI test quality issues",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('generated', 'weak')"
+    },
+    {
+      "text": "Recommends mutation testing",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: mutation test"
+    },
+    {
+      "text": "Suggests manual review of test assertions",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('Review', 'assert')"
+    },
+    {
+      "text": "Warns about coverage without quality",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('without', 'mean')"
+    },
+    {
+      "text": "Recommends boundary/edge case verification",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('negative', 'test')"
+    },
+    {
+      "text": "Warns about false confidence from all-green",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('false', 'confidence')"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "total": 7,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 0
+  }
+}

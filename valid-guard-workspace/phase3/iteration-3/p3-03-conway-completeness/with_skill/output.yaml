@@ -1,0 +1,1196 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T12:00:00Z
+# Source: natural language
+
+feature: "Conway's Game of Life Cell Survival Logic"
+
+feature_description: >
+  Implementation of Conway's Game of Life cellular automaton rules. A living cell
+  survives if it has exactly 2 or 3 neighbors (stable neighborhood). A dead cell
+  becomes alive if it has exactly 3 neighbors (reproduction). All other live cells
+  die (underpopulation with 0-1 neighbors, overpopulation with 4-8 neighbors).
+  The grid updates all cells simultaneously each generation.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # SCENARIO 1: Full Decision Table — cell_state x neighbor_count (18 rules)
+  # ==========================================================================
+  - name: "Decision table: alive/dead cell x neighbor count 0-8"
+    description: >
+      Exhaustive decision table covering all 18 combinations of cell state
+      (alive, dead) and neighbor count (0 through 8). This is the core logic
+      of Conway's Game of Life and must be tested completely. With only 2 x 9
+      = 18 combinations, full enumeration is feasible and required.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. This is the core game logic executed for every
+      cell on every generation. Any defect produces visually wrong behavior
+      but may not be immediately obvious for specific neighbor counts.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table is the primary technique because the outcome depends on
+      two discrete conditions (cell_state and neighbor_count) combining to
+      determine the result. Equivalence partitioning groups neighbor counts
+      into classes: underpopulation (0-1), survival (2-3), overpopulation
+      (4-8) for alive cells; and inert (0-2), reproduction (3), overcrowded
+      (4-8) for dead cells.
+    preconditions:
+      - "A grid of cells exists with defined neighbor relationships"
+      - "Each cell has a state (alive or dead) and a computable neighbor count (0-8)"
+    decision_table:
+      conditions:
+        - "cell_state"
+        - "neighbor_count"
+      actions:
+        - "next_state"
+        - "transition_reason"
+      rules:
+        # --- Alive cells ---
+        - description: "Alive cell with 0 neighbors dies (underpopulation)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 0
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "underpopulation"
+        - description: "Alive cell with 1 neighbor dies (underpopulation)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 1
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "underpopulation"
+        - description: "Alive cell with 2 neighbors survives (stable)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 2
+          expected_actions:
+            next_state: "alive"
+            transition_reason: "survival"
+        - description: "Alive cell with 3 neighbors survives (stable)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 3
+          expected_actions:
+            next_state: "alive"
+            transition_reason: "survival"
+        - description: "Alive cell with 4 neighbors dies (overpopulation)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 4
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overpopulation"
+        - description: "Alive cell with 5 neighbors dies (overpopulation)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 5
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overpopulation"
+        - description: "Alive cell with 6 neighbors dies (overpopulation)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 6
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overpopulation"
+        - description: "Alive cell with 7 neighbors dies (overpopulation)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 7
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overpopulation"
+        - description: "Alive cell with 8 neighbors dies (overpopulation)"
+          condition_values:
+            cell_state: "alive"
+            neighbor_count: 8
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overpopulation"
+        # --- Dead cells ---
+        - description: "Dead cell with 0 neighbors stays dead"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 0
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "insufficient_neighbors"
+        - description: "Dead cell with 1 neighbor stays dead"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 1
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "insufficient_neighbors"
+        - description: "Dead cell with 2 neighbors stays dead"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 2
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "insufficient_neighbors"
+        - description: "Dead cell with 3 neighbors becomes alive (reproduction)"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 3
+          expected_actions:
+            next_state: "alive"
+            transition_reason: "reproduction"
+        - description: "Dead cell with 4 neighbors stays dead"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 4
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overcrowded"
+        - description: "Dead cell with 5 neighbors stays dead"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 5
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overcrowded"
+        - description: "Dead cell with 6 neighbors stays dead"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 6
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overcrowded"
+        - description: "Dead cell with 7 neighbors stays dead"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 7
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overcrowded"
+        - description: "Dead cell with 8 neighbors stays dead"
+          condition_values:
+            cell_state: "dead"
+            neighbor_count: 8
+          expected_actions:
+            next_state: "dead"
+            transition_reason: "overcrowded"
+    examples:
+      - input:
+          cell_state: "alive"
+          neighbor_count: 0
+        expected:
+          next_state: "dead"
+        description: "Alive cell, 0 neighbors -> dies (underpopulation)"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 2
+        expected:
+          next_state: "alive"
+        description: "Alive cell, 2 neighbors -> survives"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 3
+        expected:
+          next_state: "alive"
+        description: "Alive cell, 3 neighbors -> survives"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 4
+        expected:
+          next_state: "dead"
+        description: "Alive cell, 4 neighbors -> dies (overpopulation)"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 3
+        expected:
+          next_state: "alive"
+        description: "Dead cell, 3 neighbors -> becomes alive (reproduction)"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 2
+        expected:
+          next_state: "dead"
+        description: "Dead cell, 2 neighbors -> stays dead"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - core-logic
+      - decision-table
+      - exhaustive
+
+  # ==========================================================================
+  # SCENARIO 2: BVA — Alive cell survival boundary at neighbor_count = 2
+  # ==========================================================================
+  - name: "BVA: alive cell survival lower boundary (neighbor_count = 2)"
+    description: >
+      Boundary value analysis at the lower survival threshold for alive cells.
+      An alive cell with 1 neighbor dies (below boundary), with 2 neighbors
+      survives (at boundary). This tests the exact transition point between
+      underpopulation death and survival.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Off-by-one at this boundary would cause cells
+      to die when they should survive or vice versa, corrupting all patterns.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      BVA is essential because the survival rule has a sharp threshold at
+      neighbor_count = 2. Testing at, below, and above this boundary catches
+      off-by-one errors in comparison operators (< vs <=).
+    preconditions:
+      - "Cell is alive"
+    examples:
+      - input:
+          cell_state: "alive"
+          neighbor_count: 1
+        expected:
+          next_state: "dead"
+        description: "BVA below boundary: 1 neighbor (boundary-1) -> dies"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 2
+        expected:
+          next_state: "alive"
+        description: "BVA at boundary: 2 neighbors (on-point) -> survives"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 3
+        expected:
+          next_state: "alive"
+        description: "BVA above boundary: 3 neighbors (boundary+1) -> survives"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - bva
+      - survival-threshold
+      - lower-bound
+
+  # ==========================================================================
+  # SCENARIO 3: BVA — Alive cell survival boundary at neighbor_count = 3
+  # ==========================================================================
+  - name: "BVA: alive cell survival upper boundary (neighbor_count = 3)"
+    description: >
+      Boundary value analysis at the upper survival threshold for alive cells.
+      An alive cell with 3 neighbors survives (at boundary), with 4 neighbors
+      dies (above boundary). This tests the exact transition point between
+      survival and overpopulation death.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. A wrong comparison operator (> vs >=) at this
+      boundary would cause widespread incorrect deaths or survivals.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      BVA targets the sharp transition from survival (3 neighbors) to
+      overpopulation death (4 neighbors). This is where <= vs < errors
+      commonly occur.
+    preconditions:
+      - "Cell is alive"
+    examples:
+      - input:
+          cell_state: "alive"
+          neighbor_count: 2
+        expected:
+          next_state: "alive"
+        description: "BVA below boundary: 2 neighbors (boundary-1) -> survives"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 3
+        expected:
+          next_state: "alive"
+        description: "BVA at boundary: 3 neighbors (on-point) -> survives"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 4
+        expected:
+          next_state: "dead"
+        description: "BVA above boundary: 4 neighbors (boundary+1) -> dies"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - bva
+      - survival-threshold
+      - upper-bound
+
+  # ==========================================================================
+  # SCENARIO 4: BVA — Dead cell reproduction boundary at neighbor_count = 3
+  # ==========================================================================
+  - name: "BVA: dead cell reproduction boundary (neighbor_count = 3)"
+    description: >
+      Boundary value analysis at the reproduction threshold for dead cells.
+      A dead cell with 2 neighbors stays dead (below), with 3 neighbors becomes
+      alive (at boundary), and with 4 neighbors stays dead (above). The
+      reproduction rule requires exactly 3 neighbors — both boundaries matter.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Reproduction is the only mechanism for creating
+      new cells. An error here breaks all pattern growth and oscillation.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      BVA is critical because reproduction requires exactly 3 — a point
+      boundary. Testing 2, 3, and 4 catches both < and > comparison errors.
+    preconditions:
+      - "Cell is dead"
+    examples:
+      - input:
+          cell_state: "dead"
+          neighbor_count: 2
+        expected:
+          next_state: "dead"
+        description: "BVA below: 2 neighbors -> stays dead (insufficient)"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 3
+        expected:
+          next_state: "alive"
+        description: "BVA at point: 3 neighbors -> becomes alive (reproduction)"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 4
+        expected:
+          next_state: "dead"
+        description: "BVA above: 4 neighbors -> stays dead (overcrowded)"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - bva
+      - reproduction-threshold
+
+  # ==========================================================================
+  # SCENARIO 5: BVA — Domain minimum (neighbor_count = 0)
+  # ==========================================================================
+  - name: "BVA: domain minimum neighbor count (0)"
+    description: >
+      Boundary value analysis at the absolute minimum of the neighbor count
+      domain. A cell can have at minimum 0 neighbors (completely isolated).
+      Both alive and dead cells are tested at this extreme.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.50 -> high. The 0-neighbor case is the most extreme
+      isolation scenario and a common edge case for off-by-one errors.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA at the domain minimum (0) catches errors in lower-bound checks.
+      EP classifies 0 as part of the underpopulation class for alive cells
+      and the insufficient class for dead cells.
+    preconditions:
+      - "Cell exists on the grid with no living neighbors"
+    examples:
+      - input:
+          cell_state: "alive"
+          neighbor_count: 0
+        expected:
+          next_state: "dead"
+        description: "Alive cell, 0 neighbors -> dies (extreme underpopulation)"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 0
+        expected:
+          next_state: "dead"
+        description: "Dead cell, 0 neighbors -> stays dead (no reproduction possible)"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - bva
+      - domain-minimum
+      - isolation
+
+  # ==========================================================================
+  # SCENARIO 6: BVA — Domain maximum (neighbor_count = 8)
+  # ==========================================================================
+  - name: "BVA: domain maximum neighbor count (8)"
+    description: >
+      Boundary value analysis at the absolute maximum of the neighbor count
+      domain. In a Moore neighborhood, a cell can have at most 8 neighbors
+      (all surrounding cells alive). Both alive and dead cells tested.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.50 -> high. The 8-neighbor case is rare but represents the
+      extreme overpopulation scenario. Errors here may go unnoticed until
+      dense configurations are tested.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA at the domain maximum (8) validates the upper bound of the
+      neighbor count domain. EP classifies this as maximum overpopulation.
+    preconditions:
+      - "Cell exists on the grid surrounded by 8 living neighbors"
+    examples:
+      - input:
+          cell_state: "alive"
+          neighbor_count: 8
+        expected:
+          next_state: "dead"
+        description: "Alive cell, 8 neighbors -> dies (extreme overpopulation)"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 8
+        expected:
+          next_state: "dead"
+        description: "Dead cell, 8 neighbors -> stays dead (overcrowded)"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - bva
+      - domain-maximum
+      - moore-neighborhood
+
+  # ==========================================================================
+  # SCENARIO 7: State Transition — Cell lifecycle
+  # ==========================================================================
+  - name: "State transition: cell lifecycle (alive <-> dead)"
+    description: >
+      Models the cell as a two-state machine (alive, dead) with transitions
+      governed by the Game of Life rules. Tests valid transitions in both
+      directions and verifies that the state machine is complete.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. The state transition model is the fundamental
+      abstraction. Missing or incorrect transitions break the entire game.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition testing models the cell as a finite state machine
+      with two states. This ensures all valid transitions are covered and
+      that no invalid transitions exist.
+    preconditions:
+      - "Cell exists on the grid"
+      - "Neighbor count has been computed for the current generation"
+    state_transition:
+      states:
+        - "alive"
+        - "dead"
+      transitions:
+        - from: "alive"
+          to: "alive"
+          trigger: "next_generation"
+          guard: "neighbor_count == 2 OR neighbor_count == 3"
+        - from: "alive"
+          to: "dead"
+          trigger: "next_generation"
+          guard: "neighbor_count < 2 OR neighbor_count > 3"
+        - from: "dead"
+          to: "alive"
+          trigger: "next_generation"
+          guard: "neighbor_count == 3"
+        - from: "dead"
+          to: "dead"
+          trigger: "next_generation"
+          guard: "neighbor_count != 3"
+    examples:
+      - input:
+          initial_state: "alive"
+          neighbor_count: 2
+        expected:
+          next_state: "alive"
+          transition: "alive -> alive (survival)"
+        description: "Alive cell with 2 neighbors stays alive"
+      - input:
+          initial_state: "alive"
+          neighbor_count: 1
+        expected:
+          next_state: "dead"
+          transition: "alive -> dead (underpopulation)"
+        description: "Alive cell with 1 neighbor dies"
+      - input:
+          initial_state: "dead"
+          neighbor_count: 3
+        expected:
+          next_state: "alive"
+          transition: "dead -> alive (reproduction)"
+        description: "Dead cell with 3 neighbors becomes alive"
+      - input:
+          initial_state: "dead"
+          neighbor_count: 2
+        expected:
+          next_state: "dead"
+          transition: "dead -> dead (stays dead)"
+        description: "Dead cell with 2 neighbors stays dead"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - cell-lifecycle
+
+  # ==========================================================================
+  # SCENARIO 8: EP — Alive cell equivalence classes
+  # ==========================================================================
+  - name: "EP: alive cell equivalence classes (underpopulation / survival / overpopulation)"
+    description: >
+      Equivalence partitioning divides the neighbor count domain for alive
+      cells into three classes: underpopulation (0-1), survival (2-3), and
+      overpopulation (4-8). One representative value from each class suffices
+      to verify the partition boundary behavior.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. These are the three fundamental outcome classes
+      for alive cells — the backbone of the game logic.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP is appropriate because the neighbor count for alive cells naturally
+      partitions into three equivalence classes with distinct outcomes.
+      Values within each class produce equivalent behavior.
+    preconditions:
+      - "Cell is alive"
+    examples:
+      - input:
+          cell_state: "alive"
+          neighbor_count: 0
+        expected:
+          next_state: "dead"
+          reason: "underpopulation"
+        description: "EP class: underpopulation (0-1), representative: 0"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 2
+        expected:
+          next_state: "alive"
+          reason: "survival"
+        description: "EP class: survival (2-3), representative: 2"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 6
+        expected:
+          next_state: "dead"
+          reason: "overpopulation"
+        description: "EP class: overpopulation (4-8), representative: 6"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - equivalence-partitioning
+      - alive-cell
+
+  # ==========================================================================
+  # SCENARIO 9: EP — Dead cell equivalence classes
+  # ==========================================================================
+  - name: "EP: dead cell equivalence classes (insufficient / reproduction / overcrowded)"
+    description: >
+      Equivalence partitioning divides the neighbor count domain for dead
+      cells into three classes: insufficient (0-2), reproduction (exactly 3),
+      and overcrowded (4-8). One representative from each class verifies
+      correct partitioning.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Dead cell behavior governs all new cell creation.
+      Incorrect partitioning breaks pattern evolution entirely.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP divides the dead cell domain into three classes. The reproduction
+      class is a single-value class (exactly 3), making it critical to
+      verify that adjacent values (2 and 4) produce different behavior.
+    preconditions:
+      - "Cell is dead"
+    examples:
+      - input:
+          cell_state: "dead"
+          neighbor_count: 1
+        expected:
+          next_state: "dead"
+          reason: "insufficient_neighbors"
+        description: "EP class: insufficient (0-2), representative: 1"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 3
+        expected:
+          next_state: "alive"
+          reason: "reproduction"
+        description: "EP class: reproduction (exactly 3), representative: 3"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 5
+        expected:
+          next_state: "dead"
+          reason: "overcrowded"
+        description: "EP class: overcrowded (4-8), representative: 5"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - equivalence-partitioning
+      - dead-cell
+
+  # ==========================================================================
+  # SCENARIO 10: Known pattern — Block (still life)
+  # ==========================================================================
+  - name: "Known pattern: Block still life remains unchanged"
+    description: >
+      The Block is the simplest still life pattern: a 2x2 square of alive
+      cells. Each alive cell has exactly 3 neighbors, so all survive. No
+      adjacent dead cell has exactly 3 alive neighbors, so no new cells are
+      born. The pattern is stable across generations.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1.
+      Average: 1.75 -> medium. Pattern integration test that validates
+      multiple cell interactions. Failure is immediately visible.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP verifies that 3-neighbor alive cells survive and adjacent dead cells
+      with 1-2 neighbors stay dead. Error guessing catches multi-cell
+      interaction bugs that single-cell unit tests might miss.
+    preconditions:
+      - "Grid is at least 4x4"
+      - "Block pattern placed: cells (1,1), (1,2), (2,1), (2,2) alive"
+    examples:
+      - input:
+          pattern: "block"
+          grid: [[0,0,0,0],[0,1,1,0],[0,1,1,0],[0,0,0,0]]
+        expected:
+          next_grid: [[0,0,0,0],[0,1,1,0],[0,1,1,0],[0,0,0,0]]
+          stable: true
+        description: "Block remains unchanged after one generation"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - known-pattern
+      - still-life
+      - integration
+
+  # ==========================================================================
+  # SCENARIO 11: Known pattern — Blinker (oscillator, period 2)
+  # ==========================================================================
+  - name: "Known pattern: Blinker oscillator toggles between horizontal and vertical"
+    description: >
+      The Blinker is the simplest oscillator with period 2. A horizontal line
+      of 3 alive cells becomes a vertical line, then reverts. This pattern is
+      the canonical test for simultaneous update correctness — sequential
+      update would produce a different result.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. The Blinker is the primary discriminating test
+      between simultaneous and sequential update implementations. If updates
+      are applied sequentially, the Blinker produces a wrong result.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the most common implementation bug: sequential
+      instead of simultaneous cell updates. The Blinker is specifically
+      chosen because it produces different results under each strategy.
+      EP validates the cell transitions individually.
+    preconditions:
+      - "Grid is at least 5x5"
+      - "Blinker placed horizontally: cells (2,1), (2,2), (2,3) alive"
+    examples:
+      - input:
+          pattern: "blinker_horizontal"
+          grid: [[0,0,0,0,0],[0,0,0,0,0],[0,1,1,1,0],[0,0,0,0,0],[0,0,0,0,0]]
+        expected:
+          next_grid: [[0,0,0,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,0,0,0]]
+          pattern_name: "blinker_vertical"
+        description: "Horizontal blinker becomes vertical after one generation"
+      - input:
+          pattern: "blinker_vertical"
+          grid: [[0,0,0,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,0,0,0]]
+        expected:
+          next_grid: [[0,0,0,0,0],[0,0,0,0,0],[0,1,1,1,0],[0,0,0,0,0],[0,0,0,0,0]]
+          pattern_name: "blinker_horizontal"
+        description: "Vertical blinker reverts to horizontal (period 2 confirmed)"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - known-pattern
+      - oscillator
+      - simultaneous-update
+      - critical-path
+
+  # ==========================================================================
+  # SCENARIO 12: Known pattern — Glider (spaceship)
+  # ==========================================================================
+  - name: "Known pattern: Glider spaceship translates diagonally"
+    description: >
+      The Glider is the smallest spaceship in Conway's Game of Life. It
+      translates one cell diagonally every 4 generations. Testing the Glider
+      validates that multi-generation evolution with both births and deaths
+      produces the correct traveling pattern.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1.
+      Average: 1.75 -> medium. Multi-generation integration test.
+      Failure is visible as the glider distorts or stops moving.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing because the Glider exercises a complex chain of births
+      and deaths over 4 generations. It catches subtle multi-generation
+      accumulation bugs that single-step tests miss.
+    preconditions:
+      - "Grid is at least 6x6"
+      - "Glider pattern placed at top-left"
+    examples:
+      - input:
+          pattern: "glider"
+          grid: [[0,1,0,0,0,0],[0,0,1,0,0,0],[1,1,1,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]]
+          generations: 4
+        expected:
+          displaced: true
+          displacement: {dx: 1, dy: 1}
+          shape_preserved: true
+        description: "Glider moves 1 cell diagonally after 4 generations"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - known-pattern
+      - spaceship
+      - multi-generation
+
+  # ==========================================================================
+  # SCENARIO 13: Error guessing — Simultaneous vs sequential update
+  # ==========================================================================
+  - name: "Error guessing: simultaneous update correctness"
+    description: >
+      The most critical implementation error in Game of Life is applying
+      updates sequentially (modifying cells in-place) instead of
+      simultaneously (computing all next states from the current generation
+      before applying). This test uses the Blinker pattern as a
+      discriminating oracle: sequential update produces a wrong result.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3.
+      Average: 3.00 -> high. Sequential update is a silent, systematic error
+      that corrupts every generation. It may not be immediately obvious
+      because some patterns still look plausible.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing is the primary technique because this scenario targets
+      a specific, well-known implementation mistake. No formal technique
+      systematically generates this test — it requires domain expertise.
+    preconditions:
+      - "Grid with a Blinker pattern"
+    examples:
+      - input:
+          grid: [[0,0,0,0,0],[0,0,0,0,0],[0,1,1,1,0],[0,0,0,0,0],[0,0,0,0,0]]
+          update_method: "verify_simultaneous"
+        expected:
+          next_grid: [[0,0,0,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,0,0,0]]
+          sequential_wrong_result: [[0,0,0,0,0],[0,0,1,0,0],[0,0,1,1,0],[0,0,0,0,0],[0,0,0,0,0]]
+        description: >
+          Correct simultaneous result differs from sequential result.
+          If implementation produces the sequential result, the update
+          logic is fundamentally broken.
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-guessing
+      - simultaneous-update
+      - implementation-bug
+
+  # ==========================================================================
+  # SCENARIO 14: Error guessing — Empty grid (all dead)
+  # ==========================================================================
+  - name: "Error guessing: empty grid remains empty"
+    description: >
+      An entirely dead grid should remain dead forever. No cell has any
+      alive neighbors, so no reproduction can occur. This tests the base
+      case and guards against initialization bugs.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1.
+      Average: 1.00 -> low. Trivial base case unlikely to fail, but
+      good as a sanity check and smoke test.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing covers the degenerate case of an empty grid.
+      EP classifies this as the zero-input boundary of the system.
+    preconditions:
+      - "Grid exists with all cells dead"
+    examples:
+      - input:
+          grid: [[0,0,0],[0,0,0],[0,0,0]]
+        expected:
+          next_grid: [[0,0,0],[0,0,0],[0,0,0]]
+          all_dead: true
+        description: "3x3 empty grid remains empty after one generation"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - empty-grid
+      - smoke-test
+
+  # ==========================================================================
+  # SCENARIO 15: Error guessing — Fully alive grid
+  # ==========================================================================
+  - name: "Error guessing: fully alive grid (maximum density)"
+    description: >
+      A grid where every cell is alive. Interior cells have 8 neighbors
+      (overpopulation -> die). Edge cells have 5 neighbors (overpopulation
+      -> die). Corner cells have 3 neighbors (survive). Tests extreme
+      density and validates correct neighbor counting at all grid positions.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1.
+      Average: 1.50 -> medium. Rare configuration but exercises maximum
+      neighbor counts and boundary position neighbor counting.
+    techniques:
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Error guessing targets the extreme case of maximum density. BVA
+      applies because 8 neighbors is the domain maximum.
+    preconditions:
+      - "Grid exists with all cells alive"
+    examples:
+      - input:
+          grid: [[1,1,1],[1,1,1],[1,1,1]]
+        expected:
+          next_grid: [[1,0,1],[0,0,0],[1,0,1]]
+        description: >
+          3x3 fully alive: corners (3 neighbors) survive, edges (5 neighbors)
+          and center (8 neighbors) die from overpopulation
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - error-guessing
+      - max-density
+      - neighbor-counting
+
+  # ==========================================================================
+  # SCENARIO 16: Error guessing — Single alive cell
+  # ==========================================================================
+  - name: "Error guessing: single alive cell dies from isolation"
+    description: >
+      A single alive cell in an otherwise empty grid has 0 neighbors and
+      must die from underpopulation. This tests the minimal alive
+      configuration and verifies that no spurious reproduction occurs.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1.
+      Average: 1.00 -> low. Simple base case, unlikely to fail but
+      validates the underpopulation rule in isolation.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing covers the minimal configuration. EP classifies
+      this as the extreme underpopulation case with 0 neighbors.
+    preconditions:
+      - "Grid has exactly one alive cell"
+    examples:
+      - input:
+          grid: [[0,0,0],[0,1,0],[0,0,0]]
+        expected:
+          next_grid: [[0,0,0],[0,0,0],[0,0,0]]
+          all_dead: true
+        description: "Single alive cell at center dies, no new cells born"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - single-cell
+      - isolation
+
+  # ==========================================================================
+  # SCENARIO 17: Error guessing — Edge and corner cell neighbor counting
+  # ==========================================================================
+  - name: "Error guessing: edge and corner cells have correct neighbor count"
+    description: >
+      Cells at grid edges have fewer than 8 potential neighbors: corner cells
+      have 3, edge cells have 5, interior cells have 8. A common bug is to
+      either go out of bounds or incorrectly wrap around. This verifies that
+      neighbor counting is correct for all grid positions.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Incorrect neighbor counting at boundaries
+      is a common source of bugs (array index out of bounds, wrong wrap
+      behavior) and affects every cell at a grid edge.
+    techniques:
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Error guessing targets the common off-by-one and out-of-bounds
+      bugs at grid edges. BVA applies to the grid position domain
+      (corners, edges, interior as boundary positions).
+    preconditions:
+      - "Grid is at least 3x3"
+      - "Alive cells placed at corner, edge, and interior positions"
+    examples:
+      - input:
+          grid_size: "3x3"
+          position: "corner (0,0)"
+          alive_neighbors_at_position: 1
+        expected:
+          computed_neighbor_count: 1
+          no_out_of_bounds_error: true
+        description: "Corner cell correctly counts only 3 possible neighbor positions"
+      - input:
+          grid_size: "3x3"
+          position: "edge (0,1)"
+          alive_neighbors_at_position: 2
+        expected:
+          computed_neighbor_count: 2
+          no_out_of_bounds_error: true
+        description: "Edge cell correctly counts only 5 possible neighbor positions"
+      - input:
+          grid_size: "3x3"
+          position: "center (1,1)"
+          alive_neighbors_at_position: 3
+        expected:
+          computed_neighbor_count: 3
+          no_out_of_bounds_error: true
+        description: "Interior cell correctly counts all 8 possible neighbor positions"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-guessing
+      - neighbor-counting
+      - grid-boundary
+
+  # ==========================================================================
+  # SCENARIO 18: Error guessing — Invalid neighbor count input
+  # ==========================================================================
+  - name: "Error guessing: invalid neighbor count values"
+    description: >
+      Verifies that the system correctly handles or rejects neighbor counts
+      outside the valid domain [0, 8]. Negative values and values > 8 are
+      physically impossible in a Moore neighborhood and should be caught.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1.
+      Average: 1.50 -> medium. Input validation at the function boundary.
+      Invalid neighbor counts should never occur in practice but may
+      indicate a bug in the neighbor counting function.
+    techniques:
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Error guessing targets impossible inputs that may arise from
+      upstream bugs. BVA tests values just outside the valid domain
+      (boundary - 1 = -1, boundary + 1 = 9).
+    preconditions:
+      - "Cell survival function is called directly"
+    examples:
+      - input:
+          cell_state: "alive"
+          neighbor_count: -1
+        expected:
+          error: true
+          error_type: "invalid_neighbor_count"
+        description: "Negative neighbor count rejected or raises error"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 9
+        expected:
+          error: true
+          error_type: "invalid_neighbor_count"
+        description: "Neighbor count > 8 rejected (impossible in Moore neighborhood)"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - input-validation
+      - defensive-programming
+
+  # ==========================================================================
+  # SCENARIO 19: Multi-generation stability — Still life persistence
+  # ==========================================================================
+  - name: "Multi-generation stability: still life persists over N generations"
+    description: >
+      A still life pattern (e.g., Block) should remain identical over
+      many generations. This tests for cumulative rounding errors,
+      state corruption, or memory issues in the generation loop.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1.
+      Average: 1.75 -> medium. Tests long-term stability. Corruption
+      would be immediately visible as the pattern changes.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets cumulative bugs that only manifest over
+      multiple generations (e.g., mutable state leaking between
+      generations, reference aliasing between current and next grid).
+    preconditions:
+      - "Grid initialized with a Block still life"
+    examples:
+      - input:
+          pattern: "block"
+          grid: [[0,0,0,0],[0,1,1,0],[0,1,1,0],[0,0,0,0]]
+          generations: 100
+        expected:
+          final_grid: [[0,0,0,0],[0,1,1,0],[0,1,1,0],[0,0,0,0]]
+          unchanged: true
+        description: "Block pattern unchanged after 100 generations"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - error-guessing
+      - multi-generation
+      - stability
+
+  # ==========================================================================
+  # SCENARIO 20: Cause-effect — Survival rule logical structure
+  # ==========================================================================
+  - name: "Cause-effect: alive cell survival requires exactly 2 OR 3 neighbors"
+    description: >
+      Maps the logical structure of the alive cell survival rule as a
+      cause-effect graph. Cause 1: cell is alive. Cause 2: neighbor_count == 2.
+      Cause 3: neighbor_count == 3. Effect: cell survives.
+      The rule is: alive AND (neighbors==2 OR neighbors==3) -> survives.
+      This tests the OR connector by toggling each cause independently.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. The OR logic in the survival rule is a
+      common source of mutation-survivable bugs (&& vs ||).
+    techniques:
+      - cause_effect
+      - decision_table
+    technique_rationale: >
+      Cause-effect graphing maps the boolean logic explicitly (AND/OR
+      connectors). The derived decision table ensures every combination
+      of causes is tested, catching errors in logical operators.
+    preconditions:
+      - "Cell survival function accepts cell_state and neighbor_count"
+    examples:
+      - input:
+          cell_state: "alive"
+          neighbor_count: 2
+        expected:
+          survives: true
+        description: "Cause-effect: alive AND (2==true OR 3==false) -> survives"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 3
+        expected:
+          survives: true
+        description: "Cause-effect: alive AND (2==false OR 3==true) -> survives"
+      - input:
+          cell_state: "alive"
+          neighbor_count: 4
+        expected:
+          survives: false
+        description: "Cause-effect: alive AND (2==false OR 3==false) -> dies"
+      - input:
+          cell_state: "dead"
+          neighbor_count: 2
+        expected:
+          survives: false
+        description: "Cause-effect: dead AND (2==true OR 3==false) -> stays dead"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - cause-effect
+      - logical-structure
+      - survival-rule
+
+# =============================================================================
+# Example Mapping
+# =============================================================================
+example_mapping:
+  story: >
+    As a Game of Life simulation, I need to correctly determine the next state
+    of every cell based on Conway's rules so that patterns evolve accurately.
+  rules:
+    - rule_name: "Underpopulation: alive cell with fewer than 2 neighbors dies"
+      examples:
+        - "Alive cell with 0 neighbors -> dies"
+        - "Alive cell with 1 neighbor -> dies"
+        - "Single alive cell on empty grid -> dies next generation"
+    - rule_name: "Survival: alive cell with exactly 2 or 3 neighbors survives"
+      examples:
+        - "Alive cell with 2 neighbors -> survives"
+        - "Alive cell with 3 neighbors -> survives"
+        - "Block still life (each cell has 3 neighbors) -> all survive"
+    - rule_name: "Overpopulation: alive cell with more than 3 neighbors dies"
+      examples:
+        - "Alive cell with 4 neighbors -> dies"
+        - "Alive cell with 8 neighbors -> dies"
+        - "Center cell in fully alive 3x3 grid (8 neighbors) -> dies"
+    - rule_name: "Reproduction: dead cell with exactly 3 neighbors becomes alive"
+      examples:
+        - "Dead cell with 3 neighbors -> becomes alive"
+        - "Dead cell with 2 neighbors -> stays dead (insufficient)"
+        - "Dead cell with 4 neighbors -> stays dead (overcrowded)"
+        - "Blinker produces new alive cells via reproduction each generation"
+    - rule_name: "Simultaneous update: all cells update at the same time"
+      examples:
+        - "Blinker oscillates correctly (simultaneous) vs incorrectly (sequential)"
+        - "New births do not affect neighbor counts in the same generation"
+        - "Deaths do not affect neighbor counts in the same generation"
+    - rule_name: "Neighbor counting: Moore neighborhood (8 surrounding cells)"
+      examples:
+        - "Interior cell has 8 possible neighbors"
+        - "Edge cell has 5 possible neighbors"
+        - "Corner cell has 3 possible neighbors"
+        - "No out-of-bounds access at grid edges"
+
+# =============================================================================
+# Metadata
+# =============================================================================
+metadata:
+  created_at: "2026-03-14T12:00:00Z"
+  updated_at: "2026-03-14T12:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

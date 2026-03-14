@@ -1,0 +1,112 @@
+{
+  "eval_key": "p3-13-st-ticket-booking",
+  "eval_name": "Ticket booking with timer and refund rules",
+  "category": "state_transition",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "States: available, reserved, booked, cancelled",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: available"
+    },
+    {
+      "text": "10-minute reservation timer",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: 10-minute"
+    },
+    {
+      "text": "Timer expiry returns to available",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('expir', 'available')"
+    },
+    {
+      "text": "Refund rules: >24h before event",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('refund amount based on cancel', 'cancel')"
+    },
+    {
+      "text": "Concurrent booking handling",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Lock"
+    },
+    {
+      "text": "BVA on timer and refund window",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: 10-min"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 1/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: boundary_value"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "total": 16,
+    "pass_rate": 0.438,
+    "weighted_score": 0.545,
+    "content_score": 1.0,
+    "structural_score": 0.167
+  }
+}

@@ -1,0 +1,1205 @@
+# Valid Guard Test Plan — Double Payment Prevention
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Double Payment Prevention"
+
+feature_description: >
+  Prevent duplicate payment submissions when a user clicks the 'Pay Now' button
+  multiple times rapidly during checkout on an e-commerce site. Encompasses
+  client-side UI disablement, server-side idempotency enforcement, payment
+  gateway deduplication, and state machine integrity to ensure exactly-once
+  payment processing regardless of network latency, retries, or user impatience.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ---------- Happy Path ---------------------------------------------------
+  - name: "Single click payment submission succeeds"
+    description: >
+      User clicks 'Pay Now' exactly once, the payment is processed, and an
+      order confirmation is returned. This is the baseline golden path.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3.
+      Average: 3.0 -> high. Core revenue path exercised by every customer on
+      every purchase. A failure here blocks all sales.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Single valid-class representative confirms the primary checkout path works
+      end-to-end with one submission.
+    preconditions:
+      - "Customer is authenticated"
+      - "Cart contains at least one in-stock item"
+      - "Valid payment method is on file"
+    examples:
+      - input:
+          clicks: 1
+          idempotency_key: "key-abc-001"
+          payment_method: "credit_card"
+          cart_total: 129.99
+        expected:
+          orders_created: 1
+          charges_captured: 1
+          response_status: 201
+          order_state: "confirmed"
+        description: "Single click produces exactly one order and one charge."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - payment
+
+  # ---------- Core Double-Click Scenarios -----------------------------------
+  - name: "Rapid double-click submits payment only once"
+    description: >
+      User clicks 'Pay Now' twice in rapid succession (within 100ms). The system
+      must ensure only one payment is processed regardless of whether prevention
+      is client-side or server-side.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. Double-clicks are the most common rapid submission
+      pattern. A silent double charge may not be noticed until the bank statement,
+      leading to chargebacks and trust erosion.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets the well-known double-click race condition. State
+      transition models the button/submission lifecycle (idle -> submitting ->
+      completed) to verify the guard prevents re-entry.
+    preconditions:
+      - "Customer is on the payment confirmation page"
+      - "Payment form is valid and ready to submit"
+    examples:
+      - input:
+          clicks: 2
+          interval_ms: 50
+          idempotency_key: "key-abc-002"
+        expected:
+          orders_created: 1
+          charges_captured: 1
+          second_click_blocked: true
+        description: "Two clicks 50ms apart produce exactly one order."
+      - input:
+          clicks: 2
+          interval_ms: 100
+          idempotency_key: "key-abc-003"
+        expected:
+          orders_created: 1
+          charges_captured: 1
+          second_click_blocked: true
+        description: "Two clicks 100ms apart still produce exactly one order."
+    state_transition:
+      states:
+        - "idle"
+        - "submitting"
+        - "completed"
+        - "failed"
+      transitions:
+        - from: "idle"
+          to: "submitting"
+          trigger: "pay_now_clicked"
+          guard: "button_enabled == true"
+        - from: "submitting"
+          to: "submitting"
+          trigger: "pay_now_clicked"
+          guard: "button_enabled == false (click ignored)"
+        - from: "submitting"
+          to: "completed"
+          trigger: "payment_success_response"
+        - from: "submitting"
+          to: "failed"
+          trigger: "payment_failure_response"
+        - from: "failed"
+          to: "submitting"
+          trigger: "retry_clicked"
+          guard: "button_re-enabled after failure"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - double-click
+      - idempotency
+      - concurrency
+      - critical-path
+
+  - name: "Burst of rapid clicks (5+ clicks) submits payment only once"
+    description: >
+      User panic-clicks 'Pay Now' five or more times within one second. This
+      tests that the guard holds under sustained rapid input, not just a double
+      click.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> high (rounded up due to financial severity). A burst of
+      clicks is less common than a double-click, but the consequence of multiple
+      charges is equally severe and harder to detect.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the click-count threshold (1, 2, 5, 10 clicks).
+      Error guessing anticipates user frustration patterns during slow responses.
+    preconditions:
+      - "Customer is on the payment confirmation page"
+      - "Network latency is simulated at 2000ms"
+    examples:
+      - input:
+          clicks: 5
+          interval_ms: 100
+          idempotency_key: "key-abc-004"
+        expected:
+          orders_created: 1
+          charges_captured: 1
+          blocked_clicks: 4
+        description: "Five rapid clicks produce exactly one order."
+      - input:
+          clicks: 10
+          interval_ms: 50
+          idempotency_key: "key-abc-005"
+        expected:
+          orders_created: 1
+          charges_captured: 1
+          blocked_clicks: 9
+        description: "Ten rapid clicks produce exactly one order."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - burst-click
+      - idempotency
+      - stress
+
+  # ---------- Client-Side UI Prevention ------------------------------------
+  - name: "Pay Now button is disabled after first click"
+    description: >
+      Immediately upon the first click, the button's disabled attribute is set
+      to true and a loading spinner or 'Processing...' text replaces the label,
+      preventing further clicks from firing the submit handler.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. The UI guard is the first line of defense. If it
+      fails, duplicate requests reach the server and gateway.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition verifies the button state machine (enabled -> disabled ->
+      re-enabled on failure). Error guessing covers DOM manipulation bypasses.
+    preconditions:
+      - "Payment form is rendered and interactive"
+    examples:
+      - input:
+          action: "click_pay_now"
+        expected:
+          button_disabled: true
+          button_text: "Processing..."
+          spinner_visible: true
+        description: "Button becomes disabled and shows spinner after first click."
+      - input:
+          action: "click_pay_now_while_disabled"
+        expected:
+          submit_handler_fired: false
+          api_calls_made: 0
+        description: "Clicking disabled button does not fire submit handler."
+    state_transition:
+      states:
+        - "enabled"
+        - "disabled_processing"
+        - "disabled_completed"
+        - "re_enabled_after_error"
+      transitions:
+        - from: "enabled"
+          to: "disabled_processing"
+          trigger: "first_click"
+        - from: "disabled_processing"
+          to: "disabled_completed"
+          trigger: "payment_success"
+        - from: "disabled_processing"
+          to: "re_enabled_after_error"
+          trigger: "payment_error"
+          guard: "error is retryable"
+        - from: "re_enabled_after_error"
+          to: "disabled_processing"
+          trigger: "retry_click"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - ui
+      - client-side
+      - button-state
+
+  - name: "Button re-enables after payment failure for retry"
+    description: >
+      When a payment attempt fails with a retryable error (e.g., network timeout
+      or declined card), the button must re-enable so the user can try again. The
+      idempotency key must be regenerated for the new attempt.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.5 -> high. If the button stays permanently disabled after a
+      transient failure, the user cannot complete checkout and revenue is lost.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition verifies the failed -> re-enabled path. Equivalence
+      partitioning classifies error types into retryable vs non-retryable.
+    preconditions:
+      - "First payment attempt has been made and failed"
+    examples:
+      - input:
+          payment_error: "network_timeout"
+          error_retryable: true
+        expected:
+          button_disabled: false
+          button_text: "Pay Now"
+          new_idempotency_key_generated: true
+        description: "Button re-enables after network timeout with new idempotency key."
+      - input:
+          payment_error: "fraud_detected"
+          error_retryable: false
+        expected:
+          button_disabled: true
+          error_message: "Payment cannot be processed. Contact support."
+          redirect_to_support: true
+        description: "Non-retryable error keeps button disabled with support redirect."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - retry
+      - error-handling
+      - button-state
+
+  # ---------- Server-Side Idempotency ------------------------------------
+  - name: "Server rejects duplicate request with same idempotency key"
+    description: >
+      Two HTTP requests arrive at the payment API with identical idempotency
+      keys. The server must process only the first and return the cached result
+      for the second, ensuring exactly-once semantics.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. Server-side idempotency is the last safety net.
+      If it fails, duplicate charges occur silently.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets race conditions where both requests arrive before
+      the first completes. Equivalence partitioning classifies the request timing
+      into concurrent, sequential-before-complete, and sequential-after-complete.
+    preconditions:
+      - "Payment API is running"
+      - "Idempotency key store is accessible"
+    examples:
+      - input:
+          request_count: 2
+          idempotency_key: "idem-key-same"
+          timing: "concurrent"
+        expected:
+          payments_processed: 1
+          second_response_status: 200
+          second_response_body: "cached_result_of_first"
+        description: "Concurrent duplicate requests processed once, second gets cached response."
+      - input:
+          request_count: 2
+          idempotency_key: "idem-key-same"
+          timing: "sequential_after_first_completes"
+        expected:
+          payments_processed: 1
+          second_response_status: 200
+          second_response_body: "cached_result_of_first"
+        description: "Sequential duplicate after first completes returns cached response."
+      - input:
+          request_count: 2
+          idempotency_key: "idem-key-same"
+          timing: "sequential_before_first_completes"
+        expected:
+          payments_processed: 1
+          second_response_status: 409
+          error: "PAYMENT_IN_PROGRESS"
+        description: "Second request while first is in-flight returns 409 conflict."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - idempotency
+      - server-side
+      - concurrency
+      - critical-path
+
+  - name: "Idempotency key uniqueness per checkout session"
+    description: >
+      Each checkout attempt generates a unique idempotency key. Two different
+      checkout sessions from the same user must have different keys, and a new
+      key must be generated after a failed attempt is retried.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. Key reuse across different intents would either
+      block legitimate payments (stale cached response) or allow duplicates
+      (key collision).
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning covers key generation scenarios (new session,
+      retry after failure, different user). Error guessing targets key collision
+      and key reuse bugs.
+    preconditions:
+      - "Idempotency key generation mechanism is in place"
+    examples:
+      - input:
+          scenario: "new_checkout_session"
+        expected:
+          idempotency_key_format: "UUID-v4"
+          key_unique: true
+        description: "New checkout session generates a fresh UUID-v4 key."
+      - input:
+          scenario: "retry_after_failure"
+          previous_key: "old-key-123"
+        expected:
+          new_key_differs_from_previous: true
+        description: "Retry generates a different key from the failed attempt."
+      - input:
+          scenario: "two_concurrent_sessions_same_user"
+        expected:
+          keys_are_distinct: true
+        description: "Two browser tabs for the same user have distinct keys."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - idempotency
+      - key-generation
+
+  # ---------- Concurrency / Race Conditions --------------------------------
+  - name: "Concurrent payment requests race condition at database level"
+    description: >
+      Two identical payment requests arrive at the server within microseconds
+      and both pass the initial idempotency check before either writes to the
+      database. The system must use database-level locking or unique constraints
+      to prevent double-write.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> high (elevated due to silent failure). This is the
+      classic TOCTOU race condition. Without proper locking, both requests
+      create payment records.
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the specific TOCTOU race. Cause-effect maps the
+      logical dependency: if (lock acquired) then (process payment) else (return
+      duplicate error).
+    preconditions:
+      - "Database supports row-level locking or unique constraints"
+      - "Two requests arrive with identical idempotency keys"
+    examples:
+      - input:
+          concurrent_requests: 2
+          idempotency_key: "race-key-001"
+          arrival_gap_us: 10
+        expected:
+          payment_records_created: 1
+          successful_responses: 1
+          conflict_responses: 1
+        description: "DB unique constraint prevents double-insert under race."
+      - input:
+          concurrent_requests: 5
+          idempotency_key: "race-key-002"
+          arrival_gap_us: 5
+        expected:
+          payment_records_created: 1
+          successful_responses: 1
+          conflict_responses: 4
+        description: "Five concurrent requests, only one wins the race."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - race-condition
+      - database
+      - toctou
+
+  - name: "Payment gateway receives duplicate charge requests"
+    description: >
+      If the server-side guard fails, the payment gateway itself must act as the
+      final deduplication layer. The gateway should reject or deduplicate charges
+      based on its own idempotency mechanism (e.g., Stripe's idempotency key).
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, but elevated to high due to direct financial loss.
+      Gateway deduplication is defense-in-depth; failure means real money lost.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates the scenario where all upstream guards have
+      failed and only the gateway prevents duplicate charges.
+    preconditions:
+      - "Payment gateway idempotency is configured"
+      - "Server-side idempotency guard has been bypassed (fault injection)"
+    examples:
+      - input:
+          gateway_idempotency_key: "gw-key-001"
+          charge_requests: 2
+        expected:
+          charges_captured: 1
+          gateway_duplicate_response: "idempotent_replay"
+        description: "Gateway deduplicates identical charge request."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - gateway
+      - defense-in-depth
+      - idempotency
+
+  # ---------- State Transition (Payment Submission Lifecycle) ---------------
+  - name: "Payment submission state machine integrity"
+    description: >
+      Models the entire payment submission lifecycle as a state machine. Verifies
+      that invalid transitions are blocked (e.g., cannot go from 'completed' back
+      to 'submitting') and that the system always reaches a terminal state.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. An invalid state transition could leave a payment
+      in a zombie state — charged but not confirmed, or confirmed but not charged.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      The payment submission lifecycle is a classic finite state machine with
+      well-defined states and transitions. Testing invalid transitions is
+      critical for preventing stuck or orphaned payments.
+    preconditions:
+      - "Checkout page is loaded"
+      - "Cart is valid and non-empty"
+    state_transition:
+      states:
+        - "idle"
+        - "validating"
+        - "submitting_to_gateway"
+        - "awaiting_response"
+        - "processing_response"
+        - "completed_success"
+        - "completed_failure_retryable"
+        - "completed_failure_terminal"
+      transitions:
+        - from: "idle"
+          to: "validating"
+          trigger: "pay_now_clicked"
+          guard: "button is enabled and form is valid"
+        - from: "validating"
+          to: "submitting_to_gateway"
+          trigger: "validation_passed"
+        - from: "validating"
+          to: "idle"
+          trigger: "validation_failed"
+          guard: "form errors displayed to user"
+        - from: "submitting_to_gateway"
+          to: "awaiting_response"
+          trigger: "api_request_sent"
+        - from: "awaiting_response"
+          to: "processing_response"
+          trigger: "response_received"
+        - from: "awaiting_response"
+          to: "completed_failure_retryable"
+          trigger: "timeout_exceeded"
+          guard: "timeout > 30 seconds"
+        - from: "processing_response"
+          to: "completed_success"
+          trigger: "payment_confirmed"
+        - from: "processing_response"
+          to: "completed_failure_retryable"
+          trigger: "payment_declined_retryable"
+        - from: "processing_response"
+          to: "completed_failure_terminal"
+          trigger: "payment_declined_terminal"
+          guard: "fraud flag or card blocked"
+        - from: "completed_failure_retryable"
+          to: "idle"
+          trigger: "user_initiates_retry"
+          guard: "new idempotency key generated"
+    examples:
+      - input:
+          current_state: "idle"
+          trigger: "pay_now_clicked"
+          form_valid: true
+        expected:
+          new_state: "validating"
+          button_disabled: true
+        description: "Normal transition from idle to validating."
+      - input:
+          current_state: "completed_success"
+          trigger: "pay_now_clicked"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot re-submit after successful completion."
+      - input:
+          current_state: "awaiting_response"
+          trigger: "pay_now_clicked"
+        expected:
+          error: "PAYMENT_IN_PROGRESS"
+          state_unchanged: true
+        description: "Cannot re-submit while awaiting gateway response."
+      - input:
+          current_state: "completed_failure_retryable"
+          trigger: "user_initiates_retry"
+        expected:
+          new_state: "idle"
+          new_idempotency_key: true
+          button_enabled: true
+        description: "Retry resets to idle with fresh idempotency key."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - payment-lifecycle
+      - critical-path
+
+  # ---------- Decision Table (Guard Mechanism Selection) --------------------
+  - name: "Double-payment guard mechanism decision rules"
+    description: >
+      Decision table capturing which combination of guards fire based on client
+      state, server state, and gateway state. All three layers must cooperate
+      but each must independently prevent duplicates.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. The combination of guard layers determines whether
+      a duplicate payment is prevented. Any single-layer failure must be caught
+      by the remaining layers.
+    techniques:
+      - decision_table
+      - cause_effect
+    technique_rationale: >
+      Decision table enumerates all meaningful combinations of guard states.
+      Cause-effect maps the causal chain: if (any guard active) then (duplicate
+      blocked) else (double charge occurs).
+    decision_table:
+      conditions:
+        - "client_button_disabled"
+        - "server_idempotency_check_active"
+        - "gateway_dedup_active"
+      actions:
+        - "duplicate_blocked"
+        - "blocking_layer"
+        - "double_charge_risk"
+      rules:
+        - description: "All guards active — blocked at client"
+          condition_values:
+            client_button_disabled: true
+            server_idempotency_check_active: true
+            gateway_dedup_active: true
+          expected_actions:
+            duplicate_blocked: true
+            blocking_layer: "client"
+            double_charge_risk: "none"
+        - description: "Client guard bypassed, server catches it"
+          condition_values:
+            client_button_disabled: false
+            server_idempotency_check_active: true
+            gateway_dedup_active: true
+          expected_actions:
+            duplicate_blocked: true
+            blocking_layer: "server"
+            double_charge_risk: "none"
+        - description: "Client and server bypassed, gateway catches it"
+          condition_values:
+            client_button_disabled: false
+            server_idempotency_check_active: false
+            gateway_dedup_active: true
+          expected_actions:
+            duplicate_blocked: true
+            blocking_layer: "gateway"
+            double_charge_risk: "none"
+        - description: "All guards failed — double charge occurs"
+          condition_values:
+            client_button_disabled: false
+            server_idempotency_check_active: false
+            gateway_dedup_active: false
+          expected_actions:
+            duplicate_blocked: false
+            blocking_layer: "none"
+            double_charge_risk: "critical"
+        - description: "Only client guard active — blocks at UI"
+          condition_values:
+            client_button_disabled: true
+            server_idempotency_check_active: false
+            gateway_dedup_active: false
+          expected_actions:
+            duplicate_blocked: true
+            blocking_layer: "client"
+            double_charge_risk: "high_if_client_bypassed"
+        - description: "Client fails, server active, gateway fails"
+          condition_values:
+            client_button_disabled: false
+            server_idempotency_check_active: true
+            gateway_dedup_active: false
+          expected_actions:
+            duplicate_blocked: true
+            blocking_layer: "server"
+            double_charge_risk: "medium_if_server_bypassed"
+    examples:
+      - input:
+          client_js_disabled: true
+          server_idempotency: "active"
+          gateway_dedup: "active"
+        expected:
+          duplicate_blocked: true
+          blocking_layer: "server"
+        description: "JavaScript disabled bypasses client guard, server catches it."
+      - input:
+          client_js_disabled: false
+          server_idempotency: "down"
+          gateway_dedup: "active"
+        expected:
+          duplicate_blocked: true
+          blocking_layer: "gateway"
+        description: "Server idempotency service down, gateway is last defense."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - defense-in-depth
+      - guard-layers
+
+  # ---------- Security Scenarios -------------------------------------------
+  - name: "Client-side guard bypass via JavaScript manipulation"
+    description: >
+      Attacker uses browser DevTools to remove the disabled attribute from the
+      Pay Now button or directly invokes the submit function via console. Server
+      must still prevent duplicate payment.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> high (elevated due to financial impact). Any developer
+      with browser DevTools can bypass client-side guards. Server-side
+      idempotency is the only reliable defense.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing is the primary technique for adversarial user behavior.
+      This scenario specifically targets known client-side bypass vectors.
+    preconditions:
+      - "Attacker has access to browser developer tools"
+      - "Client-side submit handler is exposed in DOM"
+    examples:
+      - input:
+          method: "remove_disabled_attribute_and_click"
+          clicks_after_bypass: 3
+          idempotency_key: "same-key-for-all"
+        expected:
+          payments_processed: 1
+          server_rejected_duplicates: 2
+        description: "Re-enabling button and clicking 3 times still processes only once."
+      - input:
+          method: "direct_api_call_from_console"
+          api_calls: 2
+          idempotency_key: "console-key-001"
+        expected:
+          payments_processed: 1
+        description: "Direct API calls with same key deduplicated at server."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - client-bypass
+      - devtools
+
+  - name: "Replay attack with captured payment request"
+    description: >
+      Attacker captures a successful payment HTTP request and replays it.
+      Server must recognize the replayed idempotency key and return the
+      cached result without processing a new charge.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, but elevated to high due to direct financial
+      impact. Replay attacks are less frequent but devastating when successful.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates the replay attack vector, a well-known
+      security threat for payment endpoints.
+    preconditions:
+      - "Attacker has captured a valid payment request with headers"
+    examples:
+      - input:
+          original_request_timestamp: "2026-03-14T08:00:00Z"
+          replay_timestamp: "2026-03-14T08:05:00Z"
+          idempotency_key: "captured-key-001"
+        expected:
+          new_charge_created: false
+          response: "cached_original_result"
+        description: "Replayed request 5 minutes later returns cached result."
+      - input:
+          original_request_timestamp: "2026-03-14T08:00:00Z"
+          replay_timestamp: "2026-03-15T08:00:00Z"
+          idempotency_key: "captured-key-002"
+        expected:
+          new_charge_created: false
+          error: "IDEMPOTENCY_KEY_EXPIRED"
+        description: "Replayed request after key expiry window is rejected entirely."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - replay-attack
+      - idempotency
+
+  # ---------- Boundary Values ----------------------------------------------
+  - name: "Idempotency key expiry at time boundary"
+    description: >
+      Idempotency keys have a time-to-live (e.g., 24 hours). Tests the exact
+      boundary where a key transitions from valid to expired.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 -> medium. A key expiring too early could block legitimate
+      retries; expiring too late increases replay attack window.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Boundary value analysis tests the exact TTL threshold: key at TTL-1sec
+      (valid), key at TTL (boundary), key at TTL+1sec (expired).
+    preconditions:
+      - "Idempotency key TTL is configured at 24 hours"
+    examples:
+      - input:
+          key_age_seconds: 86399
+          ttl_seconds: 86400
+        expected:
+          key_valid: true
+          request_accepted: true
+        description: "Key at 23h 59m 59s — one second before expiry, still valid."
+      - input:
+          key_age_seconds: 86400
+          ttl_seconds: 86400
+        expected:
+          key_valid: false
+          error: "IDEMPOTENCY_KEY_EXPIRED"
+        description: "Key at exactly 24h — expired at boundary."
+      - input:
+          key_age_seconds: 86401
+          ttl_seconds: 86400
+        expected:
+          key_valid: false
+          error: "IDEMPOTENCY_KEY_EXPIRED"
+        description: "Key at 24h 1s — clearly expired."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - idempotency
+      - ttl
+
+  - name: "Click interval boundary for debounce threshold"
+    description: >
+      If the system uses a debounce mechanism (e.g., 300ms), test at the exact
+      boundary where two clicks transition from 'treated as duplicate' to
+      'treated as separate intentional actions'.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 -> medium. Wrong debounce threshold either blocks legitimate
+      retries or fails to catch rapid duplicates.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Classic boundary value analysis at the debounce threshold: at threshold-1ms,
+      at threshold, and at threshold+1ms.
+    preconditions:
+      - "Client-side debounce is configured at 300ms"
+    examples:
+      - input:
+          click_interval_ms: 299
+          debounce_threshold_ms: 300
+        expected:
+          second_click_treated_as: "duplicate"
+          submit_fired: false
+        description: "299ms interval — within debounce, second click blocked."
+      - input:
+          click_interval_ms: 300
+          debounce_threshold_ms: 300
+        expected:
+          second_click_treated_as: "duplicate"
+          submit_fired: false
+        description: "Exactly 300ms — at boundary, still treated as duplicate."
+      - input:
+          click_interval_ms: 301
+          debounce_threshold_ms: 300
+        expected:
+          second_click_treated_as: "new_intent"
+          submit_fired: true
+        description: "301ms interval — just past debounce, treated as new intent."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - debounce
+      - client-side
+
+  # ---------- Error Handling -----------------------------------------------
+  - name: "Network interruption during payment leaves no orphaned charge"
+    description: >
+      Network drops after the payment request is sent but before the response
+      arrives. User sees an error and may retry. The system must reconcile the
+      payment state with the gateway to prevent both double-charge and lost-charge.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> high. The user does not know if the charge went through.
+      A retry without reconciliation causes double charge; no retry causes lost
+      order despite successful charge.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets the uncertain-state scenario. State transition models
+      the reconciliation flow: unknown -> query gateway -> resolve to success or
+      failure.
+    preconditions:
+      - "Payment request was sent to gateway"
+      - "Network connection dropped before response"
+    examples:
+      - input:
+          network_drops_after_send: true
+          gateway_actually_charged: true
+        expected:
+          reconciliation_triggered: true
+          order_confirmed: true
+          duplicate_charge_prevented: true
+        description: "Charge succeeded at gateway; reconciliation confirms order."
+      - input:
+          network_drops_after_send: true
+          gateway_actually_charged: false
+        expected:
+          reconciliation_triggered: true
+          order_not_confirmed: true
+          retry_allowed: true
+          new_idempotency_key: true
+        description: "Charge did not go through; user allowed to retry with new key."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - network
+      - reconciliation
+      - error-handling
+      - orphaned-charge
+
+  - name: "Idempotency key store unavailable during payment"
+    description: >
+      The Redis/database store used for idempotency key tracking is temporarily
+      unavailable. The system must fail safely — either queue the request or
+      reject it, but never process a payment without idempotency protection.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, but elevated to high because processing without
+      idempotency protection directly enables double charges.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets infrastructure failure in the critical idempotency
+      path — a scenario that is often overlooked in testing.
+    preconditions:
+      - "Idempotency key store (Redis) is down"
+    examples:
+      - input:
+          idempotency_store_available: false
+          payment_request: "valid"
+        expected:
+          payment_processed: false
+          response_status: 503
+          error: "SERVICE_TEMPORARILY_UNAVAILABLE"
+          user_message: "Please try again in a moment."
+        description: "Payment rejected when idempotency store is unavailable."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - infrastructure
+      - error-handling
+      - fail-safe
+
+  # ---------- Performance --------------------------------------------------
+  - name: "Idempotency check latency under high concurrency"
+    description: >
+      Under peak load (e.g., flash sale), the idempotency check must complete
+      within acceptable latency. Slow checks could cause timeouts that the user
+      interprets as failures, triggering more retries.
+    type: performance
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 -> medium. Slow idempotency checks during peak load create a
+      feedback loop: timeouts -> retries -> more load -> more timeouts.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests at the concurrency threshold where latency degrades.
+      Error guessing anticipates the cascade failure pattern.
+    preconditions:
+      - "Idempotency store is configured and warmed up"
+    examples:
+      - input:
+          concurrent_payment_requests: 1000
+          unique_idempotency_keys: 500
+          duration_seconds: 10
+        expected:
+          p99_idempotency_check_ms: "<50"
+          duplicate_charges: 0
+        description: "1000 requests (500 unique, 500 duplicates) — all deduped under 50ms p99."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - performance
+      - load-test
+      - idempotency
+
+  # ---------- Additional Edge Cases ----------------------------------------
+  - name: "Page refresh during payment processing"
+    description: >
+      User refreshes the browser page while the payment is being processed.
+      The refreshed page must detect the in-progress payment and either show
+      a status page or prevent re-submission.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.5 -> high. Page refresh is a common user action during slow
+      loading. Without proper handling, the refresh could trigger a new payment
+      submission.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing covers the common user behavior of refreshing during slow
+      operations. State transition verifies the page load detects existing
+      in-progress state.
+    preconditions:
+      - "Payment submission is in progress"
+      - "Session state includes pending payment reference"
+    examples:
+      - input:
+          action: "browser_refresh"
+          payment_state: "awaiting_response"
+        expected:
+          new_submission_triggered: false
+          status_page_shown: true
+          message: "Your payment is being processed. Please wait."
+        description: "Page refresh shows processing status, no new submission."
+      - input:
+          action: "browser_back_then_forward"
+          payment_state: "awaiting_response"
+        expected:
+          new_submission_triggered: false
+          form_resubmission_warning: true
+        description: "Browser back/forward navigation does not resubmit form."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - browser-behavior
+      - page-refresh
+      - edge-case
+
+  - name: "Multi-tab duplicate submission attempt"
+    description: >
+      User opens the checkout page in two browser tabs and clicks 'Pay Now' in
+      both tabs. The system must ensure only one payment is processed.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, but elevated to high because multi-tab is a
+      realistic user behavior that completely bypasses client-side guards.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing covers the multi-tab scenario where each tab has its own
+      DOM state and button, making client-side guards useless.
+    preconditions:
+      - "Same checkout session is open in two browser tabs"
+      - "Both tabs share the same session cookie"
+    examples:
+      - input:
+          tabs: 2
+          click_timing: "near_simultaneous"
+          shared_session: true
+        expected:
+          payments_processed: 1
+          second_tab_error: "PAYMENT_ALREADY_PROCESSED"
+        description: "Two tabs, simultaneous clicks, only one payment goes through."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - multi-tab
+      - concurrency
+      - edge-case
+
+  - name: "Mobile double-tap on Pay Now button"
+    description: >
+      On mobile devices, users may inadvertently double-tap the Pay Now button.
+      Touch events fire differently than mouse clicks — the system must handle
+      both touchstart and click event deduplication.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.5 -> high, but categorized as medium because mobile-specific
+      touch handling is a UI-layer concern with server fallback.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the touch/click dual-event firing on mobile.
+      Equivalence partitioning groups input events (mouse click, touchstart,
+      touchend, keyboard enter) into classes.
+    preconditions:
+      - "User is on a mobile device (touch-enabled)"
+      - "Checkout page is rendered in mobile viewport"
+    examples:
+      - input:
+          event_type: "double_tap"
+          device: "mobile_ios"
+          interval_ms: 30
+        expected:
+          submit_events_fired: 1
+          payment_requests_sent: 1
+        description: "iOS double-tap fires only one submit event."
+      - input:
+          event_type: "touch_then_click"
+          device: "mobile_android"
+          interval_ms: 100
+        expected:
+          submit_events_fired: 1
+          payment_requests_sent: 1
+        description: "Android ghost click after touch handled correctly."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - mobile
+      - touch-events
+      - cross-device
+
+# ---------------------------------------------------------------------------
+# Example Mapping
+# ---------------------------------------------------------------------------
+example_mapping:
+  story: >
+    As an e-commerce customer, I want the checkout system to prevent duplicate
+    charges when I accidentally click 'Pay Now' multiple times so that I am
+    charged exactly once for my order.
+  rules:
+    - rule_name: "Client-side button must be disabled after first click"
+      examples:
+        - "Click Pay Now once -> button becomes disabled, shows 'Processing...'"
+        - "Click disabled button -> no submit handler fires, no API call"
+        - "Payment fails with retryable error -> button re-enables with new idempotency key"
+        - "Payment fails with terminal error -> button stays disabled, shows support link"
+        - "JavaScript disabled -> client guard bypassed, server guard catches it"
+
+    - rule_name: "Server must enforce idempotency key uniqueness"
+      examples:
+        - "Two requests with same key, first in-flight -> second gets 409 PAYMENT_IN_PROGRESS"
+        - "Two requests with same key, first completed -> second gets 200 with cached result"
+        - "Two requests with different keys -> both processed independently"
+        - "Key reused after TTL expiry -> treated as new request (key expired)"
+        - "Idempotency store down -> payment rejected with 503"
+
+    - rule_name: "Payment gateway must deduplicate charges as defense-in-depth"
+      examples:
+        - "Two charge requests with same gateway key -> one charge captured"
+        - "Charge request replayed after 5 minutes -> cached result returned"
+        - "Charge request replayed after 24 hours -> key expired, rejected"
+
+    - rule_name: "System must reconcile uncertain payment states"
+      examples:
+        - "Network drops after request sent, gateway charged -> reconciliation confirms order"
+        - "Network drops after request sent, gateway did not charge -> retry allowed"
+        - "User refreshes page during processing -> status page shown, no resubmission"
+
+    - rule_name: "Each retry must use a new idempotency key"
+      examples:
+        - "First attempt fails -> retry generates new UUID key"
+        - "Two concurrent sessions for same user -> different keys"
+        - "Browser tab A and tab B -> server deduplicates by session + key"
+
+    - rule_name: "Double-click prevention must work across all input methods"
+      examples:
+        - "Mouse double-click on desktop -> single submission"
+        - "Touch double-tap on mobile iOS -> single submission"
+        - "Touch then ghost click on Android -> single submission"
+        - "Keyboard Enter pressed twice rapidly -> single submission"
+        - "5+ panic clicks during slow network -> single submission"
+
+# ---------------------------------------------------------------------------
+# Questions (ambiguities requiring human clarification)
+# ---------------------------------------------------------------------------
+# 1. What is the exact debounce threshold for the client-side guard? (Assumed 300ms)
+# 2. What is the idempotency key TTL? (Assumed 24 hours)
+# 3. Should the idempotency key be per-session or per-cart-version? (Cart content changes invalidate key?)
+# 4. What payment gateway is used? (Stripe, Braintree, etc. — affects gateway-level dedup mechanism)
+# 5. Is there a maximum retry count before the checkout is abandoned?
+# 6. Should multi-tab detection be handled via BroadcastChannel API or server-side session locking?
+# 7. What reconciliation strategy is used for uncertain states — polling or webhooks?
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "typescript"
+  test_framework: "jest"

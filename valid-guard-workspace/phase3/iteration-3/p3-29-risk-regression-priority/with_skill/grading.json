@@ -1,0 +1,58 @@
+{
+  "eval_key": "p3-29-risk-regression-priority",
+  "eval_name": "Microservices regression prioritization",
+  "category": "risk_assessment",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "Payment service = highest priority",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Payment Service"
+    },
+    {
+      "text": "Order fulfillment = high priority",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Order', '')"
+    },
+    {
+      "text": "Catalog = medium priority (no code change)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Product', 'no code change', 'code ')"
+    },
+    {
+      "text": "Dashboard = low priority",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Analytics', 'last')"
+    },
+    {
+      "text": "Code change as primary risk indicator",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('code change', 'risk')"
+    },
+    {
+      "text": "External dependency risk factor",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('carrier', 'integrat')"
+    },
+    {
+      "text": "Financial impact considered",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('financial', 'impact')"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "total": 7,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 0
+  }
+}

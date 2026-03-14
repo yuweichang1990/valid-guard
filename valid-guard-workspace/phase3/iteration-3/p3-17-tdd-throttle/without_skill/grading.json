@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-17-tdd-throttle",
+  "eval_name": "Throttle function TDD with state + BVA",
+  "category": "tdd_best_practices",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Immediate first call execution",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('immediate', 'call')"
+    },
+    {
+      "text": "Subsequent calls ignored during delay",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('ignore', 'until')"
+    },
+    {
+      "text": "After delay, next call executes",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('after', 'period', 'execut')"
+    },
+    {
+      "text": "State model: ready/throttled",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: throttled"
+    },
+    {
+      "text": "BVA on delay parameter",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('delay is zero or negat', 'negat')"
+    },
+    {
+      "text": "Uses state_transition technique",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "Timer precision/edge cases",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: millisecond"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/2 required patterns"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "total": 17,
+    "pass_rate": 0.353,
+    "weighted_score": 0.435,
+    "content_score": 0.909,
+    "structural_score": 0.0
+  }
+}

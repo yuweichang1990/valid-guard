@@ -1,0 +1,1143 @@
+# Valid Guard Test Plan — Ticket Booking System
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Ticket Booking System"
+
+feature_description: >
+  Event ticket booking workflow with a five-state lifecycle: available,
+  reserved, booked, cancelled, and used. Reservation holds a ticket for
+  10 minutes pending payment. Booked tickets may be cancelled with a
+  tiered refund policy based on time remaining before the event (full
+  refund > 24h, partial refund 2-24h, no refund < 2h). On event day,
+  booked tickets transition to used upon scanning.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # STATE TRANSITION — Full Lifecycle
+  # ==========================================================================
+  - name: "Ticket lifecycle — complete state machine"
+    description: >
+      Models the entire ticket state machine with all five states (available,
+      reserved, booked, cancelled, used) and every valid transition including
+      guards for the 10-minute reservation timer, payment completion,
+      cancellation, and event-day scanning.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Invalid state transitions can cause double-booking,
+      lost revenue, or tickets stuck in unrecoverable states. Every user
+      interacts with this lifecycle on every purchase.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      The ticket lifecycle is a classic finite state machine with five distinct
+      states and event-driven transitions governed by time-based guards.
+      State transition testing is the primary technique to ensure every valid
+      transition fires correctly and every invalid transition is rejected.
+    preconditions:
+      - "Ticket exists in the system with a valid event association"
+      - "System clock is reliable for timer-based guards"
+    state_transition:
+      states:
+        - available
+        - reserved
+        - booked
+        - cancelled
+        - used
+      transitions:
+        - from: available
+          to: reserved
+          trigger: "user_selects_ticket"
+          guard: "Ticket is not already reserved or booked by another user"
+        - from: reserved
+          to: booked
+          trigger: "payment_completed"
+          guard: "Payment received within 10-minute reservation window"
+        - from: reserved
+          to: available
+          trigger: "reservation_timer_expired"
+          guard: "10 minutes elapsed since reservation without payment"
+        - from: booked
+          to: cancelled
+          trigger: "user_cancels_ticket"
+          guard: "Ticket has not already been used"
+        - from: cancelled
+          to: available
+          trigger: "cancellation_processed"
+          guard: "Refund (if applicable) has been resolved"
+        - from: booked
+          to: used
+          trigger: "ticket_scanned"
+          guard: "Current date is the event day and ticket is valid"
+    examples:
+      - input:
+          current_state: "available"
+          trigger: "user_selects_ticket"
+        expected:
+          new_state: "reserved"
+          reservation_timer_started: true
+          timer_duration_minutes: 10
+        description: "User selects an available ticket, it moves to reserved with a 10-minute timer."
+      - input:
+          current_state: "reserved"
+          trigger: "payment_completed"
+          minutes_since_reservation: 5
+        expected:
+          new_state: "booked"
+          confirmation_issued: true
+        description: "Payment within 10-minute window moves ticket to booked."
+      - input:
+          current_state: "reserved"
+          trigger: "reservation_timer_expired"
+          minutes_since_reservation: 10
+        expected:
+          new_state: "available"
+          reservation_released: true
+        description: "Reservation expires after 10 minutes, ticket returns to available."
+      - input:
+          current_state: "booked"
+          trigger: "user_cancels_ticket"
+        expected:
+          new_state: "cancelled"
+          cancellation_recorded: true
+        description: "User cancels a booked ticket."
+      - input:
+          current_state: "cancelled"
+          trigger: "cancellation_processed"
+        expected:
+          new_state: "available"
+          ticket_relisted: true
+        description: "Cancelled ticket returns to available pool."
+      - input:
+          current_state: "booked"
+          trigger: "ticket_scanned"
+          is_event_day: true
+        expected:
+          new_state: "used"
+          entry_granted: true
+        description: "Booked ticket scanned on event day transitions to used."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - lifecycle
+
+  # ==========================================================================
+  # STATE TRANSITION — Invalid Transitions
+  # ==========================================================================
+  - name: "Invalid state transitions are rejected"
+    description: >
+      Verifies that all illegal state transitions are blocked. For example,
+      a ticket cannot jump from available directly to booked, from used to
+      any other state, or from cancelled directly to booked.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.50 -> high. Allowing invalid transitions could permit
+      double-booking, usage of cancelled tickets, or tickets bypassing
+      payment entirely.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition covers the N-switch invalid path analysis. Error
+      guessing anticipates specific abuse patterns like direct
+      available-to-booked jumps or re-using a used ticket.
+    preconditions:
+      - "Ticket exists in a known state"
+    examples:
+      - input:
+          current_state: "available"
+          trigger: "payment_completed"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot pay for a ticket that has not been reserved."
+      - input:
+          current_state: "available"
+          trigger: "ticket_scanned"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot scan a ticket that has not been booked."
+      - input:
+          current_state: "used"
+          trigger: "user_cancels_ticket"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot cancel a ticket that has already been used."
+      - input:
+          current_state: "used"
+          trigger: "ticket_scanned"
+        expected:
+          error: "TICKET_ALREADY_USED"
+        description: "Cannot scan a ticket twice."
+      - input:
+          current_state: "cancelled"
+          trigger: "payment_completed"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot pay for a cancelled ticket directly."
+      - input:
+          current_state: "reserved"
+          trigger: "ticket_scanned"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot scan a ticket that is only reserved, not booked."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - negative-testing
+      - security
+
+  # ==========================================================================
+  # HAPPY PATH — Successful Reservation and Booking
+  # ==========================================================================
+  - name: "Successful ticket reservation and booking flow"
+    description: >
+      End-to-end happy path: user selects an available ticket, it becomes
+      reserved, user completes payment within 10 minutes, ticket becomes
+      booked, user receives confirmation.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.50 -> high. This is the core revenue path. Any failure
+      directly blocks ticket sales and causes immediate customer
+      dissatisfaction.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      Equivalence partitioning validates the primary valid-class input
+      (authenticated user, available ticket, valid payment). State
+      transition confirms the available->reserved->booked path.
+    preconditions:
+      - "User is authenticated"
+      - "Ticket is in available state"
+      - "Payment method is valid"
+    examples:
+      - input:
+          ticket_id: "TKT-001"
+          user_id: "USR-42"
+          payment_method: "credit_card"
+          payment_time_minutes: 3
+        expected:
+          final_state: "booked"
+          confirmation_email_sent: true
+          booking_reference: "non-empty"
+        description: "Standard happy path: select, pay in 3 minutes, booked."
+      - input:
+          ticket_id: "TKT-002"
+          user_id: "USR-99"
+          payment_method: "digital_wallet"
+          payment_time_minutes: 1
+        expected:
+          final_state: "booked"
+          confirmation_email_sent: true
+        description: "Quick payment via digital wallet."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - happy-path
+
+  # ==========================================================================
+  # BOUNDARY — 10-Minute Reservation Timer
+  # ==========================================================================
+  - name: "Reservation timer boundary at 10 minutes"
+    description: >
+      Tests the exact boundary of the 10-minute reservation window.
+      Payment at exactly 10:00 should succeed; payment at 10:01 should
+      fail because the reservation has expired.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.50 -> high. An off-by-one error at the timer boundary
+      could either expire reservations prematurely (lost sales) or hold
+      them too long (blocking other buyers).
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value analysis tests the exact 10-minute threshold and
+      its immediate neighbors. State transition confirms the timer-guard
+      correctly routes to booked vs. available.
+    preconditions:
+      - "Ticket is in reserved state"
+      - "System clock is accurate"
+    examples:
+      - input:
+          current_state: "reserved"
+          trigger: "payment_completed"
+          minutes_since_reservation: 9
+        expected:
+          new_state: "booked"
+          payment_accepted: true
+        description: "Payment at 9 minutes — well within window, accepted."
+      - input:
+          current_state: "reserved"
+          trigger: "payment_completed"
+          minutes_since_reservation: 9.99
+        expected:
+          new_state: "booked"
+          payment_accepted: true
+        description: "Payment at 9 min 59 sec — just within window, accepted."
+      - input:
+          current_state: "reserved"
+          trigger: "payment_completed"
+          minutes_since_reservation: 10
+        expected:
+          new_state: "booked"
+          payment_accepted: true
+        description: "Payment at exactly 10 minutes — boundary, accepted."
+      - input:
+          current_state: "reserved"
+          trigger: "payment_completed"
+          minutes_since_reservation: 10.02
+        expected:
+          error: "RESERVATION_EXPIRED"
+          new_state: "available"
+          payment_rejected: true
+        description: "Payment at 10 min 1 sec — just past window, reservation expired."
+      - input:
+          current_state: "reserved"
+          trigger: "reservation_timer_expired"
+          minutes_since_reservation: 10
+        expected:
+          new_state: "available"
+          user_notified: true
+        description: "Timer fires at exactly 10 minutes — ticket released."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - timer
+      - critical-path
+
+  # ==========================================================================
+  # DECISION TABLE — Cancellation Refund Rules
+  # ==========================================================================
+  - name: "Cancellation refund decision table"
+    description: >
+      When a booked ticket is cancelled, the refund amount depends on how
+      far in advance the cancellation occurs relative to the event start
+      time. Three tiers: full refund (> 24h before), partial refund
+      (2-24h before), and no refund (< 2h before). This decision table
+      captures all meaningful combinations.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.50 -> high. Incorrect refund calculations directly cause
+      financial loss (over-refunding) or regulatory/customer trust issues
+      (under-refunding). Refund disputes are costly to resolve manually.
+    techniques:
+      - decision_table
+      - boundary_value
+    technique_rationale: >
+      Decision table enumerates the three refund tiers as distinct business
+      rules mapping time-to-event to refund outcome. Boundary value
+      analysis tests the exact thresholds at 24h and 2h.
+    preconditions:
+      - "Ticket is in booked state"
+      - "Event has a known start time"
+    decision_table:
+      conditions:
+        - "time_before_event"
+        - "ticket_state"
+      actions:
+        - "refund_type"
+        - "refund_percentage"
+        - "ticket_new_state"
+      rules:
+        - description: "Cancellation more than 24 hours before event — full refund"
+          condition_values:
+            time_before_event: "> 24 hours"
+            ticket_state: "booked"
+          expected_actions:
+            refund_type: "full"
+            refund_percentage: 100
+            ticket_new_state: "cancelled"
+
+        - description: "Cancellation between 2 and 24 hours before event — partial refund"
+          condition_values:
+            time_before_event: "2-24 hours"
+            ticket_state: "booked"
+          expected_actions:
+            refund_type: "partial"
+            refund_percentage: 50
+            ticket_new_state: "cancelled"
+
+        - description: "Cancellation less than 2 hours before event — no refund"
+          condition_values:
+            time_before_event: "< 2 hours"
+            ticket_state: "booked"
+          expected_actions:
+            refund_type: "none"
+            refund_percentage: 0
+            ticket_new_state: "cancelled"
+
+        - description: "Cancellation of non-booked ticket — rejected"
+          condition_values:
+            time_before_event: "any"
+            ticket_state: "available"
+          expected_actions:
+            refund_type: "N/A"
+            refund_percentage: 0
+            ticket_new_state: "unchanged"
+
+        - description: "Cancellation of already-used ticket — rejected"
+          condition_values:
+            time_before_event: "any"
+            ticket_state: "used"
+          expected_actions:
+            refund_type: "N/A"
+            refund_percentage: 0
+            ticket_new_state: "unchanged"
+    examples:
+      - input:
+          ticket_id: "TKT-100"
+          ticket_price: 80.00
+          hours_before_event: 48
+        expected:
+          refund_amount: 80.00
+          refund_type: "full"
+          new_state: "cancelled"
+        description: "48 hours before event — full refund of $80.00."
+      - input:
+          ticket_id: "TKT-101"
+          ticket_price: 80.00
+          hours_before_event: 12
+        expected:
+          refund_amount: 40.00
+          refund_type: "partial"
+          new_state: "cancelled"
+        description: "12 hours before event — partial refund of $40.00 (50%)."
+      - input:
+          ticket_id: "TKT-102"
+          ticket_price: 80.00
+          hours_before_event: 1
+        expected:
+          refund_amount: 0.00
+          refund_type: "none"
+          new_state: "cancelled"
+        description: "1 hour before event — no refund, ticket still cancelled."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - refund
+      - decision-table
+      - financial
+      - critical-path
+
+  # ==========================================================================
+  # BOUNDARY — Refund Tier Thresholds
+  # ==========================================================================
+  - name: "Refund tier boundary at 24 hours before event"
+    description: >
+      Tests the exact boundary between full refund and partial refund at
+      the 24-hour mark before the event. Cancellation at 24h 1min should
+      receive full refund; at exactly 24h is the boundary; at 23h 59min
+      should receive partial refund.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.50 -> high. An off-by-one at this boundary causes either
+      unjustified full refunds (financial loss) or denied full refunds
+      (customer complaints and potential chargebacks).
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      Boundary value analysis tests the exact 24-hour threshold. Decision
+      table confirms the correct mapping of time range to refund tier.
+    preconditions:
+      - "Ticket is booked"
+      - "Event start time is known"
+    examples:
+      - input:
+          hours_before_event: 24.02
+          ticket_price: 100.00
+        expected:
+          refund_type: "full"
+          refund_amount: 100.00
+        description: "24 hours and 1 minute before — full refund."
+      - input:
+          hours_before_event: 24.00
+          ticket_price: 100.00
+        expected:
+          refund_type: "full"
+          refund_amount: 100.00
+        description: "Exactly 24 hours before — boundary, full refund."
+      - input:
+          hours_before_event: 23.98
+          ticket_price: 100.00
+        expected:
+          refund_type: "partial"
+          refund_amount: 50.00
+        description: "23 hours 59 minutes before — just past boundary, partial refund."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - refund
+      - financial
+
+  - name: "Refund tier boundary at 2 hours before event"
+    description: >
+      Tests the exact boundary between partial refund and no refund at
+      the 2-hour mark. Cancellation at 2h 1min should receive partial
+      refund; at exactly 2h is the boundary; at 1h 59min should receive
+      no refund.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.50 -> high. Incorrect tier assignment at this boundary
+      either grants undeserved partial refunds or denies rightful ones.
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      Boundary value analysis tests the exact 2-hour threshold and its
+      immediate neighbors. Decision table maps each side of the boundary
+      to the correct refund action.
+    preconditions:
+      - "Ticket is booked"
+      - "Event start time is known"
+    examples:
+      - input:
+          hours_before_event: 2.02
+          ticket_price: 100.00
+        expected:
+          refund_type: "partial"
+          refund_amount: 50.00
+        description: "2 hours and 1 minute before — partial refund."
+      - input:
+          hours_before_event: 2.00
+          ticket_price: 100.00
+        expected:
+          refund_type: "partial"
+          refund_amount: 50.00
+        description: "Exactly 2 hours before — boundary, partial refund."
+      - input:
+          hours_before_event: 1.98
+          ticket_price: 100.00
+        expected:
+          refund_type: "none"
+          refund_amount: 0.00
+        description: "1 hour 59 minutes before — just past boundary, no refund."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - refund
+      - financial
+
+  # ==========================================================================
+  # EDGE CASE — Reservation Expiry Race Condition
+  # ==========================================================================
+  - name: "Payment submitted at exact moment of reservation expiry"
+    description: >
+      Race condition where the payment completion arrives at the same
+      instant the 10-minute timer fires. The system must handle this
+      atomically — either the payment wins or the timer wins, but never
+      both.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3.
+      Average: 2.50 -> high. Rare but catastrophic: if both fire, the
+      ticket could be charged but released, or booked but also re-listed,
+      leading to double-booking or orphaned charges.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets the known concurrency pitfall at timer
+      expiry. State transition verifies that only one path wins
+      atomically.
+    preconditions:
+      - "Ticket is in reserved state"
+      - "Reservation timer is at exactly 10 minutes"
+    examples:
+      - input:
+          current_state: "reserved"
+          payment_received_at: "10:00.000"
+          timer_fires_at: "10:00.000"
+        expected:
+          final_state_is_one_of: ["booked", "available"]
+          no_double_state: true
+          charge_matches_state: true
+        description: "Simultaneous payment and timer — system resolves atomically."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - race-condition
+      - timer
+
+  # ==========================================================================
+  # EDGE CASE — Concurrent Reservation Attempt
+  # ==========================================================================
+  - name: "Two users attempt to reserve the same ticket simultaneously"
+    description: >
+      Two users click 'reserve' on the same ticket at the same time.
+      Only one should succeed; the other should receive an error
+      indicating the ticket is no longer available.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.50 -> high. Without proper concurrency control,
+      both users could reserve the same ticket, leading to double-booking.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates the classic double-reservation race
+      condition. State transition confirms the available->reserved
+      transition is atomic.
+    preconditions:
+      - "Ticket is in available state"
+      - "Two concurrent reservation requests arrive"
+    examples:
+      - input:
+          ticket_id: "TKT-500"
+          user_a: "USR-01"
+          user_b: "USR-02"
+          request_timing: "simultaneous"
+        expected:
+          one_user_reserved: true
+          other_user_error: "TICKET_UNAVAILABLE"
+          ticket_state: "reserved"
+          reserved_by_count: 1
+        description: "Only one user wins the reservation; the other gets an error."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - race-condition
+      - critical-path
+
+  # ==========================================================================
+  # HAPPY PATH — Ticket Scanning on Event Day
+  # ==========================================================================
+  - name: "Successful ticket scan on event day"
+    description: >
+      A booked ticket is scanned at the venue entrance on event day.
+      The ticket transitions from booked to used and the user is granted
+      entry.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.50 -> high. Scanning failure at the venue entrance
+      blocks legitimate attendees and causes immediate customer distress.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      Equivalence partitioning validates the primary valid-class input
+      (valid booked ticket, correct event day). State transition confirms
+      the booked->used transition.
+    preconditions:
+      - "Ticket is in booked state"
+      - "Current date is the event day"
+    examples:
+      - input:
+          ticket_id: "TKT-200"
+          scan_date: "2026-04-15"
+          event_date: "2026-04-15"
+          ticket_state: "booked"
+        expected:
+          new_state: "used"
+          entry_granted: true
+          scan_timestamp_recorded: true
+        description: "Valid booked ticket scanned on event day — entry granted."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - scanning
+      - happy-path
+      - event-day
+
+  # ==========================================================================
+  # ERROR HANDLING — Scanning Errors
+  # ==========================================================================
+  - name: "Ticket scan on wrong day"
+    description: >
+      A booked ticket is scanned on a day that is not the event day.
+      The scan should be rejected.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1.
+      Average: 1.50 -> medium. Unlikely scenario but could cause
+      confusion at venue if not handled clearly.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning separates event-day from non-event-day
+      scan attempts. Error guessing anticipates early and late scan
+      attempts.
+    preconditions:
+      - "Ticket is in booked state"
+      - "Current date is not event day"
+    examples:
+      - input:
+          ticket_id: "TKT-201"
+          scan_date: "2026-04-14"
+          event_date: "2026-04-15"
+        expected:
+          error: "EVENT_NOT_TODAY"
+          entry_denied: true
+          state_unchanged: true
+        description: "Scan one day before event — rejected."
+      - input:
+          ticket_id: "TKT-202"
+          scan_date: "2026-04-16"
+          event_date: "2026-04-15"
+        expected:
+          error: "EVENT_ALREADY_PASSED"
+          entry_denied: true
+        description: "Scan one day after event — rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - scanning
+      - error-handling
+      - event-day
+
+  - name: "Scan of a cancelled ticket"
+    description: >
+      A ticket that was booked and subsequently cancelled is presented
+      at the venue scanner. The scan must be rejected.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1.
+      Average: 1.50 -> medium. Cancelled ticket scan is an obvious
+      error to detect, but granting entry would be a policy violation.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning classifies cancelled as an invalid ticket
+      state for scanning. Error guessing anticipates attempted use of
+      cancelled tickets.
+    preconditions:
+      - "Ticket was booked and then cancelled"
+      - "Current date is event day"
+    examples:
+      - input:
+          ticket_id: "TKT-300"
+          ticket_state: "cancelled"
+          scan_date: "2026-04-15"
+          event_date: "2026-04-15"
+        expected:
+          error: "TICKET_CANCELLED"
+          entry_denied: true
+        description: "Cancelled ticket scanned on event day — entry denied."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - scanning
+      - cancelled
+      - error-handling
+
+  - name: "Duplicate scan of an already-used ticket"
+    description: >
+      A ticket that has already been scanned and marked as used is
+      scanned again. The system must reject the duplicate scan to
+      prevent ticket sharing.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, but upgraded to high due to direct
+      revenue and security implications. Allowing duplicate scans
+      enables ticket fraud.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition confirms that used is a terminal state with no
+      valid outgoing transitions. Error guessing anticipates the
+      ticket-sharing attack vector.
+    preconditions:
+      - "Ticket is already in used state"
+    examples:
+      - input:
+          ticket_id: "TKT-400"
+          ticket_state: "used"
+          scan_attempt: 2
+        expected:
+          error: "TICKET_ALREADY_USED"
+          entry_denied: true
+          first_scan_timestamp_shown: true
+        description: "Second scan attempt — rejected with info about first scan."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - scanning
+      - fraud-prevention
+      - security
+
+  # ==========================================================================
+  # ERROR HANDLING — Payment Failures
+  # ==========================================================================
+  - name: "Payment failure during reservation window"
+    description: >
+      User attempts payment while the ticket is reserved but the payment
+      is declined. The ticket should remain reserved until the timer
+      expires, allowing the user to retry with another payment method.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 2, Detectability: 1.
+      Average: 2.00 -> medium, but upgraded due to direct revenue
+      impact. Poor handling causes customer abandonment.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning groups payment failures by type (declined,
+      timeout, invalid card). Error guessing covers uncommon failure modes.
+    preconditions:
+      - "Ticket is in reserved state"
+      - "Reservation timer has not expired"
+    examples:
+      - input:
+          ticket_state: "reserved"
+          payment_result: "declined"
+          minutes_remaining: 7
+        expected:
+          ticket_state: "reserved"
+          error: "PAYMENT_DECLINED"
+          retry_allowed: true
+          timer_continues: true
+        description: "Payment declined — ticket stays reserved, user can retry."
+      - input:
+          ticket_state: "reserved"
+          payment_result: "gateway_timeout"
+          minutes_remaining: 3
+        expected:
+          ticket_state: "reserved"
+          error: "PAYMENT_GATEWAY_TIMEOUT"
+          retry_allowed: true
+        description: "Payment gateway timeout — user can retry before timer expires."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - payment
+      - error-handling
+      - reservation
+
+  # ==========================================================================
+  # EDGE CASE — Cancellation After Event Has Started
+  # ==========================================================================
+  - name: "Cancellation attempt after event has started"
+    description: >
+      User attempts to cancel a booked ticket after the event start
+      time has passed (but the ticket has not been scanned). The system
+      should either reject the cancellation entirely or apply the
+      no-refund policy.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1.
+      Average: 1.50 -> medium. Uncommon scenario but requires clear
+      policy enforcement to avoid disputes.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the event-start-time threshold. Error guessing
+      anticipates post-event cancellation attempts.
+    preconditions:
+      - "Ticket is booked"
+      - "Event has already started or passed"
+    examples:
+      - input:
+          ticket_state: "booked"
+          hours_after_event_start: 1
+        expected:
+          cancellation_allowed: true
+          refund_type: "none"
+          refund_amount: 0.00
+        description: "Cancel 1 hour after event started — allowed but no refund."
+      - input:
+          ticket_state: "booked"
+          hours_after_event_end: 24
+        expected:
+          error: "CANCELLATION_WINDOW_CLOSED"
+          cancellation_allowed: false
+        description: "Cancel 24 hours after event ended — rejected entirely."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - cancellation
+      - edge-case
+      - post-event
+
+  # ==========================================================================
+  # EDGE CASE — Reservation When No Tickets Are Available
+  # ==========================================================================
+  - name: "Reservation attempt when ticket is already reserved by another user"
+    description: >
+      User attempts to reserve a ticket that is currently in reserved
+      state (held by another user). The system should indicate the
+      ticket is unavailable.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1.
+      Average: 1.75 -> medium. Expected scenario during high-demand
+      events. Poor messaging confuses users.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning classifies already-reserved as an invalid
+      input class. Error guessing anticipates timing-dependent availability.
+    preconditions:
+      - "Ticket is in reserved state by another user"
+    examples:
+      - input:
+          ticket_id: "TKT-600"
+          ticket_state: "reserved"
+          requesting_user: "USR-77"
+          reserved_by: "USR-42"
+        expected:
+          error: "TICKET_UNAVAILABLE"
+          suggested_action: "browse_alternatives"
+        description: "Ticket reserved by another user — clearly indicated as unavailable."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - availability
+      - edge-case
+      - user-experience
+
+  # ==========================================================================
+  # SECURITY — Ticket Forgery / Invalid Ticket Scan
+  # ==========================================================================
+  - name: "Scan of a forged or non-existent ticket"
+    description: >
+      A QR code or barcode that does not correspond to any ticket in the
+      system is scanned at the venue. The system must reject it.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.00 -> medium, but upgraded to high due to security
+      implications. Accepting forged tickets causes direct revenue loss.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates forgery and invalid input attack
+      vectors against the scanning endpoint.
+    preconditions:
+      - "Scanning system is active"
+    examples:
+      - input:
+          scanned_code: "FORGED-XYZ-999"
+        expected:
+          error: "TICKET_NOT_FOUND"
+          entry_denied: true
+          security_alert_raised: true
+        description: "Non-existent ticket ID scanned — rejected with security alert."
+      - input:
+          scanned_code: ""
+        expected:
+          error: "INVALID_SCAN_DATA"
+          entry_denied: true
+        description: "Empty scan data — rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - scanning
+      - fraud-prevention
+
+  # ==========================================================================
+  # EDGE CASE — Cancellation and Immediate Re-reservation
+  # ==========================================================================
+  - name: "Ticket cancelled and immediately re-reserved by another user"
+    description: >
+      After a ticket is cancelled and returns to available, another user
+      immediately reserves it. Verifies the full cycle:
+      booked -> cancelled -> available -> reserved by new user.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1.
+      Average: 1.75 -> medium. Tests the complete lifecycle recycling
+      to ensure no stale state lingers from the previous booking.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition verifies the full cycle through all intermediate
+      states. Error guessing checks for stale booking data leaking
+      into the new reservation.
+    preconditions:
+      - "Ticket was previously booked and then cancelled"
+    examples:
+      - input:
+          ticket_id: "TKT-700"
+          original_user: "USR-10"
+          new_user: "USR-20"
+          action_sequence: ["cancel", "wait_for_available", "reserve"]
+        expected:
+          final_state: "reserved"
+          reserved_by: "USR-20"
+          original_booking_data_cleared: true
+          new_reservation_timer_started: true
+        description: "Cancelled ticket re-reserved by new user — clean state."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - lifecycle
+      - state-machine
+      - data-integrity
+
+  # ==========================================================================
+  # PERFORMANCE — High-Demand Concurrent Reservations
+  # ==========================================================================
+  - name: "High-demand event with many concurrent reservation attempts"
+    description: >
+      A popular event with limited tickets receives hundreds of
+      simultaneous reservation requests. The system must handle the
+      load without data corruption or excessive latency.
+    type: performance
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1.
+      Average: 1.50 -> medium. Occurs during high-profile event
+      launches. Failures cause lost sales and negative press.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the system at maximum expected concurrent
+      load. Error guessing anticipates thundering-herd problems and
+      deadlocks under contention.
+    preconditions:
+      - "Event has 100 available tickets"
+      - "500 users attempt to reserve simultaneously"
+    examples:
+      - input:
+          available_tickets: 100
+          concurrent_requests: 500
+        expected:
+          successful_reservations: 100
+          rejected_with_unavailable: 400
+          no_double_bookings: true
+          p99_latency_ms: "<3000"
+        description: "500 concurrent requests for 100 tickets — exactly 100 reserved, 400 rejected cleanly."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - performance
+      - load-test
+      - concurrency
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As an event attendee, I want to browse, reserve, pay for, and use
+    event tickets so that I can attend events I am interested in, with
+    clear rules for cancellation and refunds.
+  rules:
+    - rule_name: "An available ticket can be reserved by selecting it"
+      examples:
+        - "User selects an available ticket -> ticket moves to reserved, 10-minute timer starts"
+        - "User selects an already-reserved ticket -> error TICKET_UNAVAILABLE"
+        - "Two users select the same ticket simultaneously -> only one succeeds"
+        - "User selects a booked ticket -> error TICKET_UNAVAILABLE"
+
+    - rule_name: "A reserved ticket must be paid for within 10 minutes"
+      examples:
+        - "Payment at 3 minutes -> ticket moves to booked, confirmation issued"
+        - "Payment at 9 min 59 sec -> ticket moves to booked (just in time)"
+        - "Payment at 10 min 1 sec -> reservation expired, ticket returns to available"
+        - "Payment declined at 5 minutes -> ticket stays reserved, retry allowed"
+        - "No payment and timer expires at 10 minutes -> ticket returns to available"
+
+    - rule_name: "A booked ticket can be cancelled with tiered refund"
+      examples:
+        - "Cancel 48h before event -> full refund (100%)"
+        - "Cancel 24h 1min before event -> full refund (boundary)"
+        - "Cancel 23h 59min before event -> partial refund (50%)"
+        - "Cancel 12h before event -> partial refund (50%)"
+        - "Cancel 2h 1min before event -> partial refund (boundary)"
+        - "Cancel 1h 59min before event -> no refund"
+        - "Cancel 30min before event -> no refund"
+
+    - rule_name: "A cancelled ticket returns to available for others to book"
+      examples:
+        - "Cancelled ticket -> state changes to available"
+        - "Another user immediately reserves the newly available ticket -> clean state, no stale data"
+
+    - rule_name: "A booked ticket becomes used when scanned on event day"
+      examples:
+        - "Scan booked ticket on event day -> moves to used, entry granted"
+        - "Scan booked ticket day before event -> rejected, EVENT_NOT_TODAY"
+        - "Scan cancelled ticket on event day -> rejected, TICKET_CANCELLED"
+        - "Scan already-used ticket -> rejected, TICKET_ALREADY_USED"
+        - "Scan forged/nonexistent ticket -> rejected, TICKET_NOT_FOUND"
+
+    - rule_name: "Used is a terminal state — no further transitions"
+      examples:
+        - "Attempt to cancel a used ticket -> error INVALID_STATE_TRANSITION"
+        - "Attempt to scan a used ticket again -> error TICKET_ALREADY_USED"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

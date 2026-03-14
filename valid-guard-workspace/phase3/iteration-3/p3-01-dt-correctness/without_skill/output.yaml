@@ -1,0 +1,659 @@
+test_plan:
+  title: "Decision Table Test Plan: Largest of Three Positive Integers"
+  description: >
+    Determines the largest value among three positive integers (x, y, z),
+    each constrained to the range [1, 300]. Uses a decision table approach
+    with validation rules (input range checks) and comparison rules
+    (relational comparisons to identify the maximum).
+  system_under_test: "max(x, y, z) with input validation"
+  technique: "Decision Table Testing"
+
+  input_variables:
+    - name: x
+      type: positive_integer
+      valid_range: [1, 300]
+    - name: y
+      type: positive_integer
+      valid_range: [1, 300]
+    - name: z
+      type: positive_integer
+      valid_range: [1, 300]
+
+  conditions:
+    validation_conditions:
+      c1:
+        id: c1
+        description: "x >= 1"
+        type: lower_bound_check
+        variable: x
+      c2:
+        id: c2
+        description: "x <= 300"
+        type: upper_bound_check
+        variable: x
+      c3:
+        id: c3
+        description: "y >= 1"
+        type: lower_bound_check
+        variable: y
+      c4:
+        id: c4
+        description: "y <= 300"
+        type: upper_bound_check
+        variable: y
+      c5:
+        id: c5
+        description: "z >= 1"
+        type: lower_bound_check
+        variable: z
+      c6:
+        id: c6
+        description: "z <= 300"
+        type: upper_bound_check
+        variable: z
+    comparison_conditions:
+      c7:
+        id: c7
+        description: "x > y"
+        type: relational_comparison
+        variables: [x, y]
+      c8:
+        id: c8
+        description: "x > z"
+        type: relational_comparison
+        variables: [x, z]
+      c9:
+        id: c9
+        description: "y > z"
+        type: relational_comparison
+        variables: [y, z]
+
+  actions:
+    a1:
+      id: a1
+      description: "Return x as the largest"
+    a2:
+      id: a2
+      description: "Return y as the largest"
+    a3:
+      id: a3
+      description: "Return z as the largest"
+    a4:
+      id: a4
+      description: "Return error — input out of valid range"
+    a5:
+      id: a5
+      description: "Return the common maximum when two or more inputs are equal and largest"
+
+  decision_table:
+    validation_rules:
+      - rule_id: V1
+        description: "x is below lower bound"
+        conditions:
+          c1: false
+          c2: true
+          c3: true
+          c4: true
+          c5: true
+          c6: true
+        action: a4
+        example:
+          inputs: { x: 0, y: 50, z: 100 }
+          expected_output: "Error: x=0 is out of range [1, 300]"
+
+      - rule_id: V2
+        description: "x is above upper bound"
+        conditions:
+          c1: true
+          c2: false
+          c3: true
+          c4: true
+          c5: true
+          c6: true
+        action: a4
+        example:
+          inputs: { x: 301, y: 50, z: 100 }
+          expected_output: "Error: x=301 is out of range [1, 300]"
+
+      - rule_id: V3
+        description: "y is below lower bound"
+        conditions:
+          c1: true
+          c2: true
+          c3: false
+          c4: true
+          c5: true
+          c6: true
+        action: a4
+        example:
+          inputs: { x: 50, y: 0, z: 100 }
+          expected_output: "Error: y=0 is out of range [1, 300]"
+
+      - rule_id: V4
+        description: "y is above upper bound"
+        conditions:
+          c1: true
+          c2: true
+          c3: true
+          c4: false
+          c5: true
+          c6: true
+        action: a4
+        example:
+          inputs: { x: 50, y: 301, z: 100 }
+          expected_output: "Error: y=301 is out of range [1, 300]"
+
+      - rule_id: V5
+        description: "z is below lower bound"
+        conditions:
+          c1: true
+          c2: true
+          c3: true
+          c4: true
+          c5: false
+          c6: true
+        action: a4
+        example:
+          inputs: { x: 50, y: 100, z: 0 }
+          expected_output: "Error: z=0 is out of range [1, 300]"
+
+      - rule_id: V6
+        description: "z is above upper bound"
+        conditions:
+          c1: true
+          c2: true
+          c3: true
+          c4: true
+          c5: true
+          c6: false
+        action: a4
+        example:
+          inputs: { x: 50, y: 100, z: 301 }
+          expected_output: "Error: z=301 is out of range [1, 300]"
+
+      - rule_id: V7
+        description: "Multiple inputs out of range simultaneously"
+        conditions:
+          c1: false
+          c2: true
+          c3: true
+          c4: false
+          c5: false
+          c6: true
+        action: a4
+        example:
+          inputs: { x: -5, y: 500, z: 0 }
+          expected_output: "Error: x=-5, y=500, z=0 are out of range [1, 300]"
+
+      - rule_id: V8
+        description: "All inputs out of range (below)"
+        conditions:
+          c1: false
+          c2: true
+          c3: false
+          c4: true
+          c5: false
+          c6: true
+        action: a4
+        example:
+          inputs: { x: 0, y: -1, z: -100 }
+          expected_output: "Error: x=0, y=-1, z=-100 are out of range [1, 300]"
+
+      - rule_id: V9
+        description: "All inputs out of range (above)"
+        conditions:
+          c1: true
+          c2: false
+          c3: true
+          c4: false
+          c5: true
+          c6: false
+        action: a4
+        example:
+          inputs: { x: 301, y: 999, z: 400 }
+          expected_output: "Error: x=301, y=999, z=400 are out of range [1, 300]"
+
+    comparison_rules:
+      - rule_id: R1
+        description: "x is strictly the largest (x > y and x > z)"
+        precondition: "All inputs valid (c1-c6 all true)"
+        conditions:
+          c7: true
+          c8: true
+          c9: "-"
+        action: a1
+        note: "c9 is irrelevant since x is already larger than both y and z"
+        examples:
+          - inputs: { x: 200, y: 100, z: 50 }
+            expected_output: { largest: 200 }
+            detail: "x > y > z"
+          - inputs: { x: 200, y: 50, z: 100 }
+            expected_output: { largest: 200 }
+            detail: "x > z > y"
+
+      - rule_id: R2
+        description: "y is strictly the largest (y > x and y > z)"
+        precondition: "All inputs valid (c1-c6 all true)"
+        conditions:
+          c7: false
+          c8: "-"
+          c9: true
+        action: a2
+        note: "x > z (c8) is irrelevant; y > x (not c7) and y > z (c9) suffice"
+        examples:
+          - inputs: { x: 50, y: 200, z: 100 }
+            expected_output: { largest: 200 }
+            detail: "y > z > x"
+          - inputs: { x: 100, y: 200, z: 50 }
+            expected_output: { largest: 200 }
+            detail: "y > x > z"
+
+      - rule_id: R3
+        description: "z is strictly the largest (z > x and z > y)"
+        precondition: "All inputs valid (c1-c6 all true)"
+        conditions:
+          c7: "-"
+          c8: false
+          c9: false
+        action: a3
+        note: "x > y (c7) is irrelevant; z >= x (not c8) and z >= y (not c9) suffice"
+        examples:
+          - inputs: { x: 50, y: 100, z: 200 }
+            expected_output: { largest: 200 }
+            detail: "z > y > x"
+          - inputs: { x: 100, y: 50, z: 200 }
+            expected_output: { largest: 200 }
+            detail: "z > x > y"
+
+      - rule_id: R4
+        description: "x and y are equal and both larger than z"
+        precondition: "All inputs valid (c1-c6 all true)"
+        conditions:
+          c7: false
+          c8: true
+          c9: false
+        action: a5
+        note: "x is not greater than y, and y is not greater than z implies x == y; x > z holds"
+        examples:
+          - inputs: { x: 150, y: 150, z: 100 }
+            expected_output: { largest: 150, tied: [x, y] }
+            detail: "x == y > z"
+
+      - rule_id: R5
+        description: "x and z are equal and both larger than y"
+        precondition: "All inputs valid (c1-c6 all true)"
+        conditions:
+          c7: true
+          c8: false
+          c9: false
+        action: a5
+        note: "x > y but x is not > z, so x == z; y < z since not c9"
+        examples:
+          - inputs: { x: 150, y: 100, z: 150 }
+            expected_output: { largest: 150, tied: [x, z] }
+            detail: "x == z > y"
+
+      - rule_id: R6
+        description: "y and z are equal and both larger than x"
+        precondition: "All inputs valid (c1-c6 all true)"
+        conditions:
+          c7: false
+          c8: false
+          c9: false
+        action: a5
+        note: "y >= x (not c7), z >= x (not c8), y == z (not c9)"
+        examples:
+          - inputs: { x: 100, y: 150, z: 150 }
+            expected_output: { largest: 150, tied: [y, z] }
+            detail: "y == z > x"
+
+      - rule_id: R7
+        description: "All three are equal"
+        precondition: "All inputs valid (c1-c6 all true)"
+        conditions:
+          c7: false
+          c8: false
+          c9: false
+        action: a5
+        note: "Special case of R6; all comparisons false means x == y == z"
+        examples:
+          - inputs: { x: 150, y: 150, z: 150 }
+            expected_output: { largest: 150, tied: [x, y, z] }
+            detail: "x == y == z"
+
+    infeasible_combinations:
+      - rule_id: INF1
+        description: "c7 true and c8 false and c9 true is infeasible when all equal-or-strict"
+        conditions:
+          c7: true
+          c8: false
+          c9: true
+        explanation: >
+          If x > y (c7) and y > z (c9), then by transitivity x > z,
+          so c8 (x > z) cannot be false. This combination is logically impossible.
+
+  test_cases:
+    # ---------- Validation test cases ----------
+    - test_id: TC-V01
+      category: validation
+      rule: V1
+      description: "x at lower boundary violation"
+      inputs: { x: 0, y: 150, z: 150 }
+      expected: { valid: false, error: "x out of range" }
+
+    - test_id: TC-V02
+      category: validation
+      rule: V2
+      description: "x at upper boundary violation"
+      inputs: { x: 301, y: 150, z: 150 }
+      expected: { valid: false, error: "x out of range" }
+
+    - test_id: TC-V03
+      category: validation
+      rule: V3
+      description: "y at lower boundary violation"
+      inputs: { x: 150, y: 0, z: 150 }
+      expected: { valid: false, error: "y out of range" }
+
+    - test_id: TC-V04
+      category: validation
+      rule: V4
+      description: "y at upper boundary violation"
+      inputs: { x: 150, y: 301, z: 150 }
+      expected: { valid: false, error: "y out of range" }
+
+    - test_id: TC-V05
+      category: validation
+      rule: V5
+      description: "z at lower boundary violation"
+      inputs: { x: 150, y: 150, z: 0 }
+      expected: { valid: false, error: "z out of range" }
+
+    - test_id: TC-V06
+      category: validation
+      rule: V6
+      description: "z at upper boundary violation"
+      inputs: { x: 150, y: 150, z: 301 }
+      expected: { valid: false, error: "z out of range" }
+
+    - test_id: TC-V07
+      category: validation
+      rule: V7
+      description: "Multiple inputs invalid"
+      inputs: { x: -10, y: 500, z: 0 }
+      expected: { valid: false, error: "x, y, z out of range" }
+
+    - test_id: TC-V08
+      category: validation
+      rule: V8
+      description: "All inputs below range"
+      inputs: { x: 0, y: -1, z: -100 }
+      expected: { valid: false, error: "x, y, z out of range" }
+
+    - test_id: TC-V09
+      category: validation
+      rule: V9
+      description: "All inputs above range"
+      inputs: { x: 301, y: 999, z: 400 }
+      expected: { valid: false, error: "x, y, z out of range" }
+
+    - test_id: TC-V10
+      category: validation
+      rule: V1
+      description: "x is negative large value"
+      inputs: { x: -999, y: 1, z: 1 }
+      expected: { valid: false, error: "x out of range" }
+
+    # ---------- Boundary test cases ----------
+    - test_id: TC-B01
+      category: boundary
+      description: "All inputs at lower boundary"
+      inputs: { x: 1, y: 1, z: 1 }
+      expected: { valid: true, largest: 1 }
+
+    - test_id: TC-B02
+      category: boundary
+      description: "All inputs at upper boundary"
+      inputs: { x: 300, y: 300, z: 300 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-B03
+      category: boundary
+      description: "x at upper boundary, others at lower"
+      inputs: { x: 300, y: 1, z: 1 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-B04
+      category: boundary
+      description: "y at upper boundary, others at lower"
+      inputs: { x: 1, y: 300, z: 1 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-B05
+      category: boundary
+      description: "z at upper boundary, others at lower"
+      inputs: { x: 1, y: 1, z: 300 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-B06
+      category: boundary
+      description: "x at lower boundary, y and z at upper boundary"
+      inputs: { x: 1, y: 300, z: 300 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-B07
+      category: boundary
+      description: "y at lower boundary, x and z at upper boundary"
+      inputs: { x: 300, y: 1, z: 300 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-B08
+      category: boundary
+      description: "z at lower boundary, x and y at upper boundary"
+      inputs: { x: 300, y: 300, z: 1 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-B09
+      category: boundary
+      description: "Just inside lower boundary for x"
+      inputs: { x: 1, y: 150, z: 150 }
+      expected: { valid: true, largest: 150 }
+
+    - test_id: TC-B10
+      category: boundary
+      description: "Just inside upper boundary for x"
+      inputs: { x: 300, y: 150, z: 150 }
+      expected: { valid: true, largest: 300 }
+
+    # ---------- Comparison rule test cases (strict ordering) ----------
+    - test_id: TC-R01
+      category: comparison
+      rule: R1
+      description: "x is largest — x > y > z"
+      inputs: { x: 250, y: 150, z: 50 }
+      conditions: { c7: true, c8: true, c9: true }
+      expected: { valid: true, largest: 250 }
+
+    - test_id: TC-R02
+      category: comparison
+      rule: R1
+      description: "x is largest — x > z > y"
+      inputs: { x: 250, y: 50, z: 150 }
+      conditions: { c7: true, c8: true, c9: false }
+      expected: { valid: true, largest: 250 }
+
+    - test_id: TC-R03
+      category: comparison
+      rule: R2
+      description: "y is largest — y > x > z"
+      inputs: { x: 150, y: 250, z: 50 }
+      conditions: { c7: false, c8: true, c9: true }
+      expected: { valid: true, largest: 250 }
+
+    - test_id: TC-R04
+      category: comparison
+      rule: R2
+      description: "y is largest — y > z > x"
+      inputs: { x: 50, y: 250, z: 150 }
+      conditions: { c7: false, c8: false, c9: true }
+      expected: { valid: true, largest: 250 }
+
+    - test_id: TC-R05
+      category: comparison
+      rule: R3
+      description: "z is largest — z > x > y"
+      inputs: { x: 150, y: 50, z: 250 }
+      conditions: { c7: true, c8: false, c9: false }
+      expected: { valid: true, largest: 250 }
+
+    - test_id: TC-R06
+      category: comparison
+      rule: R3
+      description: "z is largest — z > y > x"
+      inputs: { x: 50, y: 150, z: 250 }
+      conditions: { c7: false, c8: false, c9: false }
+      expected: { valid: true, largest: 250 }
+
+    # ---------- Comparison rule test cases (ties) ----------
+    - test_id: TC-R07
+      category: comparison_tie
+      rule: R4
+      description: "x == y, both larger than z"
+      inputs: { x: 200, y: 200, z: 100 }
+      conditions: { c7: false, c8: true, c9: false }
+      expected: { valid: true, largest: 200 }
+
+    - test_id: TC-R08
+      category: comparison_tie
+      rule: R5
+      description: "x == z, both larger than y"
+      inputs: { x: 200, y: 100, z: 200 }
+      conditions: { c7: true, c8: false, c9: false }
+      expected: { valid: true, largest: 200 }
+
+    - test_id: TC-R09
+      category: comparison_tie
+      rule: R6
+      description: "y == z, both larger than x"
+      inputs: { x: 100, y: 200, z: 200 }
+      conditions: { c7: false, c8: false, c9: false }
+      expected: { valid: true, largest: 200 }
+
+    - test_id: TC-R10
+      category: comparison_tie
+      rule: R7
+      description: "All three equal"
+      inputs: { x: 175, y: 175, z: 175 }
+      conditions: { c7: false, c8: false, c9: false }
+      expected: { valid: true, largest: 175 }
+
+    # ---------- All six permutations of distinct values ----------
+    - test_id: TC-P01
+      category: permutation
+      description: "Permutation x > y > z"
+      inputs: { x: 100, y: 50, z: 10 }
+      expected: { valid: true, largest: 100 }
+
+    - test_id: TC-P02
+      category: permutation
+      description: "Permutation x > z > y"
+      inputs: { x: 100, y: 10, z: 50 }
+      expected: { valid: true, largest: 100 }
+
+    - test_id: TC-P03
+      category: permutation
+      description: "Permutation y > x > z"
+      inputs: { x: 50, y: 100, z: 10 }
+      expected: { valid: true, largest: 100 }
+
+    - test_id: TC-P04
+      category: permutation
+      description: "Permutation y > z > x"
+      inputs: { x: 10, y: 100, z: 50 }
+      expected: { valid: true, largest: 100 }
+
+    - test_id: TC-P05
+      category: permutation
+      description: "Permutation z > x > y"
+      inputs: { x: 50, y: 10, z: 100 }
+      expected: { valid: true, largest: 100 }
+
+    - test_id: TC-P06
+      category: permutation
+      description: "Permutation z > y > x"
+      inputs: { x: 10, y: 50, z: 100 }
+      expected: { valid: true, largest: 100 }
+
+    # ---------- Additional edge and stress cases ----------
+    - test_id: TC-E01
+      category: edge
+      description: "Two at lower boundary, one slightly above"
+      inputs: { x: 1, y: 1, z: 2 }
+      expected: { valid: true, largest: 2 }
+
+    - test_id: TC-E02
+      category: edge
+      description: "Two at upper boundary, one slightly below"
+      inputs: { x: 300, y: 299, z: 300 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-E03
+      category: edge
+      description: "Consecutive values ascending"
+      inputs: { x: 148, y: 149, z: 150 }
+      expected: { valid: true, largest: 150 }
+
+    - test_id: TC-E04
+      category: edge
+      description: "Consecutive values descending"
+      inputs: { x: 150, y: 149, z: 148 }
+      expected: { valid: true, largest: 150 }
+
+    - test_id: TC-E05
+      category: edge
+      description: "Large gap between values"
+      inputs: { x: 1, y: 150, z: 300 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-E06
+      category: edge
+      description: "Middle of range, all equal"
+      inputs: { x: 150, y: 150, z: 150 }
+      expected: { valid: true, largest: 150 }
+
+    - test_id: TC-E07
+      category: edge
+      description: "x just valid, y and z maximum"
+      inputs: { x: 1, y: 300, z: 300 }
+      expected: { valid: true, largest: 300 }
+
+    - test_id: TC-E08
+      category: edge
+      description: "Only one off by boundary (x=0 invalid, y and z valid)"
+      inputs: { x: 0, y: 1, z: 300 }
+      expected: { valid: false, error: "x out of range" }
+
+  decision_table_summary:
+    total_conditions: 9
+    validation_conditions: 6
+    comparison_conditions: 3
+    total_rules: 16
+    validation_rules: 9
+    comparison_rules: 7
+    infeasible_combinations: 1
+    total_test_cases: 38
+    test_case_breakdown:
+      validation: 10
+      boundary: 10
+      comparison_strict: 6
+      comparison_tie: 4
+      permutation: 6
+      edge: 8
+    coverage_notes:
+      - "All 9 validation rules (V1-V9) are covered by at least one test case"
+      - "All 7 comparison rules (R1-R7) are covered including tie scenarios"
+      - "All 6 permutations of strict ordering among three distinct values are tested"
+      - "Boundary values (1 and 300) are tested in every position"
+      - "Just-outside-boundary values (0 and 301) are tested for every variable"
+      - "The single infeasible condition combination (c7=T, c8=F, c9=T) is documented"
+      - "Equal-value scenarios cover pairwise ties and triple tie"

@@ -1,0 +1,1129 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Login Page Authentication"
+
+feature_description: >
+  Login page authentication system covering valid login with correct credentials,
+  rejection of invalid credentials with generic error messages that prevent username
+  enumeration, and account lockout after consecutive failed login attempts to
+  mitigate brute-force attacks.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # HAPPY PATH — Valid Login
+  # ==========================================================================
+  - name: "Successful login with valid username and password"
+    description: >
+      A registered user submits the correct username (or email) and password.
+      The system authenticates the user and grants access, returning an
+      authenticated session or token.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      This is the core authentication gate. If valid users cannot log in,
+      the entire application is inaccessible.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning separates inputs into valid credential pairs
+      (correct username + correct password) versus all invalid classes.
+      This scenario covers the single valid equivalence class.
+    preconditions:
+      - "User account exists in the system and is active"
+      - "User account is not locked"
+      - "Login page is accessible"
+    examples:
+      - input:
+          username: "alice@example.com"
+          password: "C0rrect!Pass#2026"
+        expected:
+          status: 200
+          authenticated: true
+          redirect: "/dashboard"
+          session_token: "non-empty"
+        description: "Standard successful login with valid credentials."
+      - input:
+          username: "bob.smith@company.org"
+          password: "V4lid$ecure!99"
+        expected:
+          status: 200
+          authenticated: true
+          session_token: "non-empty"
+        description: "Another valid user logs in successfully to confirm class coverage."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - authentication
+
+  - name: "Successful login resets failed attempt counter"
+    description: >
+      A user who has accumulated some failed login attempts (below the lockout
+      threshold) logs in successfully. The failed attempt counter resets to zero.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high.
+      If the counter does not reset, a user who occasionally mistypes their
+      password will eventually be locked out, causing a denial-of-service.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      Equivalence partitioning identifies the class of users with 1..N-1 failed
+      attempts. State transition verifies the counter-reset event moves the
+      account back to a clean active state.
+    preconditions:
+      - "User account has 1-4 failed login attempts recorded"
+      - "Account is not locked"
+    examples:
+      - input:
+          username: "alice@example.com"
+          password: "C0rrect!Pass#2026"
+          prior_failed_attempts: 3
+        expected:
+          authenticated: true
+          failed_attempt_count: 0
+          account_state: "active"
+        description: "3 prior failures, then correct password resets counter to 0."
+      - input:
+          username: "alice@example.com"
+          password: "C0rrect!Pass#2026"
+          prior_failed_attempts: 4
+        expected:
+          authenticated: true
+          failed_attempt_count: 0
+          account_state: "active"
+        description: "4 prior failures (one below lockout), correct password resets counter."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - critical-path
+      - authentication
+      - lockout
+
+  # ==========================================================================
+  # ERROR HANDLING — Invalid Credentials
+  # ==========================================================================
+  - name: "Login with incorrect password for existing user"
+    description: >
+      A user submits a valid username but an incorrect password. The system
+      rejects the attempt and returns a generic error message that does not
+      reveal whether the username exists.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high.
+      A specific error like 'wrong password' confirms the username exists,
+      enabling enumeration attacks. This is a silent failure from the
+      attacker's reconnaissance perspective.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning: wrong password is the primary invalid class for
+      the password input. Error guessing anticipates that developers may
+      accidentally return a specific error message or different HTTP status
+      code that leaks information.
+    preconditions:
+      - "User account exists and is active"
+      - "Account is not locked"
+    examples:
+      - input:
+          username: "alice@example.com"
+          password: "Wr0ng!Password#1"
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+          session_token: null
+        description: "Incorrect password returns generic error, not 'wrong password'."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - enumeration-prevention
+      - authentication
+
+  - name: "Login with non-existent username"
+    description: >
+      A user submits a username that does not exist in the system. The error
+      message and response timing must be indistinguishable from the
+      wrong-password case to prevent username enumeration.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high.
+      A different response (different message, different HTTP status, or
+      measurably different timing) enables username enumeration, which is
+      a precursor to targeted attacks.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning: non-existent username is the invalid class for
+      the username input. Error guessing targets timing side-channels — if the
+      system skips password hashing for non-existent users, the response is
+      faster, leaking information.
+    preconditions:
+      - "No account exists with the submitted username"
+    examples:
+      - input:
+          username: "nonexistent@example.com"
+          password: "AnyPass!123"
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+          response_time_delta_ms: "<50"
+        description: "Same generic error and similar response time as wrong-password case."
+      - input:
+          username: "totallyFake_user_99"
+          password: "Random!Pass#456"
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+        description: "Non-email username format also returns generic error."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - enumeration-prevention
+      - timing-attack
+
+  - name: "Error message consistency between invalid username and invalid password"
+    description: >
+      Verifies that the error response for a wrong password on an existing
+      account is byte-identical to the error response for a non-existent
+      account. This is a direct enumeration-prevention control.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high.
+      If error messages differ in any way (message text, error code, HTTP
+      status, response headers, or response body structure), automated
+      tools can distinguish them and enumerate valid usernames.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Equivalence partitioning compares the two invalid input classes.
+      Error guessing anticipates subtle differences (extra fields in JSON,
+      different capitalization, different response body length).
+      Cause-effect maps the logical relationship: both causes (wrong password
+      for real user, any password for fake user) must produce the same effect.
+    preconditions:
+      - "At least one valid user account exists"
+    examples:
+      - input:
+          scenario_a:
+            username: "alice@example.com"
+            password: "WrongPass!1"
+          scenario_b:
+            username: "nobody@example.com"
+            password: "WrongPass!1"
+        expected:
+          response_body_identical: true
+          status_code_identical: true
+          response_time_within_ms: 50
+        description: "Both scenarios produce byte-identical response bodies and matching status codes."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - enumeration-prevention
+      - critical-path
+
+  - name: "Login with empty username"
+    description: >
+      User submits an empty username field. The system rejects the request
+      with a validation error.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 1, Detectability: 3. Average: 2.0 -> medium.
+      Empty fields are common user mistakes. Failure is immediately visible
+      and does not cause data loss.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning: empty string is an invalid partition for
+      username. Error guessing anticipates that empty inputs might cause
+      unexpected exceptions or bypass validation.
+    preconditions:
+      - "Login page is accessible"
+    examples:
+      - input:
+          username: ""
+          password: "SomePass!123"
+        expected:
+          status: 400
+          authenticated: false
+          error_message: "Username is required."
+        description: "Empty username returns validation error."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - validation
+      - edge-case
+
+  - name: "Login with empty password"
+    description: >
+      User submits a valid username but leaves the password field empty.
+      The system rejects the request with a validation error.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 1, Detectability: 3. Average: 2.0 -> medium.
+      Common user error. Immediate feedback prevents confusion.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning: empty password is a distinct invalid partition.
+      Error guessing considers that empty password might bypass hashing logic
+      or cause a null pointer dereference in the authentication pipeline.
+    preconditions:
+      - "Login page is accessible"
+    examples:
+      - input:
+          username: "alice@example.com"
+          password: ""
+        expected:
+          status: 400
+          authenticated: false
+          error_message: "Password is required."
+        description: "Empty password returns validation error."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - validation
+      - edge-case
+
+  - name: "Login with both fields empty"
+    description: >
+      User submits the login form with both username and password empty.
+    type: error_handling
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 3. Average: 1.5 -> low.
+      Unlikely scenario in normal use; immediately visible to user.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning covers the combined invalid partition
+      where both inputs are from the empty/null class.
+    preconditions:
+      - "Login page is accessible"
+    examples:
+      - input:
+          username: ""
+          password: ""
+        expected:
+          status: 400
+          authenticated: false
+          error_message: "Username is required."
+        description: "Both fields empty — returns first validation error."
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - validation
+      - edge-case
+
+  # ==========================================================================
+  # STATE TRANSITION — Account Lockout
+  # ==========================================================================
+  - name: "Account lockout after maximum failed login attempts"
+    description: >
+      After N consecutive failed login attempts (e.g., 5), the account
+      transitions to a locked state. Further login attempts are rejected
+      regardless of whether the credentials are correct.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high.
+      Missing lockout enables brute-force attacks. Over-eager lockout
+      (locking too soon or permanently) causes denial of service.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the account lifecycle (active -> warning -> locked).
+      Boundary value analysis tests the exact threshold: N-1 attempts (still
+      active) versus N attempts (locked).
+    preconditions:
+      - "User account exists and is active"
+      - "Failed attempt counter starts at 0"
+    state_transition:
+      states:
+        - "active"
+        - "locked"
+      transitions:
+        - from: "active"
+          to: "active"
+          trigger: "failed_login"
+          guard: "failed_count < max_attempts"
+        - from: "active"
+          to: "locked"
+          trigger: "failed_login"
+          guard: "failed_count == max_attempts"
+        - from: "locked"
+          to: "active"
+          trigger: "lockout_timer_expired"
+          guard: "lockout_duration elapsed"
+        - from: "locked"
+          to: "locked"
+          trigger: "login_attempt"
+          guard: "lockout_duration not elapsed"
+        - from: "active"
+          to: "active"
+          trigger: "successful_login"
+          guard: "correct credentials"
+    examples:
+      - input:
+          failed_attempts: 4
+          next_attempt: "wrong_password"
+        expected:
+          account_state: "locked"
+          login_rejected: true
+          lockout_message: "Account locked. Try again later."
+        description: "5th consecutive failed attempt triggers lockout."
+      - input:
+          failed_attempts: 3
+          next_attempt: "wrong_password"
+        expected:
+          account_state: "active"
+          failed_attempt_count: 4
+        description: "4th failed attempt — still below threshold, account remains active."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - brute-force
+      - state-machine
+      - critical-path
+
+  - name: "Failed attempt count boundary — one below lockout threshold"
+    description: >
+      Boundary test at the exact lockout threshold. Verifies that N-1
+      failed attempts do not trigger lockout but N does.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high.
+      An off-by-one error in the lockout counter could either lock users
+      prematurely (DoS) or require one extra attempt (weakening brute-force
+      protection).
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Classic boundary value analysis at the lockout threshold.
+      Tests N-1, N, and N+1 attempts.
+    preconditions:
+      - "Lockout threshold is configured to N (e.g., 5) attempts"
+      - "Account starts in active state with 0 failed attempts"
+    examples:
+      - input:
+          consecutive_failed_attempts: 4
+        expected:
+          account_state: "active"
+          remaining_attempts: 1
+        description: "N-1 (4) failed attempts — account still active."
+      - input:
+          consecutive_failed_attempts: 5
+        expected:
+          account_state: "locked"
+        description: "N (5) failed attempts — account locked."
+      - input:
+          consecutive_failed_attempts: 6
+        expected:
+          account_state: "locked"
+          additional_failure_recorded: false
+        description: "N+1 (6) attempt on already locked account — remains locked, no counter increment."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - security
+      - brute-force
+
+  - name: "Login attempt on locked account with correct credentials"
+    description: >
+      A user whose account is locked submits the correct credentials.
+      The system must still reject the login because the account is locked,
+      and the error message must not confirm that the credentials were correct.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium.
+      Upgraded to high due to security sensitivity: if the system returns
+      a different error ('account locked' vs 'invalid credentials'), an
+      attacker learns they found the correct password.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition tests the locked-state rejection path. Error guessing
+      anticipates that developers might return 'account locked' only when
+      credentials are correct, leaking credential validity.
+    preconditions:
+      - "Account is in locked state due to exceeded failed attempts"
+    examples:
+      - input:
+          username: "alice@example.com"
+          password: "C0rrect!Pass#2026"
+          account_state: "locked"
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+        description: "Locked account with correct credentials — generic error, no credential confirmation."
+      - input:
+          username: "alice@example.com"
+          password: "Wr0ng!Password#1"
+          account_state: "locked"
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+        description: "Locked account with wrong credentials — same generic error as correct credentials case."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - enumeration-prevention
+      - state-machine
+
+  - name: "Account unlock after lockout duration expires"
+    description: >
+      After the lockout duration elapses, the account transitions back to
+      active state and the user can log in with correct credentials.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high.
+      If unlock does not work, legitimate users are permanently locked out.
+      If unlock happens too early, brute-force protection is weakened.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition verifies the locked -> active transition on timer
+      expiry. Boundary value tests the exact duration boundary (1 second
+      before expiry vs at expiry).
+    preconditions:
+      - "Account was locked due to exceeded failed attempts"
+      - "Lockout duration is configured (e.g., 15 minutes)"
+    examples:
+      - input:
+          account_state: "locked"
+          time_since_lockout_min: 15
+          username: "alice@example.com"
+          password: "C0rrect!Pass#2026"
+        expected:
+          account_state: "active"
+          authenticated: true
+          failed_attempt_count: 0
+        description: "Lockout duration expired — user can log in, counter resets."
+      - input:
+          account_state: "locked"
+          time_since_lockout_min: 14
+          username: "alice@example.com"
+          password: "C0rrect!Pass#2026"
+        expected:
+          account_state: "locked"
+          authenticated: false
+        description: "One minute before lockout expires — still locked."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - state-machine
+      - boundary
+
+  - name: "Failed attempt counter resets after lockout expires"
+    description: >
+      When the lockout duration expires and the account returns to active,
+      the failed attempt counter must reset so the user gets a fresh set
+      of attempts.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.0 -> medium.
+      If the counter does not reset, a single failed attempt after unlock
+      would immediately re-lock the account.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition verifies the counter-reset side effect of the
+      locked -> active transition.
+    preconditions:
+      - "Account was locked and lockout duration has expired"
+    examples:
+      - input:
+          account_state: "locked"
+          time_since_lockout_min: 15
+          next_attempt: "wrong_password"
+        expected:
+          account_state: "active"
+          failed_attempt_count: 1
+        description: "After unlock, first wrong password sets counter to 1, not N+1."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - lockout
+      - state-machine
+
+  # ==========================================================================
+  # SECURITY — Enumeration Prevention
+  # ==========================================================================
+  - name: "Response timing consistency between valid and invalid usernames"
+    description: >
+      The response time for login attempts with valid usernames must be
+      statistically indistinguishable from attempts with invalid usernames.
+      This prevents timing-based username enumeration.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high.
+      Timing side-channels are a silent failure — the user interface looks
+      correct, but automated tools can measure sub-millisecond differences
+      to enumerate valid accounts.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets the timing side-channel: if the system skips
+      password hashing for non-existent users (a common optimization mistake),
+      the response is measurably faster.
+    preconditions:
+      - "System performs constant-time credential checking or dummy hashing"
+    examples:
+      - input:
+          valid_username_attempts: 100
+          invalid_username_attempts: 100
+        expected:
+          mean_response_time_diff_ms: "<50"
+          p95_response_time_diff_ms: "<100"
+        description: "Aggregate timing over 100 attempts — no statistically significant difference."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - timing-attack
+      - enumeration-prevention
+
+  - name: "No username enumeration via error code or HTTP status differences"
+    description: >
+      Both invalid-username and invalid-password scenarios must return
+      the same HTTP status code, the same error code, and the same error
+      message structure.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high.
+      Any difference in response structure — even a missing field, different
+      field order, or extra whitespace — can be detected by automated
+      enumeration tools.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning ensures both invalid classes produce the same
+      output partition. Error guessing covers subtle differences like
+      response header variations, JSON key ordering, or extra debug info
+      leaked in error responses.
+    preconditions:
+      - "Login endpoint returns structured error responses"
+    examples:
+      - input:
+          username: "alice@example.com"
+          password: "WrongPass!1"
+        expected:
+          status: 401
+          error_code: "INVALID_CREDENTIALS"
+          error_message: "Invalid username or password."
+        description: "Wrong password for real user — generic error."
+      - input:
+          username: "fabricated_user_xyz@fake.com"
+          password: "AnyPass!1"
+        expected:
+          status: 401
+          error_code: "INVALID_CREDENTIALS"
+          error_message: "Invalid username or password."
+        description: "Non-existent user — identical generic error."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - enumeration-prevention
+
+  # ==========================================================================
+  # COMBINATORIAL — Login Decision Table
+  # ==========================================================================
+  - name: "Login outcome decision table"
+    description: >
+      Decision table combining three conditions (username exists, password
+      correct, account locked) to determine the login outcome. All
+      combinations must produce the correct result.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      This covers all combinations of the primary authentication conditions.
+      Any incorrect combination leads to either unauthorized access or
+      wrongful denial of service.
+    techniques:
+      - decision_table
+    technique_rationale: >
+      Decision table systematically covers all 2^3 = 8 combinations of
+      three boolean conditions. Some combinations are logically constrained
+      (e.g., password cannot be 'correct' if username does not exist).
+    decision_table:
+      conditions:
+        - "username_exists"
+        - "password_correct"
+        - "account_locked"
+      actions:
+        - "login_result"
+        - "error_message"
+      rules:
+        - description: "Valid user, correct password, not locked -> success"
+          condition_values:
+            username_exists: true
+            password_correct: true
+            account_locked: false
+          expected_actions:
+            login_result: "success"
+            error_message: "none"
+        - description: "Valid user, correct password, locked -> reject (generic error)"
+          condition_values:
+            username_exists: true
+            password_correct: true
+            account_locked: true
+          expected_actions:
+            login_result: "rejected"
+            error_message: "Invalid username or password."
+        - description: "Valid user, wrong password, not locked -> reject (generic error)"
+          condition_values:
+            username_exists: true
+            password_correct: false
+            account_locked: false
+          expected_actions:
+            login_result: "rejected"
+            error_message: "Invalid username or password."
+        - description: "Valid user, wrong password, locked -> reject (generic error)"
+          condition_values:
+            username_exists: true
+            password_correct: false
+            account_locked: true
+          expected_actions:
+            login_result: "rejected"
+            error_message: "Invalid username or password."
+        - description: "Non-existent user, any password, N/A locked -> reject (generic error)"
+          condition_values:
+            username_exists: false
+            password_correct: false
+            account_locked: false
+          expected_actions:
+            login_result: "rejected"
+            error_message: "Invalid username or password."
+    examples:
+      - input:
+          username: "alice@example.com"
+          password: "C0rrect!Pass#2026"
+          account_locked: false
+        expected:
+          status: 200
+          authenticated: true
+        description: "DT Rule 1: valid user, correct password, unlocked -> success."
+      - input:
+          username: "alice@example.com"
+          password: "C0rrect!Pass#2026"
+          account_locked: true
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+        description: "DT Rule 2: valid user, correct password, locked -> rejected."
+      - input:
+          username: "alice@example.com"
+          password: "Wr0ngPass!1"
+          account_locked: false
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+        description: "DT Rule 3: valid user, wrong password, unlocked -> rejected."
+      - input:
+          username: "nobody@example.com"
+          password: "AnyPass!1"
+          account_locked: false
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+        description: "DT Rule 5: non-existent user -> rejected with same generic error."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - security
+      - authentication
+      - critical-path
+
+  # ==========================================================================
+  # EDGE CASES — Error Guessing
+  # ==========================================================================
+  - name: "SQL injection in username field"
+    description: >
+      Attacker submits SQL injection payloads in the username field.
+      The system must treat it as an invalid credential, not execute the SQL.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium.
+      Upgraded to high because successful SQL injection in authentication
+      can bypass login entirely or dump the entire user database.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing covers common attack vectors that formal partitioning
+      would not systematically generate. SQL injection is a top-10 OWASP
+      vulnerability category.
+    preconditions:
+      - "Login endpoint accepts username as free-text input"
+    examples:
+      - input:
+          username: "' OR '1'='1' --"
+          password: "anything"
+        expected:
+          status: 401
+          authenticated: false
+          error_message: "Invalid username or password."
+        description: "Classic SQL injection — treated as invalid credentials."
+      - input:
+          username: "admin'; DROP TABLE users; --"
+          password: "anything"
+        expected:
+          status: 401
+          authenticated: false
+          database_intact: true
+        description: "Destructive SQL injection — rejected, database unaffected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - injection
+      - owasp
+
+  - name: "XSS payload in login fields"
+    description: >
+      Attacker submits XSS payloads in username or password fields.
+      The system must sanitize or escape the input, never reflecting
+      unescaped script content in error responses.
+    type: security
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.0 -> medium.
+      Reflected XSS on the login page can steal credentials from other users
+      if the error page reflects input back.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets the common mistake of reflecting user input
+      in error messages without escaping.
+    examples:
+      - input:
+          username: "<script>alert('xss')</script>"
+          password: "anything"
+        expected:
+          status: 401
+          response_body_contains_script_tag: false
+          error_message: "Invalid username or password."
+        description: "Script tag in username not reflected in response."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - security
+      - xss
+      - owasp
+
+  - name: "Brute-force rapid sequential login attempts"
+    description: >
+      An attacker sends many login requests in rapid succession.
+      The lockout mechanism must engage based on attempt count regardless
+      of request timing.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high.
+      Automated brute-force tools can attempt thousands of passwords per
+      second. The lockout mechanism is the primary defense.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates race conditions in concurrent counter
+      increments. State transition verifies the lockout state machine
+      under rapid-fire conditions.
+    preconditions:
+      - "Lockout threshold is 5 attempts"
+    examples:
+      - input:
+          rapid_attempts: 10
+          interval_ms: 50
+          username: "alice@example.com"
+          all_wrong_passwords: true
+        expected:
+          account_state: "locked"
+          attempts_before_lockout: 5
+          requests_after_lockout_rejected: true
+        description: "10 rapid wrong attempts — lockout triggers at 5th, remaining rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - brute-force
+      - rate-limiting
+
+  - name: "Case sensitivity in username"
+    description: >
+      Verifies the system's handling of username case. Depending on policy,
+      usernames may be case-insensitive (common for email-based login) or
+      case-sensitive. The behavior must be consistent and not leak information.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.0 -> medium.
+      Inconsistent case handling can cause legitimate users to fail login
+      or create separate accounts for the same email.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning treats different cases as equivalence classes
+      for the username input. Error guessing anticipates that case normalization
+      may be inconsistently applied between login and registration.
+    examples:
+      - input:
+          username: "Alice@Example.com"
+          password: "C0rrect!Pass#2026"
+        expected:
+          authenticated: true
+        description: "Mixed-case email accepted (case-insensitive email login)."
+      - input:
+          username: "ALICE@EXAMPLE.COM"
+          password: "C0rrect!Pass#2026"
+        expected:
+          authenticated: true
+        description: "All-uppercase email accepted."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - edge-case
+      - usability
+
+  - name: "Login with leading/trailing whitespace in credentials"
+    description: >
+      User accidentally includes whitespace before or after their username
+      or password. The system should either trim the input or reject it
+      consistently.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 2, Consequence: 1, Detectability: 3. Average: 1.75 -> medium.
+      Adjusted to low because the consequence is minor — user simply retries.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates whitespace handling edge cases that users
+      commonly encounter when copying/pasting credentials.
+    examples:
+      - input:
+          username: "  alice@example.com  "
+          password: "C0rrect!Pass#2026"
+        expected:
+          authenticated: true
+        description: "Leading/trailing spaces in username trimmed, login succeeds."
+      - input:
+          username: "alice@example.com"
+          password: "  C0rrect!Pass#2026  "
+        expected:
+          authenticated: false
+          error_message: "Invalid username or password."
+        description: "Whitespace in password NOT trimmed (passwords are literal)."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - edge-case
+      - usability
+
+  - name: "Login attempt with extremely long input values"
+    description: >
+      User or attacker submits extremely long strings for username or
+      password. The system must handle this gracefully without crashing,
+      memory exhaustion, or excessive processing time.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 -> medium.
+      Long inputs can cause denial-of-service via excessive memory allocation
+      or CPU consumption (e.g., bcrypt with a 1MB password).
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value analysis at the maximum acceptable input length.
+      Error guessing anticipates buffer overflow, memory exhaustion, or
+      hash-based DoS with oversized passwords.
+    examples:
+      - input:
+          username_length: 10000
+          password_length: 10000
+        expected:
+          status: 400
+          error_message: "Input exceeds maximum allowed length."
+        description: "Extremely long inputs rejected with appropriate error."
+      - input:
+          username_length: 255
+          password_length: 128
+        expected:
+          status_not: 500
+        description: "At maximum reasonable length — no server error."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - security
+      - dos-prevention
+
+  - name: "Lockout error message does not reveal lockout status to non-owner"
+    description: >
+      When an account is locked, the error message for any login attempt
+      (whether from the real owner or an attacker) must be the same generic
+      'Invalid username or password' to prevent lockout status enumeration.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium.
+      Upgraded to high because revealing lockout status tells an attacker
+      they found a valid username AND that the account is a target worth
+      attacking further.
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the common developer mistake of showing
+      'Account locked' in the error message. Cause-effect maps the
+      relationship: lockout status should not change the observable output.
+    preconditions:
+      - "Account is locked"
+    examples:
+      - input:
+          username: "alice@example.com"
+          password: "AnyPassword!1"
+          account_state: "locked"
+        expected:
+          status: 401
+          error_message: "Invalid username or password."
+          no_lockout_indicator: true
+        description: "Locked account — no indication of lockout in response."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - enumeration-prevention
+      - lockout
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As a user, I want to log in to my account securely so that I can access
+    my personalized content, while the system protects against brute-force
+    attacks via account lockout and prevents username enumeration through
+    consistent generic error messages.
+  rules:
+    - rule_name: "Valid credentials grant access"
+      examples:
+        - "Correct username + correct password -> login success, session created"
+        - "Correct username (mixed case) + correct password -> login success (case-insensitive)"
+        - "Login after prior failed attempts (below threshold) -> success, counter resets"
+
+    - rule_name: "Invalid credentials are rejected with generic error"
+      examples:
+        - "Valid username + wrong password -> 401, 'Invalid username or password'"
+        - "Non-existent username + any password -> 401, same generic error"
+        - "Both fields empty -> 400, validation error"
+        - "Empty username + any password -> 400, validation error"
+        - "Any username + empty password -> 400, validation error"
+
+    - rule_name: "Account locks after N consecutive failed attempts"
+      examples:
+        - "5th consecutive failed attempt -> account locked for 15 minutes"
+        - "4th failed attempt -> account still active, 1 attempt remaining"
+        - "Locked account + correct password -> still rejected (generic error)"
+        - "Lockout expires -> account returns to active, counter resets"
+        - "Failed attempt immediately after unlock -> counter starts at 1"
+
+    - rule_name: "Error messages prevent username and lockout enumeration"
+      examples:
+        - "Wrong password error is identical to non-existent user error"
+        - "Locked account error is identical to invalid credentials error"
+        - "Response timing is consistent between valid and invalid usernames"
+        - "No HTTP status code, header, or body structure differences between error cases"
+
+    - rule_name: "Login input is sanitized against injection attacks"
+      examples:
+        - "SQL injection in username -> treated as invalid credentials"
+        - "XSS payload in username -> not reflected in error response"
+        - "Extremely long input -> rejected with 400 error"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

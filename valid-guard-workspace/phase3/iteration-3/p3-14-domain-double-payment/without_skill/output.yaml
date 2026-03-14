@@ -1,0 +1,462 @@
+test_suite:
+  name: "Prevent Double Payment Submissions on Checkout"
+  description: >
+    Test cases to verify that the e-commerce checkout system correctly prevents
+    duplicate payment submissions when a user clicks the 'Pay Now' button
+    multiple times rapidly.
+  domain: "E-Commerce Checkout / Payment Processing"
+
+test_cases:
+
+  # ---------------------------------------------------------------------------
+  # UI / Client-Side Prevention
+  # ---------------------------------------------------------------------------
+
+  - id: TC-DP-001
+    title: "Pay Now button is disabled immediately after first click"
+    category: "UI - Button State"
+    priority: "Critical"
+    preconditions:
+      - "User is logged in and has items in the cart."
+      - "User is on the checkout page with valid shipping and payment details."
+    steps:
+      - "Fill in all required checkout fields with valid data."
+      - "Click the 'Pay Now' button once."
+      - "Observe the button state immediately after clicking."
+    expected_result: >
+      The 'Pay Now' button becomes disabled (non-clickable) within 100ms of
+      the first click and remains disabled while the payment request is in
+      flight.
+
+  - id: TC-DP-002
+    title: "Rapid double-click on Pay Now produces only one payment request"
+    category: "UI - Click Suppression"
+    priority: "Critical"
+    preconditions:
+      - "User is on the checkout page with a valid order ready to submit."
+    steps:
+      - "Double-click the 'Pay Now' button as fast as possible (< 200ms between clicks)."
+      - "Monitor network requests to the payment endpoint."
+    expected_result: >
+      Only a single payment API request is sent to the server. The second
+      click is ignored.
+
+  - id: TC-DP-003
+    title: "Multiple rapid clicks (5+) on Pay Now produce only one payment request"
+    category: "UI - Click Suppression"
+    priority: "Critical"
+    preconditions:
+      - "User is on the checkout page with a valid order ready to submit."
+    steps:
+      - "Click the 'Pay Now' button 5 or more times in rapid succession (within 1 second)."
+      - "Monitor network requests to the payment endpoint."
+    expected_result: >
+      Exactly one payment API request is sent. All subsequent clicks are
+      suppressed.
+
+  - id: TC-DP-004
+    title: "Loading indicator is displayed while payment is processing"
+    category: "UI - Visual Feedback"
+    priority: "High"
+    preconditions:
+      - "User is on the checkout page with a valid order ready to submit."
+    steps:
+      - "Click the 'Pay Now' button."
+      - "Observe the UI while the payment request is in progress."
+    expected_result: >
+      A loading spinner, progress indicator, or 'Processing...' text replaces
+      or overlays the Pay Now button, providing clear visual feedback that the
+      payment is being processed.
+
+  - id: TC-DP-005
+    title: "Pay Now button remains disabled during slow network response"
+    category: "UI - Button State Under Latency"
+    priority: "High"
+    preconditions:
+      - "User is on the checkout page with a valid order."
+      - "Network is throttled to simulate high latency (e.g., 10 seconds RTT)."
+    steps:
+      - "Click the 'Pay Now' button."
+      - "Attempt to click the button again during the extended wait."
+    expected_result: >
+      The button stays disabled for the entire duration of the network
+      request. No additional requests are sent regardless of how many times
+      the user clicks.
+
+  - id: TC-DP-006
+    title: "Pay Now button re-enables after a failed payment attempt"
+    category: "UI - Error Recovery"
+    priority: "High"
+    preconditions:
+      - "User is on the checkout page."
+      - "Payment is configured to fail (e.g., insufficient funds)."
+    steps:
+      - "Click the 'Pay Now' button."
+      - "Wait for the payment failure response."
+      - "Observe the button state after the error message appears."
+    expected_result: >
+      The button is re-enabled after the payment failure so the user can
+      correct the issue and retry. An appropriate error message is displayed.
+
+  - id: TC-DP-007
+    title: "Pay Now button re-enables after a network timeout"
+    category: "UI - Timeout Recovery"
+    priority: "High"
+    preconditions:
+      - "User is on the checkout page."
+      - "Network is configured to time out on the payment request."
+    steps:
+      - "Click the 'Pay Now' button."
+      - "Wait for the request to time out."
+      - "Observe the button state after the timeout."
+    expected_result: >
+      The button is re-enabled after the timeout period. The user sees an
+      error message indicating the request timed out and can retry.
+
+  - id: TC-DP-008
+    title: "Overlay or modal prevents interaction with entire form during processing"
+    category: "UI - Interaction Blocking"
+    priority: "Medium"
+    preconditions:
+      - "User is on the checkout page with a valid order."
+    steps:
+      - "Click the 'Pay Now' button."
+      - "While payment is processing, attempt to interact with other form fields, navigation links, and the Pay Now button area."
+    expected_result: >
+      A non-dismissible overlay or modal prevents all user interaction with
+      the checkout form while payment is being processed. The user cannot
+      modify order details or trigger additional submissions.
+
+  # ---------------------------------------------------------------------------
+  # Client-Side Logic (JavaScript / Framework Level)
+  # ---------------------------------------------------------------------------
+
+  - id: TC-DP-009
+    title: "Debounce or throttle mechanism prevents duplicate submissions via JS"
+    category: "Client Logic - Debounce"
+    priority: "Critical"
+    preconditions:
+      - "User is on the checkout page."
+    steps:
+      - "Using browser dev tools, remove the 'disabled' attribute from the Pay Now button after clicking it."
+      - "Click the button again immediately."
+      - "Monitor outgoing network requests."
+    expected_result: >
+      Even with the disabled attribute removed, a JavaScript-level guard
+      (debounce, flag variable, or throttle) prevents a second payment
+      request from being sent.
+
+  - id: TC-DP-010
+    title: "Form resubmission via Enter key is prevented during processing"
+    category: "Client Logic - Keyboard Submission"
+    priority: "High"
+    preconditions:
+      - "User is on the checkout page with cursor focus on a form input."
+    steps:
+      - "Press Enter to submit the form."
+      - "Immediately press Enter again multiple times."
+      - "Monitor outgoing network requests."
+    expected_result: >
+      Only one payment request is submitted. Repeated Enter key presses do
+      not trigger additional form submissions.
+
+  - id: TC-DP-011
+    title: "Browser back button and resubmit does not create a duplicate payment"
+    category: "Client Logic - Navigation"
+    priority: "High"
+    preconditions:
+      - "User has just completed a successful payment and is on the confirmation page."
+    steps:
+      - "Click the browser back button to return to the checkout page."
+      - "Click the 'Pay Now' button again."
+    expected_result: >
+      The system either prevents the resubmission entirely (e.g., redirects
+      back to confirmation), shows an error indicating the order is already
+      paid, or the server rejects the duplicate on the backend with an
+      idempotency check.
+
+  - id: TC-DP-012
+    title: "Page refresh on checkout after initial click does not resubmit payment"
+    category: "Client Logic - Refresh Guard"
+    priority: "High"
+    preconditions:
+      - "User clicked 'Pay Now' and payment is being processed."
+    steps:
+      - "While the payment request is in flight, press F5 or Ctrl+R to refresh the page."
+      - "If prompted by the browser to resubmit form data, confirm resubmission."
+    expected_result: >
+      The system does not create a duplicate payment. Either the browser
+      prompt is suppressed (e.g., POST-redirect-GET pattern), or the server
+      detects and rejects the duplicate request via idempotency key.
+
+  # ---------------------------------------------------------------------------
+  # Server-Side / API-Level Prevention
+  # ---------------------------------------------------------------------------
+
+  - id: TC-DP-013
+    title: "Server rejects duplicate payment request with same idempotency key"
+    category: "Server - Idempotency"
+    priority: "Critical"
+    preconditions:
+      - "Payment API supports idempotency keys."
+    steps:
+      - "Send a payment request to the API with a specific idempotency key."
+      - "Send a second identical payment request with the same idempotency key before the first completes."
+    expected_result: >
+      The server processes only the first request. The second request
+      receives a response indicating it is a duplicate (e.g., HTTP 409
+      Conflict or the same successful response as the first request without
+      charging again).
+
+  - id: TC-DP-014
+    title: "Server rejects duplicate payment for the same order ID"
+    category: "Server - Order Deduplication"
+    priority: "Critical"
+    preconditions:
+      - "An order has already been successfully paid."
+    steps:
+      - "Send a payment request for the same order ID that was already paid."
+    expected_result: >
+      The server rejects the request with an appropriate error (e.g.,
+      'Order already paid' or HTTP 409) and does not process a second charge.
+
+  - id: TC-DP-015
+    title: "Concurrent API payment requests for the same order are serialized"
+    category: "Server - Concurrency Control"
+    priority: "Critical"
+    preconditions:
+      - "Payment API is accessible."
+    steps:
+      - "Simultaneously send 5 payment requests for the same order (using a load-testing or scripting tool)."
+      - "Check the database and payment gateway for the number of charges."
+    expected_result: >
+      Exactly one payment is processed and charged. The remaining 4 requests
+      are either queued and then rejected or rejected immediately. The order
+      has exactly one associated payment transaction.
+
+  - id: TC-DP-016
+    title: "Database-level unique constraint prevents duplicate payment records"
+    category: "Server - Database Integrity"
+    priority: "Critical"
+    preconditions:
+      - "Database schema includes a unique constraint on payment transaction per order."
+    steps:
+      - "Bypass application-level checks and attempt to insert two payment records for the same order directly at the database level."
+    expected_result: >
+      The database rejects the second insert with a unique constraint
+      violation, ensuring that only one payment record exists per order
+      transaction.
+
+  - id: TC-DP-017
+    title: "Payment gateway is called only once for concurrent duplicate requests"
+    category: "Server - Gateway Integration"
+    priority: "Critical"
+    preconditions:
+      - "Integration with a payment gateway (e.g., Stripe, PayPal) is configured."
+    steps:
+      - "Send 3 rapid payment requests for the same cart/order."
+      - "Review the payment gateway dashboard or logs for the number of charges."
+    expected_result: >
+      Only one charge appears on the payment gateway. No duplicate
+      transactions are created at the gateway level.
+
+  - id: TC-DP-018
+    title: "Idempotency key is unique per checkout attempt, not per click"
+    category: "Server - Idempotency Key Design"
+    priority: "High"
+    preconditions:
+      - "Payment API uses idempotency keys."
+    steps:
+      - "Start a checkout session and note the idempotency key generated."
+      - "Click 'Pay Now' multiple times and capture the idempotency key sent with each request."
+    expected_result: >
+      All rapid clicks within the same checkout attempt send the same
+      idempotency key, ensuring the server treats them as duplicates. A new
+      idempotency key is generated only when the user starts a genuinely new
+      checkout attempt.
+
+  - id: TC-DP-019
+    title: "Server returns consistent response for duplicate requests"
+    category: "Server - Response Consistency"
+    priority: "High"
+    preconditions:
+      - "First payment request has been successfully processed."
+    steps:
+      - "Send a duplicate payment request with the same idempotency key."
+      - "Compare the response to the original successful response."
+    expected_result: >
+      The server returns the same response body and status code as the
+      original successful request, without processing the payment again.
+      This ensures the client can safely retry without side effects.
+
+  # ---------------------------------------------------------------------------
+  # Race Condition and Timing Scenarios
+  # ---------------------------------------------------------------------------
+
+  - id: TC-DP-020
+    title: "Payment submitted from two browser tabs for the same order"
+    category: "Race Condition - Multi-Tab"
+    priority: "High"
+    preconditions:
+      - "User has the checkout page open in two separate browser tabs for the same order."
+    steps:
+      - "Click 'Pay Now' in Tab 1."
+      - "Immediately click 'Pay Now' in Tab 2 (within 1-2 seconds)."
+    expected_result: >
+      Only one payment is processed. The second tab receives an error or is
+      redirected to the order confirmation page showing the payment was
+      already completed.
+
+  - id: TC-DP-021
+    title: "Payment submitted from two different devices for the same account/order"
+    category: "Race Condition - Multi-Device"
+    priority: "Medium"
+    preconditions:
+      - "User is logged into the same account on two devices (e.g., phone and laptop)."
+      - "Both devices show the checkout page for the same order."
+    steps:
+      - "Click 'Pay Now' on Device 1."
+      - "Click 'Pay Now' on Device 2 within a few seconds."
+    expected_result: >
+      Only one payment is charged. The second device receives a notification
+      that the order has already been paid.
+
+  - id: TC-DP-022
+    title: "Rapid clicks during payment gateway timeout do not create orphan transactions"
+    category: "Race Condition - Timeout"
+    priority: "High"
+    preconditions:
+      - "Payment gateway is configured to respond slowly or time out intermittently."
+    steps:
+      - "Click 'Pay Now'."
+      - "The first request times out at the application level."
+      - "User clicks 'Pay Now' again (retry)."
+      - "Check the payment gateway for transactions."
+    expected_result: >
+      The system checks for any pending or completed transactions on the
+      gateway before creating a new one. No orphan charges exist on the
+      gateway side. If the first request was actually processed by the
+      gateway despite the timeout, the second attempt detects this and does
+      not charge again.
+
+  # ---------------------------------------------------------------------------
+  # Token / Session-Based Prevention
+  # ---------------------------------------------------------------------------
+
+  - id: TC-DP-023
+    title: "CSRF / submission token is invalidated after first use"
+    category: "Token - Single Use"
+    priority: "High"
+    preconditions:
+      - "Checkout form includes a CSRF or single-use submission token."
+    steps:
+      - "Submit the payment form."
+      - "Capture the token from the first request."
+      - "Replay the same request with the same token."
+    expected_result: >
+      The server rejects the replayed request because the token has already
+      been consumed. An error response is returned indicating an invalid or
+      expired token.
+
+  - id: TC-DP-024
+    title: "Expired checkout session prevents late duplicate submissions"
+    category: "Token - Session Expiry"
+    priority: "Medium"
+    preconditions:
+      - "Checkout session has a configurable expiry time."
+    steps:
+      - "Begin a checkout process and note the session start time."
+      - "Wait until the session expires."
+      - "Attempt to click 'Pay Now'."
+    expected_result: >
+      The server rejects the payment request with a session-expired error.
+      The user is prompted to restart the checkout process.
+
+  # ---------------------------------------------------------------------------
+  # Edge Cases and Negative Scenarios
+  # ---------------------------------------------------------------------------
+
+  - id: TC-DP-025
+    title: "Automated script sending hundreds of payment requests simultaneously"
+    category: "Security - Abuse Prevention"
+    priority: "High"
+    preconditions:
+      - "Attacker has valid session credentials and order details."
+    steps:
+      - "Use a script to send 100 concurrent payment requests for the same order to the payment API endpoint."
+      - "Check the payment gateway and order database."
+    expected_result: >
+      Only one payment is processed. Rate limiting and/or idempotency
+      checks prevent all duplicate requests from being processed. The system
+      may also flag the activity as suspicious.
+
+  - id: TC-DP-026
+    title: "Double submission with slightly modified request payload"
+    category: "Security - Payload Tampering"
+    priority: "Medium"
+    preconditions:
+      - "Attacker intercepts and modifies the payment request."
+    steps:
+      - "Submit a valid payment request."
+      - "Submit a second request for the same order but with a slightly different payload (e.g., different amount or shipping address)."
+    expected_result: >
+      The server rejects the second request because the order is already
+      being processed or has been paid. Modifying the payload does not
+      bypass the duplicate detection logic, which is based on order ID,
+      not payload content.
+
+  - id: TC-DP-027
+    title: "Double payment prevention works correctly with guest checkout"
+    category: "Edge Case - Guest User"
+    priority: "Medium"
+    preconditions:
+      - "User is checking out as a guest (not logged in)."
+    steps:
+      - "Fill in guest checkout details."
+      - "Rapidly click the 'Pay Now' button multiple times."
+    expected_result: >
+      The same double-payment prevention mechanisms apply to guest users.
+      Only one payment is processed regardless of the number of clicks.
+
+  - id: TC-DP-028
+    title: "Double payment prevention with different payment methods"
+    category: "Edge Case - Payment Method Change"
+    priority: "Medium"
+    preconditions:
+      - "User has multiple payment methods available."
+    steps:
+      - "Click 'Pay Now' with credit card selected."
+      - "Quickly switch to PayPal and click 'Pay Now' again before the first request completes."
+    expected_result: >
+      Only one payment is processed. The system prevents the second
+      submission regardless of the payment method change, since the order
+      is already being processed.
+
+  - id: TC-DP-029
+    title: "JavaScript disabled does not bypass double-submit protection"
+    category: "Edge Case - No JavaScript"
+    priority: "Medium"
+    preconditions:
+      - "JavaScript is disabled in the browser."
+    steps:
+      - "Navigate to the checkout page."
+      - "Click 'Pay Now' multiple times rapidly."
+    expected_result: >
+      Server-side protections (idempotency keys, order state checks, unique
+      constraints) prevent duplicate payments even without client-side
+      JavaScript guards.
+
+  - id: TC-DP-030
+    title: "Successful payment followed by re-enabled button does not allow recharge"
+    category: "Edge Case - Post-Success State"
+    priority: "High"
+    preconditions:
+      - "Payment was successfully processed."
+      - "User manipulates the DOM to re-enable the Pay Now button on the confirmation page."
+    steps:
+      - "After successful payment, use browser dev tools to re-enable and display the Pay Now button."
+      - "Click the button."
+    expected_result: >
+      The server rejects the request because the order is already in a
+      'paid' state. No duplicate charge is created. The user sees an
+      appropriate error or is redirected to the order confirmation.

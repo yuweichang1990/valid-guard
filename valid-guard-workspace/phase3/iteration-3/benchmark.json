@@ -1,0 +1,763 @@
+{
+  "phase": 3,
+  "metadata": {
+    "skill_name": "valid-guard",
+    "grading_method": "rubric-based (automated pattern checks + weighted scoring)",
+    "evals_run": [
+      "p3-01-dt-correctness",
+      "p3-02-bva-correctness",
+      "p3-03-conway-completeness",
+      "p3-04-amigos-completeness",
+      "p3-05-brownfield-gap",
+      "p3-06-brownfield-redundancy",
+      "p3-07-codegen-runnable",
+      "p3-08-codegen-fix",
+      "p3-09-adversarial-antipattern",
+      "p3-10-adversarial-misconception",
+      "p3-11-st-atm-pin",
+      "p3-12-st-order-lifecycle",
+      "p3-13-st-ticket-booking",
+      "p3-14-domain-double-payment",
+      "p3-15-domain-login-lockout",
+      "p3-16-domain-otp",
+      "p3-17-tdd-throttle",
+      "p3-18-dt-loan-approval",
+      "p3-19-st-vending-machine",
+      "p3-20-adversarial-ai-trust",
+      "p3-21-st-shopping-cart",
+      "p3-22-st-airport-kiosk",
+      "p3-23-risk-insurance-fmea",
+      "p3-24-risk-tax-filing",
+      "p3-25-concurrency-inventory",
+      "p3-26-concurrency-payment-gw",
+      "p3-27-security-attack-payloads",
+      "p3-28-domain-payment-recovery",
+      "p3-29-risk-regression-priority",
+      "p3-30-domain-multicurrency"
+    ],
+    "dimensions": [
+      "correctness",
+      "completeness",
+      "structure",
+      "actionability",
+      "insight"
+    ]
+  },
+  "overall": {
+    "with_skill": {
+      "mean": 0.997,
+      "min": 0.962,
+      "max": 1.0,
+      "count": 30
+    },
+    "without_skill": {
+      "mean": 0.589,
+      "min": 0.364,
+      "max": 1.0,
+      "count": 30
+    },
+    "delta": 0.408
+  },
+  "overall_content": {
+    "with_skill": {
+      "mean": 1.0,
+      "min": 1.0,
+      "max": 1.0,
+      "count": 30
+    },
+    "without_skill": {
+      "mean": 0.899,
+      "min": 0.545,
+      "max": 1.0,
+      "count": 30
+    },
+    "delta": 0.101
+  },
+  "overall_structural": {
+    "with_skill": {
+      "mean": 0.992,
+      "min": 0.917,
+      "max": 1.0,
+      "count": 20
+    },
+    "without_skill": {
+      "mean": 0.15,
+      "min": 0.083,
+      "max": 0.167,
+      "count": 5
+    },
+    "delta": 0.842
+  },
+  "by_category": {
+    "correctness": {
+      "with_skill": {
+        "mean": 0.99,
+        "min": 0.962,
+        "max": 1.0,
+        "count": 4
+      },
+      "without_skill": {
+        "mean": 0.512,
+        "min": 0.429,
+        "max": 0.577,
+        "count": 4
+      },
+      "delta": 0.478,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 4
+      },
+      "without_skill_content": {
+        "mean": 0.982,
+        "min": 0.929,
+        "max": 1.0,
+        "count": 4
+      },
+      "delta_content": 0.018
+    },
+    "completeness": {
+      "with_skill": {
+        "mean": 0.981,
+        "min": 0.962,
+        "max": 1.0,
+        "count": 2
+      },
+      "without_skill": {
+        "mean": 0.593,
+        "min": 0.571,
+        "max": 0.615,
+        "count": 2
+      },
+      "delta": 0.388,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 2
+      },
+      "without_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 2
+      },
+      "delta_content": 0.0
+    },
+    "brownfield": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 2
+      },
+      "without_skill": {
+        "mean": 0.575,
+        "min": 0.483,
+        "max": 0.667,
+        "count": 2
+      },
+      "delta": 0.425,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 2
+      },
+      "without_skill_content": {
+        "mean": 0.746,
+        "min": 0.667,
+        "max": 0.824,
+        "count": 2
+      },
+      "delta_content": 0.254
+    },
+    "codegen": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 2
+      },
+      "without_skill": {
+        "mean": 0.873,
+        "min": 0.8,
+        "max": 0.947,
+        "count": 2
+      },
+      "delta": 0.127,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 2
+      },
+      "without_skill_content": {
+        "mean": 0.873,
+        "min": 0.8,
+        "max": 0.947,
+        "count": 2
+      },
+      "delta_content": 0.127
+    },
+    "adversarial": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 3
+      },
+      "without_skill": {
+        "mean": 0.845,
+        "min": 0.727,
+        "max": 0.909,
+        "count": 3
+      },
+      "delta": 0.155,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 3
+      },
+      "without_skill_content": {
+        "mean": 0.845,
+        "min": 0.727,
+        "max": 0.909,
+        "count": 3
+      },
+      "delta_content": 0.155
+    },
+    "state_transition": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 5
+      },
+      "without_skill": {
+        "mean": 0.451,
+        "min": 0.364,
+        "max": 0.545,
+        "count": 5
+      },
+      "delta": 0.549,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 5
+      },
+      "without_skill_content": {
+        "mean": 0.924,
+        "min": 0.8,
+        "max": 1.0,
+        "count": 5
+      },
+      "delta_content": 0.076
+    },
+    "domain_specific": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 5
+      },
+      "without_skill": {
+        "mean": 0.434,
+        "min": 0.391,
+        "max": 0.478,
+        "count": 5
+      },
+      "delta": 0.566,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 5
+      },
+      "without_skill_content": {
+        "mean": 0.927,
+        "min": 0.818,
+        "max": 1.0,
+        "count": 5
+      },
+      "delta_content": 0.073
+    },
+    "tdd_best_practices": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 1
+      },
+      "without_skill": {
+        "mean": 0.435,
+        "min": 0.435,
+        "max": 0.435,
+        "count": 1
+      },
+      "delta": 0.565,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 1
+      },
+      "without_skill_content": {
+        "mean": 0.909,
+        "min": 0.909,
+        "max": 0.909,
+        "count": 1
+      },
+      "delta_content": 0.091
+    },
+    "risk_assessment": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 3
+      },
+      "without_skill": {
+        "mean": 0.909,
+        "min": 0.818,
+        "max": 1.0,
+        "count": 3
+      },
+      "delta": 0.091,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 3
+      },
+      "without_skill_content": {
+        "mean": 0.909,
+        "min": 0.818,
+        "max": 1.0,
+        "count": 3
+      },
+      "delta_content": 0.091
+    },
+    "concurrency": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 2
+      },
+      "without_skill": {
+        "mean": 0.434,
+        "min": 0.391,
+        "max": 0.478,
+        "count": 2
+      },
+      "delta": 0.566,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 2
+      },
+      "without_skill_content": {
+        "mean": 0.909,
+        "min": 0.818,
+        "max": 1.0,
+        "count": 2
+      },
+      "delta_content": 0.091
+    },
+    "security": {
+      "with_skill": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 1
+      },
+      "without_skill": {
+        "mean": 0.545,
+        "min": 0.545,
+        "max": 0.545,
+        "count": 1
+      },
+      "delta": 0.455,
+      "with_skill_content": {
+        "mean": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "count": 1
+      },
+      "without_skill_content": {
+        "mean": 0.545,
+        "min": 0.545,
+        "max": 0.545,
+        "count": 1
+      },
+      "delta_content": 0.455
+    }
+  },
+  "per_eval": {
+    "p3-01-dt-correctness": {
+      "name": "Decision Table for max(x,y,z)",
+      "category": "correctness",
+      "with_skill": 1.0,
+      "without_skill": 0.565,
+      "delta": 0.435,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.167
+    },
+    "p3-02-bva-correctness": {
+      "name": "BVA for isEligible(age, income)",
+      "category": "correctness",
+      "with_skill": 0.962,
+      "without_skill": 0.577,
+      "delta": 0.385,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.929,
+      "delta_content": 0.071,
+      "with_skill_structural": 0.917,
+      "without_skill_structural": 0.167
+    },
+    "p3-03-conway-completeness": {
+      "name": "Conway's Game of Life completeness",
+      "category": "completeness",
+      "with_skill": 1.0,
+      "without_skill": 0.571,
+      "delta": 0.429,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-04-amigos-completeness": {
+      "name": "Three Amigos purchase order",
+      "category": "completeness",
+      "with_skill": 0.962,
+      "without_skill": 0.615,
+      "delta": 0.347,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 0.917,
+      "without_skill_structural": 0.167
+    },
+    "p3-05-brownfield-gap": {
+      "name": "Brownfield gap analysis on order_processor",
+      "category": "brownfield",
+      "with_skill": 1.0,
+      "without_skill": 0.483,
+      "delta": 0.517,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.824,
+      "delta_content": 0.176,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-06-brownfield-redundancy": {
+      "name": "Test suite redundancy analysis",
+      "category": "brownfield",
+      "with_skill": 1.0,
+      "without_skill": 0.667,
+      "delta": 0.333,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.667,
+      "delta_content": 0.333,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-07-codegen-runnable": {
+      "name": "Generate runnable pytest code",
+      "category": "codegen",
+      "with_skill": 1.0,
+      "without_skill": 0.947,
+      "delta": 0.053,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.947,
+      "delta_content": 0.053,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-08-codegen-fix": {
+      "name": "Weak assertion detection and fix",
+      "category": "codegen",
+      "with_skill": 1.0,
+      "without_skill": 0.8,
+      "delta": 0.2,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.8,
+      "delta_content": 0.2,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-09-adversarial-antipattern": {
+      "name": "Adversarial: testing trivial code",
+      "category": "adversarial",
+      "with_skill": 1.0,
+      "without_skill": 0.909,
+      "delta": 0.091,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.909,
+      "delta_content": 0.091,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-10-adversarial-misconception": {
+      "name": "Adversarial: 100% coverage misconception",
+      "category": "adversarial",
+      "with_skill": 1.0,
+      "without_skill": 0.727,
+      "delta": 0.273,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.727,
+      "delta_content": 0.273,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-11-st-atm-pin": {
+      "name": "ATM PIN entry state machine",
+      "category": "state_transition",
+      "with_skill": 1.0,
+      "without_skill": 0.364,
+      "delta": 0.636,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.8,
+      "delta_content": 0.2,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-12-st-order-lifecycle": {
+      "name": "Order lifecycle with time guards",
+      "category": "state_transition",
+      "with_skill": 1.0,
+      "without_skill": 0.391,
+      "delta": 0.609,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.818,
+      "delta_content": 0.182,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-13-st-ticket-booking": {
+      "name": "Ticket booking with timer and refund rules",
+      "category": "state_transition",
+      "with_skill": 1.0,
+      "without_skill": 0.545,
+      "delta": 0.455,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.167
+    },
+    "p3-14-domain-double-payment": {
+      "name": "Double payment prevention",
+      "category": "domain_specific",
+      "with_skill": 1.0,
+      "without_skill": 0.478,
+      "delta": 0.522,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-15-domain-login-lockout": {
+      "name": "Login authentication with lockout",
+      "category": "domain_specific",
+      "with_skill": 1.0,
+      "without_skill": 0.455,
+      "delta": 0.545,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-16-domain-otp": {
+      "name": "OTP verification for payment",
+      "category": "domain_specific",
+      "with_skill": 1.0,
+      "without_skill": 0.455,
+      "delta": 0.545,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-17-tdd-throttle": {
+      "name": "Throttle function TDD with state + BVA",
+      "category": "tdd_best_practices",
+      "with_skill": 1.0,
+      "without_skill": 0.435,
+      "delta": 0.565,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.909,
+      "delta_content": 0.091,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-18-dt-loan-approval": {
+      "name": "Loan approval multi-condition DT",
+      "category": "correctness",
+      "with_skill": 1.0,
+      "without_skill": 0.476,
+      "delta": 0.524,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.083
+    },
+    "p3-19-st-vending-machine": {
+      "name": "Vending machine state transitions",
+      "category": "correctness",
+      "with_skill": 1.0,
+      "without_skill": 0.429,
+      "delta": 0.571,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-20-adversarial-ai-trust": {
+      "name": "Adversarial: AI tests all pass, should I ship?",
+      "category": "adversarial",
+      "with_skill": 1.0,
+      "without_skill": 0.9,
+      "delta": 0.1,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.9,
+      "delta_content": 0.1,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-21-st-shopping-cart": {
+      "name": "Shopping cart state machine",
+      "category": "state_transition",
+      "with_skill": 1.0,
+      "without_skill": 0.478,
+      "delta": 0.522,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-22-st-airport-kiosk": {
+      "name": "Airport self-service kiosk workflow",
+      "category": "state_transition",
+      "with_skill": 1.0,
+      "without_skill": 0.478,
+      "delta": 0.522,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-23-risk-insurance-fmea": {
+      "name": "Insurance claims FMEA analysis",
+      "category": "risk_assessment",
+      "with_skill": 1.0,
+      "without_skill": 1.0,
+      "delta": 0.0,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-24-risk-tax-filing": {
+      "name": "Government tax filing risk matrix",
+      "category": "risk_assessment",
+      "with_skill": 1.0,
+      "without_skill": 0.818,
+      "delta": 0.182,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.818,
+      "delta_content": 0.182,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-25-concurrency-inventory": {
+      "name": "Inventory race condition prevention",
+      "category": "concurrency",
+      "with_skill": 1.0,
+      "without_skill": 0.391,
+      "delta": 0.609,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.818,
+      "delta_content": 0.182,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-26-concurrency-payment-gw": {
+      "name": "Concurrent payment gateway load",
+      "category": "concurrency",
+      "with_skill": 1.0,
+      "without_skill": 0.478,
+      "delta": 0.522,
+      "with_skill_content": 1.0,
+      "without_skill_content": 1.0,
+      "delta_content": 0.0,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-27-security-attack-payloads": {
+      "name": "Security attack payload testing",
+      "category": "security",
+      "with_skill": 1.0,
+      "without_skill": 0.545,
+      "delta": 0.455,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.545,
+      "delta_content": 0.455,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-28-domain-payment-recovery": {
+      "name": "Payment failure recovery flow",
+      "category": "domain_specific",
+      "with_skill": 1.0,
+      "without_skill": 0.391,
+      "delta": 0.609,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.818,
+      "delta_content": 0.182,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    },
+    "p3-29-risk-regression-priority": {
+      "name": "Microservices regression prioritization",
+      "category": "risk_assessment",
+      "with_skill": 1.0,
+      "without_skill": 0.909,
+      "delta": 0.091,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.909,
+      "delta_content": 0.091,
+      "with_skill_structural": 0,
+      "without_skill_structural": 0
+    },
+    "p3-30-domain-multicurrency": {
+      "name": "Multi-currency payment API edge cases",
+      "category": "domain_specific",
+      "with_skill": 1.0,
+      "without_skill": 0.391,
+      "delta": 0.609,
+      "with_skill_content": 1.0,
+      "without_skill_content": 0.818,
+      "delta_content": 0.182,
+      "with_skill_structural": 1.0,
+      "without_skill_structural": 0.0
+    }
+  }
+}

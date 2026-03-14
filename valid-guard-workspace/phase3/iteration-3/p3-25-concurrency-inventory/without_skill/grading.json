@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-25-concurrency-inventory",
+  "eval_name": "Inventory race condition prevention",
+  "category": "concurrency",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Last unit race condition scenario",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "Overselling prevention",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: oversell"
+    },
+    {
+      "text": "Locking strategy (pessimistic/optimistic)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: lock"
+    },
+    {
+      "text": "Cart-inventory consistency check",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('cart', 'stock')"
+    },
+    {
+      "text": "Database transaction isolation",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: transaction"
+    },
+    {
+      "text": "Multiple user simulation",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('multiple', 'user')"
+    },
+    {
+      "text": "Stock deduction atomicity",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('decrement', 'inventory')"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 1/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/2 required patterns"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "total": 17,
+    "pass_rate": 0.353,
+    "weighted_score": 0.391,
+    "content_score": 0.818,
+    "structural_score": 0.0
+  }
+}

@@ -1,0 +1,525 @@
+three_amigos_session:
+  story: >
+    As a purchasing manager, I want to approve purchase orders so that
+    vendors receive notifications and accounting can process payments.
+  session_date: "2026-03-14"
+  methodology: example_mapping
+
+  roles:
+    - role: business_analyst
+      focus: Business rules, workflow correctness, edge cases
+    - role: developer
+      focus: Technical feasibility, system integration, data flow
+    - role: quality_engineer
+      focus: Testability, acceptance criteria completeness, risk areas
+
+  example_mapping:
+    rules:
+      - id: R1
+        description: >
+          Only users with the "purchasing_manager" role may approve purchase orders.
+      - id: R2
+        description: >
+          A purchase order must be in "pending_approval" status before it can be approved.
+      - id: R3
+        description: >
+          Upon approval, the vendor associated with the purchase order must receive
+          an email notification containing the PO number, approved amount, and
+          expected delivery date.
+      - id: R4
+        description: >
+          Upon approval, the accounting department must be notified so they can
+          process the payment according to the payment terms on the PO.
+      - id: R5
+        description: >
+          Approval must be recorded with the approver identity, timestamp, and
+          any comments provided.
+      - id: R6
+        description: >
+          Purchase orders exceeding the manager's approval threshold require
+          additional authorization from a senior approver.
+      - id: R7
+        description: >
+          A purchase order that has already been approved, rejected, or cancelled
+          cannot be approved again.
+      - id: R8
+        description: >
+          If vendor notification delivery fails, the system must retry and alert
+          the purchasing manager.
+
+    examples:
+      - id: EX1
+        title: Standard single-item purchase order approval
+        rule_refs: [R1, R2, R3, R4, R5]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - A purchase order PO-2026-001 exists with status "pending_approval"
+            - PO-2026-001 is for vendor "Acme Supplies" for $5,000.00
+            - PO-2026-001 has payment terms "Net 30"
+            - Alice has an approval limit of $10,000.00
+          when:
+            - Alice selects PO-2026-001 and clicks "Approve"
+          then:
+            - PO-2026-001 status changes to "approved"
+            - An approval record is created with approver "Alice" and the current timestamp
+            - Vendor "Acme Supplies" receives an email notification containing PO number "PO-2026-001", approved amount "$5,000.00", and expected delivery date
+            - The accounting department receives a notification to process payment of $5,000.00 with terms "Net 30"
+
+      - id: EX2
+        title: Approval with manager comments
+        rule_refs: [R1, R2, R5]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - A purchase order PO-2026-002 exists with status "pending_approval"
+          when:
+            - Alice adds the comment "Approved - verified budget allocation with finance"
+            - Alice clicks "Approve" on PO-2026-002
+          then:
+            - PO-2026-002 status changes to "approved"
+            - The approval record includes the comment "Approved - verified budget allocation with finance"
+            - The comment is visible in the PO audit trail
+
+      - id: EX3
+        title: Purchase order exceeds manager approval threshold
+        rule_refs: [R1, R2, R6]
+        scenario:
+          given:
+            - A purchasing manager "Bob" is logged into the system
+            - Bob has an approval limit of $10,000.00
+            - A purchase order PO-2026-003 exists with status "pending_approval" for $25,000.00
+          when:
+            - Bob selects PO-2026-003 and clicks "Approve"
+          then:
+            - The system does not fully approve PO-2026-003
+            - PO-2026-003 status changes to "pending_senior_approval"
+            - Bob is informed that the PO requires additional senior authorization
+            - A notification is sent to the designated senior approver
+
+      - id: EX4
+        title: Non-manager user attempts to approve a purchase order
+        rule_refs: [R1]
+        scenario:
+          given:
+            - A user "Charlie" is logged in with the role "procurement_clerk"
+            - A purchase order PO-2026-004 exists with status "pending_approval"
+          when:
+            - Charlie attempts to approve PO-2026-004
+          then:
+            - The approval action is denied
+            - Charlie receives an "insufficient permissions" error message
+            - PO-2026-004 remains in "pending_approval" status
+            - The failed attempt is logged in the audit trail
+
+      - id: EX5
+        title: Attempt to approve an already-approved purchase order
+        rule_refs: [R7]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - PO-2026-005 was previously approved by manager "Bob" on 2026-03-10
+          when:
+            - Alice attempts to approve PO-2026-005
+          then:
+            - The system rejects the approval attempt
+            - Alice sees a message indicating "PO-2026-005 has already been approved"
+            - No duplicate approval record is created
+            - No duplicate vendor or accounting notifications are sent
+
+      - id: EX6
+        title: Attempt to approve a rejected purchase order
+        rule_refs: [R2, R7]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - PO-2026-006 has status "rejected"
+          when:
+            - Alice attempts to approve PO-2026-006
+          then:
+            - The system rejects the approval attempt
+            - Alice sees a message indicating the PO must be resubmitted before it can be approved
+            - PO-2026-006 status remains "rejected"
+
+      - id: EX7
+        title: Attempt to approve a cancelled purchase order
+        rule_refs: [R2, R7]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - PO-2026-007 has status "cancelled"
+          when:
+            - Alice attempts to approve PO-2026-007
+          then:
+            - The system rejects the approval attempt
+            - Alice sees a message indicating cancelled POs cannot be approved
+            - PO-2026-007 status remains "cancelled"
+
+      - id: EX8
+        title: Vendor notification email delivery fails
+        rule_refs: [R3, R8]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - PO-2026-008 exists with status "pending_approval"
+            - The vendor "Broken Email Corp" has an invalid email address on file
+          when:
+            - Alice approves PO-2026-008
+          then:
+            - PO-2026-008 status changes to "approved"
+            - The system attempts to send the vendor notification and detects delivery failure
+            - The system retries the notification up to the configured retry limit
+            - If all retries fail, Alice receives an alert that vendor notification for PO-2026-008 could not be delivered
+            - The accounting notification is still sent successfully regardless of vendor notification failure
+
+      - id: EX9
+        title: Multi-line-item purchase order approval
+        rule_refs: [R1, R2, R3, R4, R5]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - PO-2026-009 exists with status "pending_approval"
+            - PO-2026-009 contains 5 line items totaling $8,750.00 from vendor "Office Depot"
+          when:
+            - Alice approves PO-2026-009
+          then:
+            - PO-2026-009 status changes to "approved"
+            - The vendor notification includes the total amount of $8,750.00 and all line item details
+            - The accounting notification reflects the full $8,750.00 total
+
+      - id: EX10
+        title: Approval during system maintenance window
+        rule_refs: [R1, R2, R3, R4]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - PO-2026-010 exists with status "pending_approval"
+            - The email notification service is temporarily unavailable due to maintenance
+          when:
+            - Alice approves PO-2026-010
+          then:
+            - PO-2026-010 status changes to "approved"
+            - The approval record is persisted
+            - Vendor and accounting notifications are queued for delivery
+            - Notifications are sent once the email service is restored
+
+      - id: EX11
+        title: Bulk approval of multiple purchase orders
+        rule_refs: [R1, R2, R3, R4, R5]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - Three purchase orders (PO-2026-011, PO-2026-012, PO-2026-013) exist with status "pending_approval"
+            - All three are within Alice's approval limit
+          when:
+            - Alice selects all three POs and clicks "Approve Selected"
+          then:
+            - All three POs change to "approved" status
+            - Separate approval records are created for each PO
+            - Each vendor receives their own notification
+            - The accounting department receives notifications for all three POs
+
+      - id: EX12
+        title: Concurrent approval attempt by two managers
+        rule_refs: [R1, R2, R5, R7]
+        scenario:
+          given:
+            - Purchasing managers "Alice" and "Bob" both have PO-2026-014 open in their dashboard
+            - PO-2026-014 has status "pending_approval"
+          when:
+            - Alice clicks "Approve" on PO-2026-014
+            - Bob clicks "Approve" on PO-2026-014 moments later
+          then:
+            - The first approval (Alice's) succeeds
+            - The second approval (Bob's) is rejected with a message that the PO has already been approved
+            - Only one approval record exists for PO-2026-014
+            - Only one set of vendor and accounting notifications is sent
+
+      - id: EX13
+        title: Purchase order with zero-dollar amount
+        rule_refs: [R1, R2, R3, R4]
+        scenario:
+          given:
+            - A purchasing manager "Alice" is logged into the system
+            - PO-2026-015 exists with status "pending_approval" for $0.00 (sample/trial order)
+          when:
+            - Alice approves PO-2026-015
+          then:
+            - PO-2026-015 status changes to "approved"
+            - The vendor notification is sent with the $0.00 amount
+            - The accounting notification clearly indicates a zero-dollar PO
+
+  ambiguities:
+    - id: AMB1
+      category: business_rule
+      question: >
+        What is the exact approval threshold per purchasing manager role?
+        Is it a single global limit, or can it vary per manager?
+      impact: high
+      raised_by: quality_engineer
+      notes: >
+        The story implies there is a threshold but does not specify the amount
+        or whether it is configurable per user. This affects scenarios EX3 and EX6.
+
+    - id: AMB2
+      category: notification
+      question: >
+        What specific information must the vendor notification email contain
+        beyond PO number and amount? Should it include line item details,
+        delivery address, or payment terms?
+      impact: medium
+      raised_by: business_analyst
+      notes: >
+        The story says "vendors receive notifications" but does not define the
+        notification content template or required fields.
+
+    - id: AMB3
+      category: notification
+      question: >
+        How should the accounting department be notified? Is it via email, an
+        internal system queue, an ERP integration, or a dashboard notification?
+      impact: high
+      raised_by: developer
+      notes: >
+        The mechanism for accounting notification is unspecified. This has
+        significant architectural and integration implications.
+
+    - id: AMB4
+      category: business_rule
+      question: >
+        What happens when a vendor does not have an email address on file?
+        Should the approval be blocked, or should it proceed with a warning?
+      impact: medium
+      raised_by: quality_engineer
+      notes: >
+        The story assumes vendors can always be notified but does not address
+        missing contact information.
+
+    - id: AMB5
+      category: workflow
+      question: >
+        Is bulk approval of multiple purchase orders in scope for this story,
+        or should approvals be handled one at a time?
+      impact: medium
+      raised_by: developer
+      notes: >
+        Bulk approval has different UX, performance, and error handling
+        implications compared to single-PO approval.
+
+    - id: AMB6
+      category: business_rule
+      question: >
+        Can a purchasing manager approve their own purchase order (one they
+        created), or is segregation of duties required?
+      impact: high
+      raised_by: quality_engineer
+      notes: >
+        Many organizations require that the person creating a PO cannot also
+        approve it. This is a critical compliance concern.
+
+    - id: AMB7
+      category: workflow
+      question: >
+        What is the escalation path when a PO exceeds the manager's approval
+        limit? Is there a defined hierarchy, or is a specific senior approver
+        designated per department?
+      impact: high
+      raised_by: business_analyst
+      notes: >
+        The story does not define the multi-level approval workflow for
+        high-value purchase orders.
+
+    - id: AMB8
+      category: notification
+      question: >
+        What is the retry policy for failed vendor notifications? How many
+        retries, what interval, and what is the final fallback action?
+      impact: medium
+      raised_by: developer
+      notes: >
+        The story does not specify retry behavior for notification failures.
+
+    - id: AMB9
+      category: business_rule
+      question: >
+        Should the approval be atomic with the notifications? If notifications
+        fail, should the approval be rolled back, or should the approval stand
+        with notifications retried asynchronously?
+      impact: high
+      raised_by: developer
+      notes: >
+        This is a critical architectural decision affecting data consistency
+        and user experience.
+
+    - id: AMB10
+      category: workflow
+      question: >
+        Can a previously rejected PO be resubmitted for approval, and if so,
+        does it go through the same approval flow or a different one?
+      impact: medium
+      raised_by: business_analyst
+      notes: >
+        The story only covers approval but does not address the
+        rejected-to-resubmitted lifecycle.
+
+    - id: AMB11
+      category: business_rule
+      question: >
+        Are there any time-based constraints on approval? For example, can a PO
+        that has been pending for more than N days be auto-escalated or auto-expired?
+      impact: low
+      raised_by: quality_engineer
+      notes: >
+        SLA-based behavior is not mentioned in the story.
+
+    - id: AMB12
+      category: audit
+      question: >
+        What audit trail requirements exist? Must every approval action (including
+        failed attempts) be logged, and for how long must records be retained?
+      impact: medium
+      raised_by: quality_engineer
+      notes: >
+        The story implies recording the approval but does not specify full
+        audit and compliance requirements.
+
+    - id: AMB13
+      category: notification
+      question: >
+        Should the purchasing manager who performed the approval also receive a
+        confirmation notification or email?
+      impact: low
+      raised_by: business_analyst
+      notes: >
+        The story specifies vendor and accounting notifications but is silent
+        on approver confirmation.
+
+    - id: AMB14
+      category: business_rule
+      question: >
+        How should the system handle partial approvals? Can a manager approve
+        some line items of a PO while rejecting others?
+      impact: medium
+      raised_by: business_analyst
+      notes: >
+        The story treats the PO as a single unit. Partial approval could be a
+        real-world requirement that needs clarification.
+
+    - id: AMB15
+      category: integration
+      question: >
+        Does the accounting notification need to interface with a specific ERP
+        or financial system (e.g., SAP, QuickBooks, NetSuite)?
+      impact: high
+      raised_by: developer
+      notes: >
+        Integration targets and data formats are unspecified, which directly
+        affects technical implementation.
+
+  acceptance_criteria_summary:
+    must_have:
+      - Only users with purchasing_manager role can approve purchase orders
+      - Only POs in "pending_approval" status can be approved
+      - Approval changes PO status to "approved"
+      - Vendor receives email notification with PO number, amount, and delivery date
+      - Accounting department is notified to process payment
+      - Approval is recorded with approver identity, timestamp, and optional comments
+      - Duplicate approvals on the same PO are prevented
+      - Unauthorized users are blocked from approving
+
+    should_have:
+      - Graceful handling of notification delivery failures with retry logic
+      - Approval threshold enforcement with escalation to senior approver
+      - Concurrency control to prevent race conditions on simultaneous approvals
+      - Audit trail for all approval actions including failed attempts
+
+    could_have:
+      - Bulk approval of multiple POs
+      - Segregation-of-duties enforcement (creator cannot approve)
+      - Approver confirmation notification
+      - Time-based auto-escalation for stale pending POs
+
+  test_coverage_matrix:
+    - scenario: EX1
+      type: happy_path
+      priority: P1
+      automation_candidate: true
+    - scenario: EX2
+      type: happy_path
+      priority: P2
+      automation_candidate: true
+    - scenario: EX3
+      type: boundary
+      priority: P1
+      automation_candidate: true
+    - scenario: EX4
+      type: negative
+      priority: P1
+      automation_candidate: true
+    - scenario: EX5
+      type: negative
+      priority: P1
+      automation_candidate: true
+    - scenario: EX6
+      type: negative
+      priority: P2
+      automation_candidate: true
+    - scenario: EX7
+      type: negative
+      priority: P2
+      automation_candidate: true
+    - scenario: EX8
+      type: error_handling
+      priority: P1
+      automation_candidate: true
+    - scenario: EX9
+      type: happy_path
+      priority: P2
+      automation_candidate: true
+    - scenario: EX10
+      type: error_handling
+      priority: P2
+      automation_candidate: true
+    - scenario: EX11
+      type: feature_variant
+      priority: P3
+      automation_candidate: true
+    - scenario: EX12
+      type: concurrency
+      priority: P1
+      automation_candidate: true
+    - scenario: EX13
+      type: boundary
+      priority: P3
+      automation_candidate: true
+
+  session_outcomes:
+    total_rules: 8
+    total_examples: 13
+    total_ambiguities: 15
+    high_impact_ambiguities: 6
+    recommended_actions:
+      - action: Resolve AMB1 (approval thresholds) before development begins
+        owner: business_analyst
+        priority: high
+      - action: Resolve AMB3 (accounting notification mechanism) before development begins
+        owner: developer
+        priority: high
+      - action: Resolve AMB6 (segregation of duties) with compliance team
+        owner: business_analyst
+        priority: high
+      - action: Resolve AMB9 (approval atomicity with notifications) in architecture review
+        owner: developer
+        priority: high
+      - action: Resolve AMB15 (ERP integration) with IT and accounting stakeholders
+        owner: developer
+        priority: high
+      - action: Define vendor notification email template with business stakeholders
+        owner: business_analyst
+        priority: medium
+      - action: Define notification retry policy with infrastructure team
+        owner: developer
+        priority: medium
+      - action: Schedule follow-up Three Amigos session after ambiguities are resolved
+        owner: quality_engineer
+        priority: medium

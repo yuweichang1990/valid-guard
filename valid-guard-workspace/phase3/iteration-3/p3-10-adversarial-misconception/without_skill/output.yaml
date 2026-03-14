@@ -1,0 +1,102 @@
+analysis:
+  question: "Are my tests good enough given 100% code coverage?"
+  short_answer: "No. 100% code coverage does not mean your tests are thorough or high-quality."
+
+  misconception_identified:
+    name: "Coverage equals quality"
+    explanation: >
+      100% code coverage means every line of code was executed during testing.
+      It does NOT mean every meaningful behavior, edge case, or fault condition
+      has been verified. Coverage is a measure of which code ran, not whether
+      the code produces correct results across all important inputs.
+
+  current_test_assessment:
+    tests_described:
+      - description: "Assert.Equal(90.00, calculator.CalculatePrice(100, 10))"
+        verdict: "Covers the happy path with one specific input pair"
+      - description: "Assert.Throws for negative prices"
+        verdict: "Covers one validation path"
+    strengths:
+      - "Tests the basic discount calculation"
+      - "Tests that negative prices are rejected"
+    weaknesses:
+      - "Only one happy-path example -- a single passing case cannot confirm the formula is correct"
+      - "No test for zero price (boundary)"
+      - "No test for zero discount (boundary -- should return original price)"
+      - "No test for 100% discount (boundary -- should return 0)"
+      - "No test for discount greater than 100% (should this be allowed?)"
+      - "No test for negative discount percentages"
+      - "No test for very large prices (overflow potential)"
+      - "No test for fractional/decimal discount values (e.g., 33.33%)"
+      - "No test for floating-point precision issues (e.g., price=10, discount=30 should give 7.00, not 6.999...)"
+      - "No test confirming the return type or rounding behavior"
+      - "A single Assert.Equal with one input could pass even if the implementation is hardcoded to return 90"
+
+  missing_test_categories:
+    boundary_values:
+      - "price = 0, discountPercent = 10 -> expected 0"
+      - "price = 100, discountPercent = 0 -> expected 100"
+      - "price = 100, discountPercent = 100 -> expected 0"
+      - "price = 0.01, discountPercent = 50 -> expected 0.005 (rounding?)"
+    invalid_inputs:
+      - "Negative discount percent (e.g., -10) -- is this allowed or should it throw?"
+      - "Discount percent > 100 (e.g., 150) -- should this throw or return negative?"
+      - "Null or non-numeric inputs (if language allows)"
+    precision_and_rounding:
+      - "price = 10.00, discountPercent = 33.33 -> verify correct rounding"
+      - "price = 1.00, discountPercent = 3 -> 0.97 exactly?"
+      - "price = 99.99, discountPercent = 15 -> verify no floating-point drift"
+    multiple_happy_paths:
+      - "At least 3-5 different price/discount combinations to confirm the general formula"
+      - "Triangulation: if multiple distinct inputs all produce correct output, a hardcoded return is ruled out"
+    edge_cases:
+      - "Very large price (e.g., decimal.MaxValue or double.MaxValue) -- overflow behavior"
+      - "Very small fractional price (e.g., 0.001)"
+
+  why_coverage_is_misleading:
+    - "A method with one if-statement and one formula can reach 100% coverage with just 2 tests"
+    - "Coverage tells you nothing about whether the formula itself is correct for all inputs"
+    - "Coverage cannot detect missing validation (e.g., discount > 100 is never checked, so there is no branch to miss)"
+    - "Coverage does not verify output correctness -- it only tracks execution paths"
+    - "Mutation testing would reveal gaps: if you change '*' to '+' in the formula, does any test fail?"
+
+  recommended_improvements:
+    - title: "Add boundary value tests"
+      description: "Test 0% discount, 100% discount, 0 price, and minimum meaningful price"
+    - title: "Add negative discount validation test"
+      description: "Decide and test whether negative discounts should throw or be handled"
+    - title: "Add over-100% discount test"
+      description: "Decide and test whether discounts above 100% are permitted"
+    - title: "Add multiple happy-path examples"
+      description: "Use at least 3-5 different input pairs to triangulate correctness of the formula"
+    - title: "Add precision tests"
+      description: "Test decimal edge cases to verify rounding behavior"
+    - title: "Consider mutation testing"
+      description: "Use a tool like Stryker to see if your tests can detect small code changes"
+    - title: "Consider parameterized/theory tests"
+      description: "Use [Theory] with [InlineData] to efficiently cover many input combinations"
+
+  example_improved_tests:
+    note: "Pseudocode illustrating what a more thorough test suite would include"
+    tests:
+      - name: "CalculatePrice_WithVariousValidInputs_ReturnsCorrectDiscountedPrice"
+        cases:
+          - { price: 100, discount: 10, expected: 90.00 }
+          - { price: 200, discount: 25, expected: 150.00 }
+          - { price: 49.99, discount: 50, expected: 24.995 }
+          - { price: 100, discount: 0, expected: 100.00 }
+          - { price: 100, discount: 100, expected: 0.00 }
+          - { price: 0, discount: 50, expected: 0.00 }
+      - name: "CalculatePrice_NegativePrice_ThrowsArgumentException"
+      - name: "CalculatePrice_NegativeDiscount_ThrowsArgumentException"
+      - name: "CalculatePrice_DiscountOver100_ThrowsArgumentException"
+
+  conclusion: >
+    Your tests are a reasonable starting point but are far from sufficient.
+    100% code coverage creates a false sense of security. The real measure of
+    test quality is whether your tests can catch bugs -- and with only one
+    happy-path assertion and one error case, many classes of bugs (wrong formula,
+    missing validation, rounding errors, overflow) would go undetected.
+    Coverage is a useful floor metric ("we should not have 0% coverage") but
+    a poor ceiling metric ("100% does not mean done"). Aim for meaningful
+    behavioral coverage, not just line coverage.

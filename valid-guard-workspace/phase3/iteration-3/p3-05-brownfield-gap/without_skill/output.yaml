@@ -1,0 +1,819 @@
+test_plan:
+  module: order_processor.py
+  existing_test_file: test_order_processor_existing.py
+  existing_test_count: 7
+  analysis_date: "2026-03-14"
+
+  coverage_summary:
+    existing_coverage:
+      - create_order: basic happy path (single item, multiple items), empty items error, insufficient stock error
+      - transition_status: PENDING->CONFIRMED valid transition, CONFIRMED->SHIPPED invalid transition
+      - apply_discount: 10% discount on pending order
+      - request_refund: NOT TESTED AT ALL
+    gaps_identified:
+      - create_order: tax calculation, shipping fee logic (free vs paid), total computation, MAX_ITEMS exceeded, zero/negative qty, unknown item, inventory deduction, boundary at FREE_SHIPPING_THRESHOLD, order persistence in self.orders, timestamp fields
+      - transition_status: order not found, full valid chain through all states, CANCELLED restores inventory, all valid transitions beyond PENDING->CONFIRMED, all invalid transitions from terminal states, updated_at mutation
+      - request_refund: entire method is untested (happy path, order not found, non-delivered status, expired refund window, inventory restoration, refund_amount field)
+      - apply_discount: order not found, boundary discount values (0 exclusive, 100 inclusive, >100, negative), non-pending order rejection, shipping recalculation when discount crosses FREE_SHIPPING_THRESHOLD, updated_at mutation
+
+  missing_tests:
+
+    # =========================================================================
+    # create_order — Tax, Shipping, and Total Calculations
+    # =========================================================================
+    - id: create_order_tax_calculation
+      method: create_order
+      category: calculation
+      priority: high
+      description: >
+        Verify that tax is calculated as subtotal * TAX_RATE (8%).
+        Existing tests check subtotal but never assert on tax.
+      input:
+        order_id: "ORD-TAX"
+        items: {"widget": 1}
+      expected:
+        subtotal: "10.00"
+        tax: "0.80"
+
+    - id: create_order_shipping_fee_below_threshold
+      method: create_order
+      category: calculation
+      priority: high
+      description: >
+        When subtotal is below FREE_SHIPPING_THRESHOLD ($50), shipping should
+        equal SHIPPING_FEE ($5.99). Existing tests use subtotals of $20 and $35
+        but never assert on shipping.
+      input:
+        order_id: "ORD-SHIP"
+        items: {"widget": 2}
+      expected:
+        subtotal: "20.00"
+        shipping: "5.99"
+
+    - id: create_order_free_shipping_above_threshold
+      method: create_order
+      category: calculation
+      priority: high
+      description: >
+        When subtotal >= FREE_SHIPPING_THRESHOLD ($50), shipping is $0.
+      input:
+        order_id: "ORD-FREE"
+        items: {"gadget": 2}
+      expected:
+        subtotal: "50.00"
+        shipping: "0"
+
+    - id: create_order_free_shipping_exact_threshold
+      method: create_order
+      category: boundary
+      priority: medium
+      description: >
+        Boundary test: subtotal equals exactly $50.00.
+        Verifies >= comparison grants free shipping at the boundary.
+      input:
+        order_id: "ORD-BOUNDARY"
+        items: {"gadget": 2}
+      expected:
+        subtotal: "50.00"
+        shipping: "0"
+
+    - id: create_order_shipping_just_below_threshold
+      method: create_order
+      category: boundary
+      priority: medium
+      description: >
+        Boundary test: subtotal is just below $50.00 (e.g., $49.50 via
+        gizmo * 10 = $35 + widget * 1 = $10 => need exact combo).
+        Use items that sum to just under $50 to confirm shipping is charged.
+      input:
+        order_id: "ORD-BELOW"
+        items: {"gizmo": 14}
+      expected:
+        subtotal: "49.00"
+        shipping: "5.99"
+
+    - id: create_order_total_with_shipping
+      method: create_order
+      category: calculation
+      priority: high
+      description: >
+        Verify total = subtotal + tax + shipping when shipping is charged.
+        No existing test asserts the total field.
+      input:
+        order_id: "ORD-TOTAL"
+        items: {"widget": 2}
+      expected:
+        subtotal: "20.00"
+        tax: "1.60"
+        shipping: "5.99"
+        total: "27.59"
+
+    - id: create_order_total_with_free_shipping
+      method: create_order
+      category: calculation
+      priority: high
+      description: >
+        Verify total = subtotal + tax + 0 when free shipping applies.
+      input:
+        order_id: "ORD-TOTAL-FREE"
+        items: {"gadget": 3}
+      expected:
+        subtotal: "75.00"
+        tax: "6.00"
+        shipping: "0"
+        total: "81.00"
+
+    # =========================================================================
+    # create_order — Validation Errors
+    # =========================================================================
+    - id: create_order_exceeds_max_items
+      method: create_order
+      category: validation
+      priority: high
+      description: >
+        Ordering more than MAX_ITEMS_PER_ORDER (100) total items must raise
+        ValueError. Not tested by any existing test.
+      input:
+        order_id: "ORD-MAX"
+        items: {"gizmo": 101}
+      expected:
+        raises: ValueError
+        message_contains: "Cannot order more than 100 items"
+
+    - id: create_order_exactly_max_items
+      method: create_order
+      category: boundary
+      priority: medium
+      description: >
+        Ordering exactly 100 items should succeed (boundary).
+        Requires sufficient inventory — set gizmo inventory to >= 100.
+      setup:
+        inventory_override: {"gizmo": 100}
+      input:
+        order_id: "ORD-EXACT-MAX"
+        items: {"gizmo": 100}
+      expected:
+        succeeds: true
+
+    - id: create_order_zero_quantity_raises
+      method: create_order
+      category: validation
+      priority: high
+      description: >
+        A quantity of 0 must raise ValueError. Existing tests never cover
+        zero or negative quantities.
+      input:
+        order_id: "ORD-ZERO"
+        items: {"widget": 0}
+      expected:
+        raises: ValueError
+        message_contains: "Quantity must be positive"
+
+    - id: create_order_negative_quantity_raises
+      method: create_order
+      category: validation
+      priority: high
+      description: >
+        A negative quantity must raise ValueError.
+      input:
+        order_id: "ORD-NEG"
+        items: {"widget": -1}
+      expected:
+        raises: ValueError
+        message_contains: "Quantity must be positive"
+
+    - id: create_order_unknown_item_raises
+      method: create_order
+      category: validation
+      priority: high
+      description: >
+        An item not in the pricing dict must raise ValueError.
+        Existing tests never exercise this branch.
+      input:
+        order_id: "ORD-UNK"
+        items: {"unknown_product": 1}
+      expected:
+        raises: ValueError
+        message_contains: "Unknown item"
+
+    - id: create_order_item_in_pricing_but_not_in_inventory
+      method: create_order
+      category: validation
+      priority: medium
+      description: >
+        An item present in pricing but absent from inventory should raise
+        InsufficientStockError (hits the `item not in self.inventory` branch).
+      setup:
+        pricing_override: {"phantom": "10.00"}
+      input:
+        order_id: "ORD-PHANTOM"
+        items: {"phantom": 1}
+      expected:
+        raises: InsufficientStockError
+
+    # =========================================================================
+    # create_order — Side Effects and State
+    # =========================================================================
+    - id: create_order_deducts_inventory
+      method: create_order
+      category: side_effect
+      priority: high
+      description: >
+        After a successful order, inventory must decrease by the ordered
+        quantities. No existing test checks inventory after ordering.
+      input:
+        order_id: "ORD-INV"
+        items: {"widget": 3}
+      expected:
+        inventory_after: {"widget": 7}
+
+    - id: create_order_stored_in_orders_dict
+      method: create_order
+      category: side_effect
+      priority: medium
+      description: >
+        The order dict must be stored in processor.orders keyed by order_id.
+      input:
+        order_id: "ORD-STORE"
+        items: {"widget": 1}
+      expected:
+        order_id_in_processor_orders: true
+
+    - id: create_order_timestamps_set
+      method: create_order
+      category: side_effect
+      priority: medium
+      description: >
+        created_at and updated_at must be datetime instances set at creation.
+      input:
+        order_id: "ORD-TS"
+        items: {"widget": 1}
+      expected:
+        created_at: isinstance(datetime)
+        updated_at: isinstance(datetime)
+
+    - id: create_order_status_is_pending
+      method: create_order
+      category: state
+      priority: low
+      description: >
+        Redundant with test_create_simple_order, but included for completeness.
+        Confirms status is PENDING on a differently structured order.
+      note: already partially covered
+
+    # =========================================================================
+    # transition_status — Valid Transitions
+    # =========================================================================
+    - id: transition_pending_to_cancelled
+      method: transition_status
+      category: valid_transition
+      priority: high
+      description: >
+        PENDING -> CANCELLED is valid. Not tested.
+      input:
+        initial_status: PENDING
+        new_status: CANCELLED
+      expected:
+        status: CANCELLED
+
+    - id: transition_confirmed_to_processing
+      method: transition_status
+      category: valid_transition
+      priority: high
+      description: >
+        CONFIRMED -> PROCESSING is valid. Not tested.
+      input:
+        initial_status: CONFIRMED
+        new_status: PROCESSING
+      expected:
+        status: PROCESSING
+
+    - id: transition_confirmed_to_cancelled
+      method: transition_status
+      category: valid_transition
+      priority: medium
+      description: >
+        CONFIRMED -> CANCELLED is valid. Not tested.
+      input:
+        initial_status: CONFIRMED
+        new_status: CANCELLED
+      expected:
+        status: CANCELLED
+
+    - id: transition_processing_to_shipped
+      method: transition_status
+      category: valid_transition
+      priority: high
+      description: >
+        PROCESSING -> SHIPPED is valid. Not tested.
+      input:
+        initial_status: PROCESSING
+        new_status: SHIPPED
+      expected:
+        status: SHIPPED
+
+    - id: transition_processing_to_cancelled
+      method: transition_status
+      category: valid_transition
+      priority: medium
+      description: >
+        PROCESSING -> CANCELLED is valid. Not tested.
+      input:
+        initial_status: PROCESSING
+        new_status: CANCELLED
+      expected:
+        status: CANCELLED
+
+    - id: transition_shipped_to_delivered
+      method: transition_status
+      category: valid_transition
+      priority: high
+      description: >
+        SHIPPED -> DELIVERED is valid. Not tested.
+      input:
+        initial_status: SHIPPED
+        new_status: DELIVERED
+      expected:
+        status: DELIVERED
+
+    - id: transition_delivered_to_refunded
+      method: transition_status
+      category: valid_transition
+      priority: high
+      description: >
+        DELIVERED -> REFUNDED is valid via transition_status. Not tested.
+      input:
+        initial_status: DELIVERED
+        new_status: REFUNDED
+      expected:
+        status: REFUNDED
+
+    - id: transition_full_happy_path
+      method: transition_status
+      category: integration
+      priority: high
+      description: >
+        Walk an order through the entire happy path:
+        PENDING -> CONFIRMED -> PROCESSING -> SHIPPED -> DELIVERED.
+        Verifies the complete lifecycle works end-to-end.
+      input:
+        transitions:
+          - CONFIRMED
+          - PROCESSING
+          - SHIPPED
+          - DELIVERED
+      expected:
+        final_status: DELIVERED
+
+    # =========================================================================
+    # transition_status — Invalid Transitions
+    # =========================================================================
+    - id: transition_order_not_found
+      method: transition_status
+      category: error
+      priority: high
+      description: >
+        Transitioning a non-existent order must raise KeyError. Not tested.
+      input:
+        order_id: "NONEXISTENT"
+        new_status: CONFIRMED
+      expected:
+        raises: KeyError
+
+    - id: transition_from_cancelled_raises
+      method: transition_status
+      category: invalid_transition
+      priority: high
+      description: >
+        CANCELLED is a terminal state; any transition from it must raise
+        InvalidTransitionError. Not tested.
+      input:
+        initial_status: CANCELLED
+        new_status: PENDING
+      expected:
+        raises: InvalidTransitionError
+
+    - id: transition_from_refunded_raises
+      method: transition_status
+      category: invalid_transition
+      priority: high
+      description: >
+        REFUNDED is a terminal state; any transition from it must raise
+        InvalidTransitionError. Not tested.
+      input:
+        initial_status: REFUNDED
+        new_status: PENDING
+      expected:
+        raises: InvalidTransitionError
+
+    - id: transition_shipped_to_cancelled_raises
+      method: transition_status
+      category: invalid_transition
+      priority: medium
+      description: >
+        SHIPPED -> CANCELLED is not a valid transition. Not tested.
+      input:
+        initial_status: SHIPPED
+        new_status: CANCELLED
+      expected:
+        raises: InvalidTransitionError
+
+    - id: transition_pending_to_shipped_raises
+      method: transition_status
+      category: invalid_transition
+      priority: medium
+      description: >
+        PENDING -> SHIPPED skips intermediate states and must raise
+        InvalidTransitionError.
+      input:
+        initial_status: PENDING
+        new_status: SHIPPED
+      expected:
+        raises: InvalidTransitionError
+
+    - id: transition_pending_to_delivered_raises
+      method: transition_status
+      category: invalid_transition
+      priority: medium
+      description: >
+        PENDING -> DELIVERED is not valid. Not tested.
+      input:
+        initial_status: PENDING
+        new_status: DELIVERED
+      expected:
+        raises: InvalidTransitionError
+
+    # =========================================================================
+    # transition_status — Side Effects
+    # =========================================================================
+    - id: transition_cancelled_restores_inventory
+      method: transition_status
+      category: side_effect
+      priority: high
+      description: >
+        When an order is cancelled, inventory for all ordered items must be
+        restored. This is a critical side effect not tested by any existing test.
+      input:
+        items: {"widget": 3, "gadget": 2}
+        new_status: CANCELLED
+      expected:
+        inventory_after: {"widget": 10, "gadget": 5}
+
+    - id: transition_updates_updated_at
+      method: transition_status
+      category: side_effect
+      priority: medium
+      description: >
+        After a status transition, updated_at must be refreshed to a time
+        at or after the original updated_at.
+      input:
+        new_status: CONFIRMED
+      expected:
+        updated_at_changed: true
+
+    # =========================================================================
+    # request_refund — Entirely Untested Method
+    # =========================================================================
+    - id: refund_happy_path
+      method: request_refund
+      category: happy_path
+      priority: critical
+      description: >
+        Refund a delivered order within the 30-day window. Must set status to
+        REFUNDED, populate refund_amount equal to total, and restore inventory.
+        This entire method has zero test coverage.
+      setup:
+        create_order_and_transition_to_delivered: true
+      input:
+        order_id: "ORD-REFUND"
+      expected:
+        status: REFUNDED
+        refund_amount: equals order total
+        inventory_restored: true
+
+    - id: refund_order_not_found
+      method: request_refund
+      category: error
+      priority: high
+      description: >
+        Attempting to refund a non-existent order must raise KeyError.
+      input:
+        order_id: "NONEXISTENT"
+      expected:
+        raises: KeyError
+
+    - id: refund_non_delivered_order_raises
+      method: request_refund
+      category: error
+      priority: high
+      description: >
+        Attempting to refund an order that is not in DELIVERED status must
+        raise InvalidTransitionError. Test with PENDING, CONFIRMED, PROCESSING,
+        SHIPPED, and CANCELLED statuses.
+      input:
+        statuses_to_test:
+          - PENDING
+          - CONFIRMED
+          - PROCESSING
+          - SHIPPED
+          - CANCELLED
+      expected:
+        raises: InvalidTransitionError
+        message_contains: "Can only refund delivered orders"
+
+    - id: refund_expired_window_raises
+      method: request_refund
+      category: error
+      priority: high
+      description: >
+        Attempting to refund a delivered order after REFUND_WINDOW_DAYS (30)
+        have elapsed must raise ValueError. Requires mocking datetime.now()
+        or manipulating created_at.
+      setup:
+        mock_created_at: 31 days ago
+      input:
+        order_id: "ORD-EXPIRED"
+      expected:
+        raises: ValueError
+        message_contains: "Refund window expired"
+
+    - id: refund_exactly_on_window_boundary
+      method: request_refund
+      category: boundary
+      priority: medium
+      description: >
+        Refunding on exactly day 30 should succeed (days_since == 30 is not
+        > 30). Boundary test for the refund window.
+      setup:
+        mock_created_at: exactly 30 days ago
+      input:
+        order_id: "ORD-DAY30"
+      expected:
+        succeeds: true
+        status: REFUNDED
+
+    - id: refund_on_day_31_fails
+      method: request_refund
+      category: boundary
+      priority: medium
+      description: >
+        Refunding on day 31 should fail. Boundary test complement.
+      setup:
+        mock_created_at: exactly 31 days ago
+      input:
+        order_id: "ORD-DAY31"
+      expected:
+        raises: ValueError
+
+    - id: refund_restores_inventory
+      method: request_refund
+      category: side_effect
+      priority: high
+      description: >
+        After a successful refund, all items in the order must be added back
+        to inventory.
+      setup:
+        initial_inventory: {"widget": 10}
+        order_items: {"widget": 3}
+        note: "After order, widget inventory = 7. After refund, should be 10 again."
+      expected:
+        inventory_after: {"widget": 10}
+
+    - id: refund_sets_refund_amount
+      method: request_refund
+      category: side_effect
+      priority: high
+      description: >
+        The refund_amount field must be set equal to the order's total.
+      expected:
+        refund_amount_equals_total: true
+
+    - id: refund_updates_updated_at
+      method: request_refund
+      category: side_effect
+      priority: medium
+      description: >
+        After a refund, updated_at should be refreshed.
+      expected:
+        updated_at_changed: true
+
+    # =========================================================================
+    # apply_discount — Missing Scenarios
+    # =========================================================================
+    - id: discount_order_not_found
+      method: apply_discount
+      category: error
+      priority: high
+      description: >
+        Applying a discount to a non-existent order must raise KeyError.
+        Not tested.
+      input:
+        order_id: "NONEXISTENT"
+        discount_percent: "10"
+      expected:
+        raises: KeyError
+
+    - id: discount_zero_raises
+      method: apply_discount
+      category: boundary
+      priority: high
+      description: >
+        Discount of exactly 0% must raise ValueError because the condition
+        is 0 < discount_percent (exclusive). Not tested.
+      input:
+        discount_percent: "0"
+      expected:
+        raises: ValueError
+        message_contains: "Discount must be between 0"
+
+    - id: discount_negative_raises
+      method: apply_discount
+      category: validation
+      priority: high
+      description: >
+        Negative discount must raise ValueError. Not tested.
+      input:
+        discount_percent: "-5"
+      expected:
+        raises: ValueError
+
+    - id: discount_over_100_raises
+      method: apply_discount
+      category: validation
+      priority: high
+      description: >
+        Discount > 100% must raise ValueError. Not tested.
+      input:
+        discount_percent: "101"
+      expected:
+        raises: ValueError
+
+    - id: discount_exactly_100_succeeds
+      method: apply_discount
+      category: boundary
+      priority: high
+      description: >
+        Discount of exactly 100% should succeed (inclusive upper bound).
+        Results in subtotal of $0. Not tested.
+      input:
+        discount_percent: "100"
+      expected:
+        succeeds: true
+        new_subtotal: "0.00"
+        new_tax: "0.00"
+        shipping: "5.99"
+        total: "5.99"
+
+    - id: discount_non_pending_order_raises
+      method: apply_discount
+      category: error
+      priority: high
+      description: >
+        Applying discount to a CONFIRMED (or any non-PENDING) order must
+        raise InvalidTransitionError. Not tested.
+      input:
+        initial_status: CONFIRMED
+        discount_percent: "10"
+      expected:
+        raises: InvalidTransitionError
+        message_contains: "Can only apply discount to pending orders"
+
+    - id: discount_recalculates_tax
+      method: apply_discount
+      category: calculation
+      priority: high
+      description: >
+        After discount, tax must be recalculated on the new subtotal.
+        Existing test only checks the discount amount, not tax.
+      input:
+        items: {"gadget": 3}
+        discount_percent: "10"
+      expected:
+        original_subtotal: "75.00"
+        new_subtotal: "67.50"
+        new_tax: "5.40"
+
+    - id: discount_changes_shipping_above_to_below_threshold
+      method: apply_discount
+      category: calculation
+      priority: high
+      description: >
+        A discount that reduces subtotal from >= $50 to < $50 should cause
+        shipping to change from $0 to $5.99. Not tested.
+      input:
+        items: {"gadget": 2}
+        discount_percent: "10"
+      expected:
+        original_subtotal: "50.00"
+        new_subtotal: "45.00"
+        original_shipping: "0"
+        new_shipping: "5.99"
+
+    - id: discount_keeps_free_shipping
+      method: apply_discount
+      category: calculation
+      priority: medium
+      description: >
+        A small discount that keeps subtotal >= $50 should maintain free
+        shipping.
+      input:
+        items: {"gadget": 3}
+        discount_percent: "5"
+      expected:
+        new_subtotal: "71.25"
+        shipping: "0"
+
+    - id: discount_updates_total
+      method: apply_discount
+      category: calculation
+      priority: high
+      description: >
+        After discount, total must equal new_subtotal + new_tax + new_shipping.
+        Existing test does not verify total recalculation.
+      input:
+        items: {"gadget": 3}
+        discount_percent: "10"
+      expected:
+        total: new_subtotal + new_tax + new_shipping
+
+    - id: discount_updates_updated_at
+      method: apply_discount
+      category: side_effect
+      priority: medium
+      description: >
+        After applying discount, updated_at must be refreshed.
+      expected:
+        updated_at_changed: true
+
+    # =========================================================================
+    # Cross-cutting / Integration Gaps
+    # =========================================================================
+    - id: create_two_orders_independent_inventory
+      method: create_order
+      category: integration
+      priority: medium
+      description: >
+        Creating two separate orders should both deduct from the shared
+        inventory. Second order should fail if combined quantities exceed stock.
+      input:
+        order_1: {"widget": 8}
+        order_2: {"widget": 5}
+      expected:
+        order_1_succeeds: true
+        order_2_raises: InsufficientStockError
+        inventory_after_order_1: {"widget": 2}
+
+    - id: cancel_then_reorder_uses_restored_stock
+      method: transition_status + create_order
+      category: integration
+      priority: medium
+      description: >
+        After cancelling an order, the restored inventory should allow a new
+        order for the same items.
+      steps:
+        - create_order with {"widget": 10}
+        - transition to CANCELLED (inventory restored to 10)
+        - create_order with {"widget": 10} should succeed
+      expected:
+        second_order_succeeds: true
+
+    - id: discount_then_refund_amount_reflects_discount
+      method: apply_discount + request_refund
+      category: integration
+      priority: high
+      description: >
+        Apply a discount to a pending order, then move it through to DELIVERED
+        and refund. The refund_amount should equal the discounted total, not the
+        original total.
+      steps:
+        - create_order
+        - apply_discount
+        - transition through CONFIRMED -> PROCESSING -> SHIPPED -> DELIVERED
+        - request_refund
+      expected:
+        refund_amount: discounted_total
+
+  statistics:
+    total_missing_tests: 49
+    by_method:
+      create_order: 15
+      transition_status: 13
+      request_refund: 9
+      apply_discount: 10
+      integration: 3
+    by_priority:
+      critical: 1
+      high: 30
+      medium: 15
+      low: 1
+    by_category:
+      calculation: 7
+      validation: 4
+      boundary: 7
+      error: 5
+      side_effect: 8
+      valid_transition: 8
+      invalid_transition: 4
+      happy_path: 1
+      integration: 4
+      state: 1

@@ -1,0 +1,58 @@
+{
+  "eval_key": "p3-10-adversarial-misconception",
+  "eval_name": "Adversarial: 100% coverage misconception",
+  "category": "adversarial",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "Says NO, coverage != quality",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('NO', '', '', '')"
+    },
+    {
+      "text": "Identifies missing price=0 boundary",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: boundary itself (price=0"
+    },
+    {
+      "text": "Identifies missing discountPercent boundaries (0, 100)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('discount on price of 100', '0')"
+    },
+    {
+      "text": "Mentions conditional boundary mutations (<= to <)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('<= to <', 'to')"
+    },
+    {
+      "text": "References mutation testing",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Mutation test"
+    },
+    {
+      "text": "Provides concrete test recommendations",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: should_be_test"
+    },
+    {
+      "text": "Mentions string mutation / exception message verification",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Exception message"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "total": 7,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 0
+  }
+}

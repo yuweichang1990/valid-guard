@@ -1,0 +1,1229 @@
+test_plan:
+  title: "Order Lifecycle State Machine - Comprehensive Test Plan"
+  system_under_test: "Online Store Order State Machine"
+  version: "1.0"
+  date: "2026-03-14"
+
+  state_machine_definition:
+    states:
+      - cart
+      - pending_payment
+      - payment_processing
+      - confirmed
+      - preparing
+      - shipped
+      - delivered
+      - cancelled
+      - refund_requested
+      - refunded
+
+    transitions:
+      - from: cart
+        to: pending_payment
+        trigger: checkout
+      - from: pending_payment
+        to: payment_processing
+        trigger: submit_payment
+      - from: payment_processing
+        to: confirmed
+        trigger: payment_success
+      - from: payment_processing
+        to: payment_processing
+        trigger: payment_failure
+        guard: "retry_count < 3"
+      - from: payment_processing
+        to: cancelled
+        trigger: payment_failure
+        guard: "retry_count >= 3"
+      - from: confirmed
+        to: preparing
+        trigger: begin_preparation
+      - from: confirmed
+        to: cancelled
+        trigger: cancel_order
+        guard: "elapsed_time_since_confirmation <= 30 minutes"
+      - from: preparing
+        to: shipped
+        trigger: ship_order
+      - from: shipped
+        to: delivered
+        trigger: deliver_order
+      - from: delivered
+        to: refund_requested
+        trigger: request_refund
+        guard: "elapsed_time_since_delivery <= 30 days"
+
+    guard_conditions:
+      - id: GC-001
+        name: cancellation_time_window
+        applies_to: "confirmed -> cancelled"
+        condition: "elapsed_time_since_confirmation <= 30 minutes"
+        description: "Orders can only be cancelled within 30 minutes of confirmation"
+
+      - id: GC-002
+        name: payment_retry_limit
+        applies_to: "payment_processing -> payment_processing (retry)"
+        condition: "retry_count < 3"
+        description: "Payment can be retried up to 3 times before auto-cancellation"
+
+      - id: GC-003
+        name: payment_auto_cancel
+        applies_to: "payment_processing -> cancelled"
+        condition: "retry_count >= 3"
+        description: "Order is auto-cancelled after 3 failed payment attempts"
+
+      - id: GC-004
+        name: refund_eligibility_window
+        applies_to: "delivered -> refund_requested"
+        condition: "elapsed_time_since_delivery <= 30 days"
+        description: "Refund can only be requested within 30 days of delivery"
+
+  test_suites:
+
+    # =========================================================================
+    # SUITE 1: HAPPY PATH / FORWARD TRANSITIONS
+    # =========================================================================
+    - suite_id: TS-001
+      name: "Happy Path - Complete Order Lifecycle"
+      description: "Tests the full forward progression of an order from cart to delivered"
+      test_cases:
+
+        - id: TC-001
+          name: "Complete order lifecycle - happy path"
+          description: "Verify an order successfully transitions through all states from cart to delivered"
+          priority: critical
+          category: happy_path
+          steps:
+            - action: "Create a new order (add items to cart)"
+              expected_state: cart
+            - action: "Initiate checkout"
+              expected_state: pending_payment
+            - action: "Submit valid payment details"
+              expected_state: payment_processing
+            - action: "Payment gateway returns success"
+              expected_state: confirmed
+            - action: "Warehouse begins order preparation"
+              expected_state: preparing
+            - action: "Order is shipped with tracking number"
+              expected_state: shipped
+            - action: "Delivery confirmed by carrier"
+              expected_state: delivered
+          expected_result: "Order reaches 'delivered' state with complete audit trail of all transitions"
+          assertions:
+            - "Each state transition is recorded with timestamp"
+            - "Final state is 'delivered'"
+            - "No intermediate states were skipped"
+            - "Order history contains exactly 7 state entries"
+
+        - id: TC-002
+          name: "Cart to pending_payment transition"
+          description: "Verify checkout transitions order from cart to pending_payment"
+          priority: high
+          category: transition
+          preconditions:
+            - "Order exists in 'cart' state with at least one item"
+          steps:
+            - action: "Trigger checkout on a cart with valid items"
+              expected_state: pending_payment
+          expected_result: "Order state changes to 'pending_payment'"
+          assertions:
+            - "Order state is 'pending_payment'"
+            - "Cart items are locked and cannot be modified"
+            - "Payment deadline timer starts (if applicable)"
+
+        - id: TC-003
+          name: "Pending_payment to payment_processing transition"
+          description: "Verify submitting payment moves order to payment_processing"
+          priority: high
+          category: transition
+          preconditions:
+            - "Order is in 'pending_payment' state"
+          steps:
+            - action: "Submit valid payment information (card, amount)"
+              expected_state: payment_processing
+          expected_result: "Order state changes to 'payment_processing'"
+          assertions:
+            - "Order state is 'payment_processing'"
+            - "Payment attempt counter initialized to 1"
+            - "Payment gateway API called with correct amount"
+
+        - id: TC-004
+          name: "Payment_processing to confirmed on payment success"
+          description: "Verify successful payment confirmation transitions to confirmed"
+          priority: high
+          category: transition
+          preconditions:
+            - "Order is in 'payment_processing' state"
+            - "Payment gateway is available"
+          steps:
+            - action: "Payment gateway returns success response"
+              expected_state: confirmed
+          expected_result: "Order state changes to 'confirmed'"
+          assertions:
+            - "Order state is 'confirmed'"
+            - "Confirmation timestamp is recorded"
+            - "Confirmation email/notification sent to customer"
+            - "Payment transaction ID is stored"
+
+        - id: TC-005
+          name: "Confirmed to preparing transition"
+          description: "Verify order preparation begins after confirmation"
+          priority: high
+          category: transition
+          preconditions:
+            - "Order is in 'confirmed' state"
+          steps:
+            - action: "Warehouse/fulfillment triggers begin_preparation"
+              expected_state: preparing
+          expected_result: "Order state changes to 'preparing'"
+          assertions:
+            - "Order state is 'preparing'"
+            - "Preparation start timestamp recorded"
+            - "Inventory is reserved/decremented"
+
+        - id: TC-006
+          name: "Preparing to shipped transition"
+          description: "Verify shipping transitions order from preparing to shipped"
+          priority: high
+          category: transition
+          preconditions:
+            - "Order is in 'preparing' state"
+          steps:
+            - action: "Order packaged and handed to carrier with tracking number"
+              expected_state: shipped
+          expected_result: "Order state changes to 'shipped'"
+          assertions:
+            - "Order state is 'shipped'"
+            - "Tracking number is stored"
+            - "Shipping notification sent to customer"
+            - "Estimated delivery date is set"
+
+        - id: TC-007
+          name: "Shipped to delivered transition"
+          description: "Verify delivery confirmation transitions order to delivered"
+          priority: high
+          category: transition
+          preconditions:
+            - "Order is in 'shipped' state"
+          steps:
+            - action: "Carrier confirms delivery"
+              expected_state: delivered
+          expected_result: "Order state changes to 'delivered'"
+          assertions:
+            - "Order state is 'delivered'"
+            - "Delivery timestamp is recorded"
+            - "Delivery confirmation sent to customer"
+            - "Refund eligibility window (30 days) begins"
+
+    # =========================================================================
+    # SUITE 2: PAYMENT FAILURE AND RETRY LOGIC
+    # =========================================================================
+    - suite_id: TS-002
+      name: "Payment Failure and Retry Logic"
+      description: "Tests payment retry mechanism with guard condition on retry count"
+      test_cases:
+
+        - id: TC-010
+          name: "First payment failure - retry allowed (retry_count < 3)"
+          description: "Verify order stays in payment_processing after first payment failure"
+          priority: critical
+          category: guard_condition
+          guard_under_test: GC-002
+          preconditions:
+            - "Order is in 'payment_processing' state"
+            - "retry_count = 0 (first attempt)"
+          steps:
+            - action: "Payment gateway returns failure"
+              expected_state: payment_processing
+          expected_result: "Order remains in 'payment_processing', retry_count incremented to 1"
+          assertions:
+            - "Order state remains 'payment_processing'"
+            - "retry_count = 1"
+            - "Payment failure reason is logged"
+            - "Customer is notified of payment failure and retry"
+            - "Guard condition retry_count < 3 evaluated to TRUE"
+
+        - id: TC-011
+          name: "Second payment failure - retry allowed (retry_count < 3)"
+          description: "Verify order stays in payment_processing after second payment failure"
+          priority: critical
+          category: guard_condition
+          guard_under_test: GC-002
+          preconditions:
+            - "Order is in 'payment_processing' state"
+            - "retry_count = 1"
+          steps:
+            - action: "Payment gateway returns failure"
+              expected_state: payment_processing
+          expected_result: "Order remains in 'payment_processing', retry_count incremented to 2"
+          assertions:
+            - "Order state remains 'payment_processing'"
+            - "retry_count = 2"
+            - "Guard condition retry_count < 3 evaluated to TRUE"
+
+        - id: TC-012
+          name: "Third payment failure - auto-cancellation triggered (retry_count >= 3)"
+          description: "Verify order is auto-cancelled after third consecutive payment failure"
+          priority: critical
+          category: guard_condition
+          guard_under_test: GC-003
+          preconditions:
+            - "Order is in 'payment_processing' state"
+            - "retry_count = 2 (third attempt about to fail)"
+          steps:
+            - action: "Payment gateway returns failure for the third time"
+              expected_state: cancelled
+          expected_result: "Order transitions to 'cancelled' state after 3 failed payment attempts"
+          assertions:
+            - "Order state is 'cancelled'"
+            - "retry_count = 3"
+            - "Cancellation reason is 'payment_failed_max_retries'"
+            - "Guard condition retry_count >= 3 evaluated to TRUE"
+            - "Customer is notified of order cancellation due to payment failure"
+            - "No payment charge was captured"
+            - "Cart items are released back to inventory"
+
+        - id: TC-013
+          name: "Payment succeeds on second attempt after one failure"
+          description: "Verify order can succeed after a failed retry"
+          priority: high
+          category: guard_condition
+          guard_under_test: GC-002
+          preconditions:
+            - "Order is in 'payment_processing' state"
+            - "retry_count = 0"
+          steps:
+            - action: "Payment gateway returns failure (first attempt)"
+              expected_state: payment_processing
+            - action: "Payment gateway returns success (second attempt)"
+              expected_state: confirmed
+          expected_result: "Order recovers from one failure and reaches 'confirmed'"
+          assertions:
+            - "Order state is 'confirmed'"
+            - "retry_count = 1 (one failure recorded)"
+            - "Successful payment transaction ID is stored"
+
+        - id: TC-014
+          name: "Payment succeeds on third attempt after two failures"
+          description: "Verify order can succeed on the last allowed retry"
+          priority: high
+          category: guard_condition
+          guard_under_test: GC-002
+          preconditions:
+            - "Order is in 'payment_processing' state"
+            - "retry_count = 0"
+          steps:
+            - action: "Payment gateway returns failure (first attempt)"
+              expected_state: payment_processing
+            - action: "Payment gateway returns failure (second attempt)"
+              expected_state: payment_processing
+            - action: "Payment gateway returns success (third attempt)"
+              expected_state: confirmed
+          expected_result: "Order succeeds on the final retry before auto-cancel threshold"
+          assertions:
+            - "Order state is 'confirmed'"
+            - "retry_count = 2"
+            - "Payment was successfully processed on third attempt"
+
+        - id: TC-015
+          name: "Payment retry counter resets are not allowed"
+          description: "Verify the retry counter cannot be externally reset to circumvent the limit"
+          priority: medium
+          category: guard_condition
+          guard_under_test: GC-002
+          preconditions:
+            - "Order is in 'payment_processing' state"
+            - "retry_count = 2"
+          steps:
+            - action: "Attempt to reset retry_count to 0 via API"
+              expected_state: payment_processing
+            - action: "Payment gateway returns failure"
+              expected_state: cancelled
+          expected_result: "Retry counter cannot be tampered with; auto-cancellation proceeds correctly"
+          assertions:
+            - "retry_count cannot be modified externally"
+            - "Order transitions to 'cancelled' after actual third failure"
+
+    # =========================================================================
+    # SUITE 3: CANCELLATION WITH TIME GUARD
+    # =========================================================================
+    - suite_id: TS-003
+      name: "Order Cancellation from Confirmed State"
+      description: "Tests cancellation guard condition - 30-minute window after confirmation"
+      test_cases:
+
+        - id: TC-020
+          name: "Cancel order within 30-minute window - immediate cancellation"
+          description: "Verify order can be cancelled immediately after confirmation"
+          priority: critical
+          category: guard_condition
+          guard_under_test: GC-001
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "Confirmation was just received (elapsed_time = 0 minutes)"
+          steps:
+            - action: "Customer requests cancellation at elapsed_time = 0 minutes"
+              expected_state: cancelled
+          expected_result: "Order transitions to 'cancelled'"
+          assertions:
+            - "Order state is 'cancelled'"
+            - "Guard condition elapsed_time <= 30 minutes evaluated to TRUE"
+            - "Cancellation reason is 'customer_requested'"
+            - "Payment refund initiated"
+            - "Cancellation confirmation sent to customer"
+
+        - id: TC-021
+          name: "Cancel order at exactly 15 minutes (mid-window)"
+          description: "Verify cancellation works at the midpoint of the allowed window"
+          priority: high
+          category: guard_condition
+          guard_under_test: GC-001
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "elapsed_time_since_confirmation = 15 minutes"
+          steps:
+            - action: "Customer requests cancellation at elapsed_time = 15 minutes"
+              expected_state: cancelled
+          expected_result: "Order transitions to 'cancelled'"
+          assertions:
+            - "Order state is 'cancelled'"
+            - "Guard condition elapsed_time <= 30 minutes evaluated to TRUE"
+
+        - id: TC-022
+          name: "Cancel order at exactly 30 minutes (boundary - inclusive)"
+          description: "Verify cancellation at the exact 30-minute boundary"
+          priority: critical
+          category: boundary
+          guard_under_test: GC-001
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "elapsed_time_since_confirmation = exactly 30 minutes"
+          steps:
+            - action: "Customer requests cancellation at elapsed_time = exactly 30 minutes"
+              expected_state: cancelled
+          expected_result: "Order transitions to 'cancelled' (boundary is inclusive per <= condition)"
+          assertions:
+            - "Order state is 'cancelled'"
+            - "Guard condition elapsed_time <= 30 minutes evaluated to TRUE (boundary case)"
+
+        - id: TC-023
+          name: "Cancel order at 30 minutes and 1 second (boundary - rejected)"
+          description: "Verify cancellation is rejected just after the 30-minute window"
+          priority: critical
+          category: boundary
+          guard_under_test: GC-001
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "elapsed_time_since_confirmation = 30 minutes and 1 second"
+          steps:
+            - action: "Customer requests cancellation at elapsed_time = 30 minutes 1 second"
+              expected_state: confirmed
+          expected_result: "Cancellation is rejected; order remains in 'confirmed'"
+          assertions:
+            - "Order state remains 'confirmed'"
+            - "Guard condition elapsed_time <= 30 minutes evaluated to FALSE"
+            - "Error response indicates cancellation window has expired"
+            - "Customer is informed that cancellation is no longer possible"
+
+        - id: TC-024
+          name: "Cancel order at 29 minutes 59 seconds (boundary - just before expiry)"
+          description: "Verify cancellation succeeds 1 second before the window closes"
+          priority: high
+          category: boundary
+          guard_under_test: GC-001
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "elapsed_time_since_confirmation = 29 minutes 59 seconds"
+          steps:
+            - action: "Customer requests cancellation at elapsed_time = 29:59"
+              expected_state: cancelled
+          expected_result: "Order transitions to 'cancelled'"
+          assertions:
+            - "Order state is 'cancelled'"
+            - "Guard condition elapsed_time <= 30 minutes evaluated to TRUE"
+
+        - id: TC-025
+          name: "Cancel order well after 30-minute window (1 hour elapsed)"
+          description: "Verify cancellation is rejected well after the allowed window"
+          priority: high
+          category: guard_condition
+          guard_under_test: GC-001
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "elapsed_time_since_confirmation = 60 minutes"
+          steps:
+            - action: "Customer requests cancellation at elapsed_time = 60 minutes"
+              expected_state: confirmed
+          expected_result: "Cancellation is rejected; order remains in 'confirmed'"
+          assertions:
+            - "Order state remains 'confirmed'"
+            - "Guard condition elapsed_time <= 30 minutes evaluated to FALSE"
+            - "Appropriate error message returned"
+
+        - id: TC-026
+          name: "Cancel order after it moves to preparing state"
+          description: "Verify cancellation is impossible once order has moved past confirmed"
+          priority: high
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'preparing' state"
+          steps:
+            - action: "Customer requests cancellation"
+              expected_state: preparing
+          expected_result: "Cancellation is rejected because the order is not in 'confirmed' state"
+          assertions:
+            - "Order state remains 'preparing'"
+            - "Error indicates cancellation is not available in 'preparing' state"
+
+        - id: TC-027
+          name: "Cancel order from shipped state"
+          description: "Verify cancellation is impossible from shipped state"
+          priority: medium
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'shipped' state"
+          steps:
+            - action: "Customer requests cancellation"
+              expected_state: shipped
+          expected_result: "Cancellation is rejected; order remains in 'shipped'"
+          assertions:
+            - "Order state remains 'shipped'"
+            - "Error indicates cancellation is not available in 'shipped' state"
+
+    # =========================================================================
+    # SUITE 4: REFUND WITH TIME GUARD
+    # =========================================================================
+    - suite_id: TS-004
+      name: "Refund Request from Delivered State"
+      description: "Tests refund eligibility guard condition - 30-day window after delivery"
+      test_cases:
+
+        - id: TC-030
+          name: "Request refund immediately after delivery"
+          description: "Verify refund can be requested on the day of delivery"
+          priority: critical
+          category: guard_condition
+          guard_under_test: GC-004
+          preconditions:
+            - "Order is in 'delivered' state"
+            - "elapsed_time_since_delivery = 0 days"
+          steps:
+            - action: "Customer requests refund on day of delivery"
+              expected_state: refund_requested
+          expected_result: "Order transitions to 'refund_requested'"
+          assertions:
+            - "Order state is 'refund_requested'"
+            - "Guard condition elapsed_time <= 30 days evaluated to TRUE"
+            - "Refund request timestamp recorded"
+            - "Customer notified that refund request is being processed"
+
+        - id: TC-031
+          name: "Request refund at 15 days after delivery (mid-window)"
+          description: "Verify refund request works at midpoint of eligibility window"
+          priority: high
+          category: guard_condition
+          guard_under_test: GC-004
+          preconditions:
+            - "Order is in 'delivered' state"
+            - "elapsed_time_since_delivery = 15 days"
+          steps:
+            - action: "Customer requests refund at 15 days post-delivery"
+              expected_state: refund_requested
+          expected_result: "Order transitions to 'refund_requested'"
+          assertions:
+            - "Order state is 'refund_requested'"
+            - "Guard condition elapsed_time <= 30 days evaluated to TRUE"
+
+        - id: TC-032
+          name: "Request refund at exactly 30 days (boundary - inclusive)"
+          description: "Verify refund at the exact 30-day boundary"
+          priority: critical
+          category: boundary
+          guard_under_test: GC-004
+          preconditions:
+            - "Order is in 'delivered' state"
+            - "elapsed_time_since_delivery = exactly 30 days"
+          steps:
+            - action: "Customer requests refund at exactly 30 days post-delivery"
+              expected_state: refund_requested
+          expected_result: "Order transitions to 'refund_requested' (boundary is inclusive per <= condition)"
+          assertions:
+            - "Order state is 'refund_requested'"
+            - "Guard condition elapsed_time <= 30 days evaluated to TRUE (boundary case)"
+
+        - id: TC-033
+          name: "Request refund at 30 days and 1 second (boundary - rejected)"
+          description: "Verify refund is rejected just after the 30-day window"
+          priority: critical
+          category: boundary
+          guard_under_test: GC-004
+          preconditions:
+            - "Order is in 'delivered' state"
+            - "elapsed_time_since_delivery = 30 days and 1 second"
+          steps:
+            - action: "Customer requests refund at 30 days + 1 second post-delivery"
+              expected_state: delivered
+          expected_result: "Refund request is rejected; order remains in 'delivered'"
+          assertions:
+            - "Order state remains 'delivered'"
+            - "Guard condition elapsed_time <= 30 days evaluated to FALSE"
+            - "Error response indicates refund window has expired"
+
+        - id: TC-034
+          name: "Request refund at 29 days 23 hours 59 minutes (just before expiry)"
+          description: "Verify refund succeeds just before the window closes"
+          priority: high
+          category: boundary
+          guard_under_test: GC-004
+          preconditions:
+            - "Order is in 'delivered' state"
+            - "elapsed_time_since_delivery = 29 days 23 hours 59 minutes"
+          steps:
+            - action: "Customer requests refund just before 30-day window closes"
+              expected_state: refund_requested
+          expected_result: "Order transitions to 'refund_requested'"
+          assertions:
+            - "Order state is 'refund_requested'"
+            - "Guard condition elapsed_time <= 30 days evaluated to TRUE"
+
+        - id: TC-035
+          name: "Request refund well after 30-day window (60 days elapsed)"
+          description: "Verify refund is rejected well after the allowed window"
+          priority: high
+          category: guard_condition
+          guard_under_test: GC-004
+          preconditions:
+            - "Order is in 'delivered' state"
+            - "elapsed_time_since_delivery = 60 days"
+          steps:
+            - action: "Customer requests refund 60 days post-delivery"
+              expected_state: delivered
+          expected_result: "Refund request is rejected; order remains in 'delivered'"
+          assertions:
+            - "Order state remains 'delivered'"
+            - "Guard condition elapsed_time <= 30 days evaluated to FALSE"
+            - "Appropriate error message returned"
+
+        - id: TC-036
+          name: "Request refund from non-delivered state (confirmed)"
+          description: "Verify refund request is rejected from confirmed state"
+          priority: medium
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'confirmed' state"
+          steps:
+            - action: "Customer attempts refund request"
+              expected_state: confirmed
+          expected_result: "Refund request is rejected; refund is only available from 'delivered' state"
+          assertions:
+            - "Order state remains 'confirmed'"
+            - "Error indicates refund not available in current state"
+
+        - id: TC-037
+          name: "Request refund from shipped state"
+          description: "Verify refund request is rejected from shipped state"
+          priority: medium
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'shipped' state"
+          steps:
+            - action: "Customer attempts refund request"
+              expected_state: shipped
+          expected_result: "Refund request is rejected; must wait for delivery"
+          assertions:
+            - "Order state remains 'shipped'"
+            - "Error indicates refund not available until delivery"
+
+    # =========================================================================
+    # SUITE 5: INVALID STATE TRANSITIONS
+    # =========================================================================
+    - suite_id: TS-005
+      name: "Invalid State Transitions"
+      description: "Tests that disallowed state transitions are properly rejected"
+      test_cases:
+
+        - id: TC-040
+          name: "Cart cannot skip to confirmed"
+          description: "Verify cart cannot jump directly to confirmed state"
+          priority: high
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'cart' state"
+          steps:
+            - action: "Attempt to transition directly from cart to confirmed"
+              expected_state: cart
+          expected_result: "Transition rejected; order remains in 'cart'"
+          assertions:
+            - "Order state remains 'cart'"
+            - "Invalid transition error raised"
+
+        - id: TC-041
+          name: "Cart cannot skip to delivered"
+          description: "Verify cart cannot jump directly to delivered state"
+          priority: high
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'cart' state"
+          steps:
+            - action: "Attempt to transition directly from cart to delivered"
+              expected_state: cart
+          expected_result: "Transition rejected; order remains in 'cart'"
+          assertions:
+            - "Order state remains 'cart'"
+            - "Invalid transition error raised"
+
+        - id: TC-042
+          name: "Pending_payment cannot skip to preparing"
+          description: "Verify pending_payment cannot jump to preparing"
+          priority: high
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'pending_payment' state"
+          steps:
+            - action: "Attempt to transition directly from pending_payment to preparing"
+              expected_state: pending_payment
+          expected_result: "Transition rejected; order remains in 'pending_payment'"
+          assertions:
+            - "Order state remains 'pending_payment'"
+            - "Invalid transition error raised"
+
+        - id: TC-043
+          name: "Delivered cannot transition back to shipped"
+          description: "Verify backward transitions are not allowed"
+          priority: high
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'delivered' state"
+          steps:
+            - action: "Attempt to transition from delivered back to shipped"
+              expected_state: delivered
+          expected_result: "Backward transition rejected; order remains in 'delivered'"
+          assertions:
+            - "Order state remains 'delivered'"
+            - "Invalid transition error raised"
+
+        - id: TC-044
+          name: "Shipped cannot transition back to preparing"
+          description: "Verify backward transition from shipped to preparing is rejected"
+          priority: medium
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'shipped' state"
+          steps:
+            - action: "Attempt to transition from shipped back to preparing"
+              expected_state: shipped
+          expected_result: "Backward transition rejected; order remains in 'shipped'"
+          assertions:
+            - "Order state remains 'shipped'"
+            - "Invalid transition error raised"
+
+        - id: TC-045
+          name: "Cancelled order cannot transition to any state"
+          description: "Verify cancelled is a terminal state"
+          priority: critical
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'cancelled' state"
+          steps:
+            - action: "Attempt to transition cancelled order to confirmed"
+              expected_state: cancelled
+            - action: "Attempt to transition cancelled order to cart"
+              expected_state: cancelled
+            - action: "Attempt to transition cancelled order to payment_processing"
+              expected_state: cancelled
+          expected_result: "All transitions from cancelled are rejected; order remains cancelled"
+          assertions:
+            - "Order state remains 'cancelled'"
+            - "No transitions are allowed from terminal 'cancelled' state"
+
+        - id: TC-046
+          name: "Confirmed cannot skip to shipped (must go through preparing)"
+          description: "Verify confirmed must transition through preparing before shipped"
+          priority: high
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'confirmed' state"
+          steps:
+            - action: "Attempt to transition from confirmed directly to shipped"
+              expected_state: confirmed
+          expected_result: "Transition rejected; order must go through preparing first"
+          assertions:
+            - "Order state remains 'confirmed'"
+            - "Invalid transition error raised"
+
+        - id: TC-047
+          name: "Confirmed cannot skip to delivered"
+          description: "Verify confirmed cannot jump directly to delivered state"
+          priority: high
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'confirmed' state"
+          steps:
+            - action: "Attempt to transition from confirmed directly to delivered"
+              expected_state: confirmed
+          expected_result: "Transition rejected; order remains in 'confirmed'"
+          assertions:
+            - "Order state remains 'confirmed'"
+            - "Invalid transition error raised"
+
+        - id: TC-048
+          name: "Payment_processing cannot transition backward to cart"
+          description: "Verify backward transition from payment_processing to cart is rejected"
+          priority: medium
+          category: invalid_transition
+          preconditions:
+            - "Order is in 'payment_processing' state"
+          steps:
+            - action: "Attempt to transition from payment_processing back to cart"
+              expected_state: payment_processing
+          expected_result: "Backward transition rejected"
+          assertions:
+            - "Order state remains 'payment_processing'"
+            - "Invalid transition error raised"
+
+    # =========================================================================
+    # SUITE 6: CONCURRENT AND RACE CONDITIONS
+    # =========================================================================
+    - suite_id: TS-006
+      name: "Concurrency and Race Conditions"
+      description: "Tests for race conditions and concurrent state transition attempts"
+      test_cases:
+
+        - id: TC-050
+          name: "Simultaneous cancellation and preparation start"
+          description: "Verify correct behavior when cancel and prepare happen concurrently near the 30-minute window"
+          priority: critical
+          category: concurrency
+          guard_under_test: GC-001
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "elapsed_time_since_confirmation = 29 minutes 55 seconds"
+          steps:
+            - action: "Simultaneously trigger cancel_order and begin_preparation"
+              expected_state: "cancelled OR preparing (but not both)"
+          expected_result: "Only one transition succeeds; state is consistent"
+          assertions:
+            - "Order is in exactly one state (no corruption)"
+            - "No partial transitions occurred"
+            - "If cancelled, payment refund is initiated"
+            - "If preparing, cancellation returns error"
+            - "Optimistic locking or mutex prevents dual transition"
+
+        - id: TC-051
+          name: "Multiple simultaneous cancellation requests"
+          description: "Verify idempotency when multiple cancel requests arrive"
+          priority: high
+          category: concurrency
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "elapsed_time_since_confirmation < 30 minutes"
+          steps:
+            - action: "Send 5 simultaneous cancellation requests"
+              expected_state: cancelled
+          expected_result: "Order is cancelled exactly once; no duplicate refunds"
+          assertions:
+            - "Order state is 'cancelled'"
+            - "Only one cancellation event recorded"
+            - "Only one refund initiated"
+
+        - id: TC-052
+          name: "Payment retry race with auto-cancellation"
+          description: "Verify no race condition between payment retry and auto-cancel at retry limit"
+          priority: high
+          category: concurrency
+          guard_under_test: GC-003
+          preconditions:
+            - "Order is in 'payment_processing' state"
+            - "retry_count = 2"
+          steps:
+            - action: "Payment gateway returns failure while a concurrent retry is submitted"
+              expected_state: cancelled
+          expected_result: "Auto-cancellation takes precedence; order is cancelled cleanly"
+          assertions:
+            - "Order state is 'cancelled'"
+            - "No orphaned payment transactions"
+
+    # =========================================================================
+    # SUITE 7: EDGE CASES AND SPECIAL SCENARIOS
+    # =========================================================================
+    - suite_id: TS-007
+      name: "Edge Cases and Special Scenarios"
+      description: "Tests unusual or edge-case scenarios in the order lifecycle"
+      test_cases:
+
+        - id: TC-060
+          name: "Empty cart checkout attempt"
+          description: "Verify checkout is rejected for an empty cart"
+          priority: high
+          category: edge_case
+          preconditions:
+            - "Order is in 'cart' state"
+            - "Cart contains no items"
+          steps:
+            - action: "Attempt to initiate checkout with empty cart"
+              expected_state: cart
+          expected_result: "Checkout is rejected; order remains in 'cart'"
+          assertions:
+            - "Order state remains 'cart'"
+            - "Error indicates cart is empty"
+
+        - id: TC-061
+          name: "Payment processing timeout"
+          description: "Verify proper handling when payment gateway times out"
+          priority: high
+          category: edge_case
+          preconditions:
+            - "Order is in 'payment_processing' state"
+          steps:
+            - action: "Payment gateway does not respond within timeout period"
+              expected_state: payment_processing
+          expected_result: "Timeout is treated as a failure and retry logic applies"
+          assertions:
+            - "retry_count is incremented"
+            - "Timeout is logged as a failure reason"
+            - "Guard condition for retry is properly evaluated"
+
+        - id: TC-062
+          name: "Cancellation request at exactly 30 minutes with clock skew"
+          description: "Verify system handles clock discrepancies at the cancellation boundary"
+          priority: medium
+          category: edge_case
+          guard_under_test: GC-001
+          preconditions:
+            - "Order is in 'confirmed' state"
+            - "Server clock may differ from client clock by up to a few seconds"
+          steps:
+            - action: "Customer submits cancellation with client timestamp showing 29:58 but server receives at 30:02"
+              expected_state: confirmed
+          expected_result: "Server-side timestamp is authoritative; cancellation is rejected if server time exceeds 30 minutes"
+          assertions:
+            - "Server timestamp is used for guard evaluation, not client timestamp"
+            - "Consistent behavior regardless of client clock"
+
+        - id: TC-063
+          name: "Refund request with exact boundary on day change (midnight)"
+          description: "Verify refund window at exactly 30 days considers time-of-day"
+          priority: medium
+          category: edge_case
+          guard_under_test: GC-004
+          preconditions:
+            - "Order was delivered at 14:00:00 on Day 1"
+            - "Current time is 14:00:01 on Day 31"
+          steps:
+            - action: "Customer requests refund at 14:00:01 on Day 31 (30 days + 1 second)"
+              expected_state: delivered
+          expected_result: "Refund is rejected; 30-day window uses exact timestamp comparison"
+          assertions:
+            - "Guard uses timestamp precision, not just date comparison"
+            - "Order remains in 'delivered' state"
+
+        - id: TC-064
+          name: "Multiple refund requests from delivered state"
+          description: "Verify only one refund request can be created"
+          priority: medium
+          category: edge_case
+          preconditions:
+            - "Order is in 'delivered' state"
+            - "Within 30-day refund window"
+          steps:
+            - action: "Customer submits first refund request"
+              expected_state: refund_requested
+            - action: "Customer submits second refund request"
+              expected_state: refund_requested
+          expected_result: "Only one refund request is processed; duplicate is rejected"
+          assertions:
+            - "Order state is 'refund_requested'"
+            - "Only one refund request record exists"
+            - "Second request returns appropriate error or is idempotent"
+
+        - id: TC-065
+          name: "Order with payment failure then cancellation from confirmed"
+          description: "Verify full flow with payment retry then eventual cancellation"
+          priority: high
+          category: integration
+          preconditions:
+            - "Order starts in 'cart' state"
+          steps:
+            - action: "Checkout and submit payment"
+              expected_state: payment_processing
+            - action: "Payment fails (attempt 1)"
+              expected_state: payment_processing
+            - action: "Payment succeeds (attempt 2)"
+              expected_state: confirmed
+            - action: "Customer cancels within 30-minute window"
+              expected_state: cancelled
+          expected_result: "Order goes through retry, confirmation, and then valid cancellation"
+          assertions:
+            - "Final state is 'cancelled'"
+            - "Payment refund is processed for the successful charge"
+            - "Complete audit trail shows all transitions"
+
+    # =========================================================================
+    # SUITE 8: STATE INVARIANT VERIFICATION
+    # =========================================================================
+    - suite_id: TS-008
+      name: "State Invariants and Data Integrity"
+      description: "Verifies that state-dependent invariants hold true at each stage"
+      test_cases:
+
+        - id: TC-070
+          name: "Cart state invariants"
+          description: "Verify data invariants in cart state"
+          priority: medium
+          category: invariant
+          preconditions:
+            - "Order is in 'cart' state"
+          assertions:
+            - "No payment information is stored"
+            - "No confirmation timestamp exists"
+            - "Items can be added and removed"
+            - "No tracking number exists"
+            - "retry_count is 0 or undefined"
+
+        - id: TC-071
+          name: "Payment_processing state invariants"
+          description: "Verify data invariants during payment processing"
+          priority: medium
+          category: invariant
+          preconditions:
+            - "Order is in 'payment_processing' state"
+          assertions:
+            - "Payment method is set"
+            - "retry_count >= 0 and retry_count < 3"
+            - "Order total amount is frozen (cannot change)"
+            - "Cart items are locked"
+
+        - id: TC-072
+          name: "Confirmed state invariants"
+          description: "Verify data invariants in confirmed state"
+          priority: medium
+          category: invariant
+          preconditions:
+            - "Order is in 'confirmed' state"
+          assertions:
+            - "Confirmation timestamp is set"
+            - "Payment transaction ID is stored"
+            - "Order total matches payment amount"
+            - "Cancellation window timer is active"
+
+        - id: TC-073
+          name: "Delivered state invariants"
+          description: "Verify data invariants in delivered state"
+          priority: medium
+          category: invariant
+          preconditions:
+            - "Order is in 'delivered' state"
+          assertions:
+            - "Delivery timestamp is set"
+            - "Tracking number exists"
+            - "Shipping timestamp exists"
+            - "Confirmation timestamp exists"
+            - "Payment transaction ID exists"
+            - "Refund eligibility window is computable from delivery timestamp"
+
+        - id: TC-074
+          name: "Cancelled state invariants"
+          description: "Verify data invariants in cancelled state"
+          priority: medium
+          category: invariant
+          preconditions:
+            - "Order is in 'cancelled' state"
+          assertions:
+            - "Cancellation timestamp is set"
+            - "Cancellation reason is recorded (customer_requested OR payment_failed_max_retries)"
+            - "If payment was captured, refund has been initiated"
+            - "Inventory has been released"
+            - "No further transitions are possible"
+
+    # =========================================================================
+    # SUITE 9: GUARD CONDITION COMPREHENSIVE MATRIX
+    # =========================================================================
+    - suite_id: TS-009
+      name: "Guard Condition Evaluation Matrix"
+      description: "Systematic testing of all guard conditions with various input values"
+      test_cases:
+
+        - id: TC-080
+          name: "Cancellation guard - parametric time values"
+          description: "Test cancellation guard with a range of time values"
+          priority: high
+          category: guard_condition
+          guard_under_test: GC-001
+          parameters:
+            - elapsed_minutes: 0
+              expected_guard_result: true
+              expected_transition: "confirmed -> cancelled"
+            - elapsed_minutes: 1
+              expected_guard_result: true
+              expected_transition: "confirmed -> cancelled"
+            - elapsed_minutes: 10
+              expected_guard_result: true
+              expected_transition: "confirmed -> cancelled"
+            - elapsed_minutes: 29
+              expected_guard_result: true
+              expected_transition: "confirmed -> cancelled"
+            - elapsed_minutes: 30
+              expected_guard_result: true
+              expected_transition: "confirmed -> cancelled"
+            - elapsed_minutes: 31
+              expected_guard_result: false
+              expected_transition: "none (stays confirmed)"
+            - elapsed_minutes: 60
+              expected_guard_result: false
+              expected_transition: "none (stays confirmed)"
+            - elapsed_minutes: 1440
+              expected_guard_result: false
+              expected_transition: "none (stays confirmed)"
+
+        - id: TC-081
+          name: "Payment retry guard - parametric retry counts"
+          description: "Test payment retry guard with all possible retry count values"
+          priority: high
+          category: guard_condition
+          guard_under_test: "GC-002 and GC-003"
+          parameters:
+            - retry_count: 0
+              payment_result: failure
+              expected_guard_result: "retry allowed (GC-002 TRUE)"
+              expected_new_state: payment_processing
+              expected_new_retry_count: 1
+            - retry_count: 1
+              payment_result: failure
+              expected_guard_result: "retry allowed (GC-002 TRUE)"
+              expected_new_state: payment_processing
+              expected_new_retry_count: 2
+            - retry_count: 2
+              payment_result: failure
+              expected_guard_result: "auto-cancel (GC-003 TRUE)"
+              expected_new_state: cancelled
+              expected_new_retry_count: 3
+            - retry_count: 0
+              payment_result: success
+              expected_guard_result: "not applicable"
+              expected_new_state: confirmed
+            - retry_count: 1
+              payment_result: success
+              expected_guard_result: "not applicable"
+              expected_new_state: confirmed
+            - retry_count: 2
+              payment_result: success
+              expected_guard_result: "not applicable"
+              expected_new_state: confirmed
+
+        - id: TC-082
+          name: "Refund guard - parametric day values"
+          description: "Test refund guard with a range of day values"
+          priority: high
+          category: guard_condition
+          guard_under_test: GC-004
+          parameters:
+            - elapsed_days: 0
+              expected_guard_result: true
+              expected_transition: "delivered -> refund_requested"
+            - elapsed_days: 1
+              expected_guard_result: true
+              expected_transition: "delivered -> refund_requested"
+            - elapsed_days: 15
+              expected_guard_result: true
+              expected_transition: "delivered -> refund_requested"
+            - elapsed_days: 29
+              expected_guard_result: true
+              expected_transition: "delivered -> refund_requested"
+            - elapsed_days: 30
+              expected_guard_result: true
+              expected_transition: "delivered -> refund_requested"
+            - elapsed_days: 31
+              expected_guard_result: false
+              expected_transition: "none (stays delivered)"
+            - elapsed_days: 60
+              expected_guard_result: false
+              expected_transition: "none (stays delivered)"
+            - elapsed_days: 365
+              expected_guard_result: false
+              expected_transition: "none (stays delivered)"
+
+    # =========================================================================
+    # SUITE 10: AUDIT TRAIL AND OBSERVABILITY
+    # =========================================================================
+    - suite_id: TS-010
+      name: "Audit Trail and Observability"
+      description: "Tests that state transitions are properly logged and observable"
+      test_cases:
+
+        - id: TC-090
+          name: "Complete audit trail for happy path order"
+          description: "Verify all transitions are recorded in the order history"
+          priority: high
+          category: audit
+          steps:
+            - action: "Complete a full order lifecycle from cart to delivered"
+          expected_result: "Complete audit trail with timestamps for every transition"
+          assertions:
+            - "Each transition records: from_state, to_state, timestamp, trigger, actor"
+            - "Transitions are in chronological order"
+            - "No gaps in the state history"
+
+        - id: TC-091
+          name: "Audit trail for failed payment with retries"
+          description: "Verify payment retry attempts are recorded"
+          priority: medium
+          category: audit
+          steps:
+            - action: "Process order with 2 payment failures then success"
+          expected_result: "Audit trail shows all payment attempts"
+          assertions:
+            - "Each payment attempt is logged with result (success/failure)"
+            - "Retry count is visible in the audit trail"
+            - "Guard condition evaluations are logged"
+
+        - id: TC-092
+          name: "Audit trail for rejected transition (guard failure)"
+          description: "Verify rejected transitions are also logged"
+          priority: medium
+          category: audit
+          steps:
+            - action: "Attempt to cancel order after 30-minute window"
+          expected_result: "Rejected transition attempt is logged"
+          assertions:
+            - "Rejected attempt records: attempted_transition, guard_condition, reason_for_rejection, timestamp"
+            - "Order state does not change"
+
+  coverage_summary:
+    total_test_cases: 52
+    by_priority:
+      critical: 12
+      high: 26
+      medium: 14
+    by_category:
+      happy_path: 1
+      transition: 6
+      guard_condition: 16
+      boundary: 6
+      invalid_transition: 10
+      concurrency: 3
+      edge_case: 6
+      invariant: 5
+      audit: 3
+      integration: 1
+    guard_conditions_tested:
+      - id: GC-001
+        name: cancellation_time_window
+        test_cases: ["TC-020", "TC-021", "TC-022", "TC-023", "TC-024", "TC-025", "TC-050", "TC-062", "TC-080"]
+        boundary_values_tested: ["0 min", "15 min", "29:59", "30:00 (inclusive)", "30:01 (exclusive)", "60 min"]
+      - id: GC-002
+        name: payment_retry_allowed
+        test_cases: ["TC-010", "TC-011", "TC-013", "TC-014", "TC-015", "TC-052", "TC-081"]
+        boundary_values_tested: ["retry_count=0", "retry_count=1", "retry_count=2"]
+      - id: GC-003
+        name: payment_auto_cancel
+        test_cases: ["TC-012", "TC-052", "TC-081"]
+        boundary_values_tested: ["retry_count=2 (triggers on third failure)", "retry_count=3"]
+      - id: GC-004
+        name: refund_eligibility_window
+        test_cases: ["TC-030", "TC-031", "TC-032", "TC-033", "TC-034", "TC-035", "TC-063", "TC-082"]
+        boundary_values_tested: ["0 days", "15 days", "29d 23h 59m", "30 days (inclusive)", "30d + 1s (exclusive)", "60 days"]
+    state_coverage:
+      states_tested: ["cart", "pending_payment", "payment_processing", "confirmed", "preparing", "shipped", "delivered", "cancelled", "refund_requested"]
+      all_valid_transitions_tested: true
+      invalid_transitions_tested: true
+      terminal_states_verified: ["cancelled"]

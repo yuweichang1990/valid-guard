@@ -1,0 +1,1141 @@
+# Valid Guard Test Plan — Purchase Order Approval
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language (Three Amigos session)
+
+feature: "Purchase Order Approval"
+
+feature_description: >
+  Purchasing managers approve purchase orders so that vendors receive
+  notifications and the accounting department can process payments.
+  Covers approval workflows, delegation, threshold-based routing,
+  vendor notification delivery, and accounting handoff.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: "Three Amigos session input"
+
+scenarios:
+  # ---------- Happy Path ---------------------------------------------------
+  - name: "Purchasing manager approves a valid PO within authority"
+    description: >
+      A purchasing manager with sufficient authority approves a PO that
+      is within their approval threshold. The PO transitions to approved,
+      vendor is notified, and accounting receives the payment request.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. This is the core business flow; failure blocks all procurement and payments."
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      Equivalence partitioning separates valid POs from invalid ones.
+      State transition models the PO lifecycle from pending to approved.
+    preconditions:
+      - "User has purchasing_manager role"
+      - "PO exists in pending_approval status"
+      - "PO amount is within manager's approval threshold"
+    examples:
+      - input:
+          po_id: "PO-2026-001"
+          po_amount: 5000.00
+          manager_threshold: 10000.00
+          action: "approve"
+        expected:
+          po_status: "approved"
+          vendor_notification_sent: true
+          accounting_payment_request_created: true
+        description: "Standard approval within threshold triggers both vendor notification and accounting handoff."
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - three-amigos
+
+  - name: "Vendor receives notification after PO approval"
+    description: >
+      After a PO is approved, the system sends a notification to the
+      vendor containing PO details, expected delivery date, and payment terms.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. Vendors who are not notified cannot fulfill orders, blocking the supply chain."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning covers different vendor notification channels
+      (email, EDI, portal). Error guessing anticipates delivery failures.
+    preconditions:
+      - "PO has been approved"
+      - "Vendor has a registered notification channel"
+    examples:
+      - input:
+          po_id: "PO-2026-001"
+          vendor_email: "vendor@supplier.com"
+          notification_channel: "email"
+        expected:
+          notification_sent: true
+          notification_contains_po_number: true
+          notification_contains_delivery_date: true
+          notification_contains_payment_terms: true
+        description: "Vendor notified by email with all required PO details."
+      - input:
+          po_id: "PO-2026-002"
+          vendor_email: null
+          notification_channel: "portal"
+        expected:
+          portal_notification_created: true
+          notification_sent: true
+        description: "Vendor without email is notified via portal."
+    status: uncovered
+    priority: 1
+    tags:
+      - vendor
+      - notification
+      - critical-path
+
+  - name: "Accounting receives payment processing request after approval"
+    description: >
+      When a PO is approved, the accounting system receives a payment
+      processing request with PO amount, vendor banking details, and
+      payment terms for scheduling.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. Failed handoff means vendors are not paid, causing contractual breaches and supply disruption."
+    techniques:
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      Equivalence partitioning covers different payment term categories (net-30,
+      net-60, immediate). Cause-effect maps approval action to accounting
+      system entries.
+    preconditions:
+      - "PO has been approved"
+      - "Vendor banking details are on file"
+    examples:
+      - input:
+          po_id: "PO-2026-001"
+          po_amount: 5000.00
+          payment_terms: "net-30"
+          vendor_bank_on_file: true
+        expected:
+          payment_request_created: true
+          payment_due_date_offset_days: 30
+          payment_amount: 5000.00
+        description: "Net-30 payment request created with correct due date."
+      - input:
+          po_id: "PO-2026-003"
+          po_amount: 250.00
+          payment_terms: "immediate"
+          vendor_bank_on_file: true
+        expected:
+          payment_request_created: true
+          payment_due_date_offset_days: 0
+          payment_amount: 250.00
+        description: "Immediate payment terms trigger same-day payment scheduling."
+    status: uncovered
+    priority: 1
+    tags:
+      - accounting
+      - payment
+      - critical-path
+
+  # ---------- State Transition — PO Lifecycle -------------------------------
+  - name: "PO lifecycle state transitions"
+    description: >
+      A purchase order transitions through defined states: draft ->
+      pending_approval -> approved/rejected. Approved POs can be
+      partially_received -> fully_received -> closed. Rejected POs
+      can be revised and resubmitted.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.0 -> high. Invalid state transitions could allow unapproved POs to reach vendors or accounting."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition is the primary technique for modeling lifecycle.
+      Error guessing covers invalid transition attempts.
+    state_transition:
+      states:
+        - draft
+        - pending_approval
+        - approved
+        - rejected
+        - partially_received
+        - fully_received
+        - closed
+        - cancelled
+      transitions:
+        - from: draft
+          to: pending_approval
+          trigger: "submit_for_approval"
+          guard: "PO has at least one line item and a valid vendor"
+        - from: pending_approval
+          to: approved
+          trigger: "manager_approves"
+          guard: "Manager has sufficient approval authority"
+        - from: pending_approval
+          to: rejected
+          trigger: "manager_rejects"
+          guard: "Rejection reason is provided"
+        - from: rejected
+          to: draft
+          trigger: "revise_and_resubmit"
+        - from: approved
+          to: partially_received
+          trigger: "partial_goods_received"
+        - from: approved
+          to: fully_received
+          trigger: "all_goods_received"
+        - from: partially_received
+          to: fully_received
+          trigger: "remaining_goods_received"
+        - from: fully_received
+          to: closed
+          trigger: "payment_completed"
+        - from: pending_approval
+          to: cancelled
+          trigger: "requester_cancels"
+        - from: approved
+          to: cancelled
+          trigger: "manager_cancels"
+          guard: "No goods have been received yet"
+    examples:
+      - input:
+          po_status: "pending_approval"
+          action: "approve"
+          manager_authority: "sufficient"
+        expected:
+          po_status: "approved"
+        description: "Valid approval transitions PO from pending to approved."
+      - input:
+          po_status: "draft"
+          action: "approve"
+        expected:
+          error: "INVALID_TRANSITION"
+          po_status: "draft"
+        description: "Cannot approve a draft PO — must be submitted first."
+      - input:
+          po_status: "approved"
+          action: "cancel"
+          goods_received: true
+        expected:
+          error: "CANNOT_CANCEL_RECEIVED_PO"
+          po_status: "approved"
+        description: "Cannot cancel PO after goods have been received."
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - lifecycle
+
+  # ---------- Decision Table — Approval Authority ---------------------------
+  - name: "Approval authority based on PO amount and manager level"
+    description: >
+      Approval routing is determined by the PO amount and the manager's
+      authority level. Junior managers approve up to $5,000, senior
+      managers up to $50,000, directors up to $500,000, and VP approval
+      is required above $500,000.
+    type: combinatorial
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Wrong routing could result in unauthorized spending or blocked procurement."
+    techniques:
+      - decision_table
+      - boundary_value
+    technique_rationale: >
+      Decision table maps all combinations of PO amount tiers and manager
+      levels to approval outcomes. Boundary value tests the exact threshold
+      amounts.
+    decision_table:
+      conditions:
+        - "PO amount range"
+        - "Manager authority level"
+      actions:
+        - "Approval outcome"
+        - "Escalation required"
+      rules:
+        - description: "Junior manager approves PO under $5,000"
+          condition_values:
+            "PO amount range": "<= $5,000"
+            "Manager authority level": "junior"
+          expected_actions:
+            "Approval outcome": "approved"
+            "Escalation required": false
+        - description: "Junior manager cannot approve PO over $5,000"
+          condition_values:
+            "PO amount range": "> $5,000"
+            "Manager authority level": "junior"
+          expected_actions:
+            "Approval outcome": "escalated"
+            "Escalation required": true
+        - description: "Senior manager approves PO under $50,000"
+          condition_values:
+            "PO amount range": "<= $50,000"
+            "Manager authority level": "senior"
+          expected_actions:
+            "Approval outcome": "approved"
+            "Escalation required": false
+        - description: "Senior manager cannot approve PO over $50,000"
+          condition_values:
+            "PO amount range": "> $50,000"
+            "Manager authority level": "senior"
+          expected_actions:
+            "Approval outcome": "escalated"
+            "Escalation required": true
+        - description: "Director approves PO under $500,000"
+          condition_values:
+            "PO amount range": "<= $500,000"
+            "Manager authority level": "director"
+          expected_actions:
+            "Approval outcome": "approved"
+            "Escalation required": false
+        - description: "VP required for PO over $500,000"
+          condition_values:
+            "PO amount range": "> $500,000"
+            "Manager authority level": "director"
+          expected_actions:
+            "Approval outcome": "escalated"
+            "Escalation required": true
+        - description: "VP approves any amount"
+          condition_values:
+            "PO amount range": "any"
+            "Manager authority level": "vp"
+          expected_actions:
+            "Approval outcome": "approved"
+            "Escalation required": false
+    examples:
+      - input:
+          po_amount: 5000.00
+          manager_level: "junior"
+        expected:
+          outcome: "approved"
+        description: "Exactly at junior manager threshold — approved."
+      - input:
+          po_amount: 5000.01
+          manager_level: "junior"
+        expected:
+          outcome: "escalated"
+        description: "One cent over junior threshold — escalated to senior."
+      - input:
+          po_amount: 50000.00
+          manager_level: "senior"
+        expected:
+          outcome: "approved"
+        description: "Exactly at senior manager threshold — approved."
+      - input:
+          po_amount: 750000.00
+          manager_level: "director"
+        expected:
+          outcome: "escalated"
+        description: "Over director threshold — escalated to VP."
+    status: uncovered
+    priority: 1
+    tags:
+      - approval-routing
+      - authorization
+      - boundary
+
+  # ---------- Boundary — Approval Threshold Amounts -------------------------
+  - name: "PO amount at exact approval threshold boundaries"
+    description: >
+      Tests the exact boundary amounts at each approval tier: $5,000,
+      $50,000, and $500,000 to verify correct routing behavior.
+    type: boundary
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Off-by-one errors at thresholds could allow unauthorized approvals."
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Classic boundary value analysis: test at, just below, and just above
+      each threshold.
+    examples:
+      - input:
+          po_amount: 4999.99
+          manager_level: "junior"
+        expected:
+          can_approve: true
+        description: "One cent below junior threshold — can approve."
+      - input:
+          po_amount: 5000.00
+          manager_level: "junior"
+        expected:
+          can_approve: true
+        description: "Exactly at junior threshold — can approve."
+      - input:
+          po_amount: 5000.01
+          manager_level: "junior"
+        expected:
+          can_approve: false
+          requires_escalation: true
+        description: "One cent above junior threshold — must escalate."
+      - input:
+          po_amount: 49999.99
+          manager_level: "senior"
+        expected:
+          can_approve: true
+        description: "One cent below senior threshold."
+      - input:
+          po_amount: 50000.00
+          manager_level: "senior"
+        expected:
+          can_approve: true
+        description: "Exactly at senior threshold."
+      - input:
+          po_amount: 50000.01
+          manager_level: "senior"
+        expected:
+          can_approve: false
+          requires_escalation: true
+        description: "One cent above senior threshold — must escalate."
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - approval-routing
+      - authorization
+
+  # ---------- Error Handling — Rejection Flow -------------------------------
+  - name: "Manager rejects a PO with mandatory reason"
+    description: >
+      When a manager rejects a PO, they must provide a rejection reason.
+      The requester is notified of the rejection and reason. The PO
+      returns to draft status for revision.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Rejection without reason causes confusion; but impact is limited to workflow delays."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning distinguishes valid rejections (with reason)
+      from invalid (without reason). Error guessing covers empty/whitespace reasons.
+    preconditions:
+      - "PO is in pending_approval status"
+      - "User has purchasing_manager role"
+    examples:
+      - input:
+          po_id: "PO-2026-005"
+          action: "reject"
+          reason: "Budget exceeded for Q1"
+        expected:
+          po_status: "rejected"
+          requester_notified: true
+          notification_contains_reason: true
+        description: "Valid rejection with reason notifies requester."
+      - input:
+          po_id: "PO-2026-005"
+          action: "reject"
+          reason: ""
+        expected:
+          error: "REJECTION_REASON_REQUIRED"
+          po_status: "pending_approval"
+        description: "Empty rejection reason is not accepted."
+      - input:
+          po_id: "PO-2026-005"
+          action: "reject"
+          reason: "   "
+        expected:
+          error: "REJECTION_REASON_REQUIRED"
+          po_status: "pending_approval"
+        description: "Whitespace-only rejection reason is not accepted."
+    status: uncovered
+    priority: 2
+    tags:
+      - rejection
+      - validation
+
+  # ---------- Error Handling — Vendor Notification Failure -------------------
+  - name: "Vendor notification delivery failure after approval"
+    description: >
+      If vendor notification fails to send (email bounce, EDI timeout,
+      portal unreachable), the system retries and alerts the purchasing
+      manager. The PO remains approved but is flagged as notification-pending.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 -> high. Silent notification failure means vendor never learns about the PO, causing supply chain delays."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates infrastructure failures (email bounce,
+      timeout, service down). State transition models the notification
+      retry lifecycle.
+    preconditions:
+      - "PO has been approved"
+      - "Vendor notification channel is configured"
+    examples:
+      - input:
+          po_id: "PO-2026-001"
+          notification_channel: "email"
+          email_delivery_status: "bounced"
+        expected:
+          retry_scheduled: true
+          manager_alerted: true
+          po_status: "approved"
+          notification_flag: "pending"
+        description: "Email bounces — retry scheduled, manager alerted."
+      - input:
+          po_id: "PO-2026-001"
+          notification_channel: "email"
+          retry_count: 3
+          email_delivery_status: "bounced"
+        expected:
+          retry_exhausted: true
+          manager_alerted: true
+          escalation_to_procurement_team: true
+        description: "After 3 retries exhausted, escalate to procurement team."
+    status: uncovered
+    priority: 1
+    tags:
+      - notification
+      - reliability
+      - vendor
+
+  # ---------- Security — Authorization Checks -------------------------------
+  - name: "Non-manager user cannot approve POs"
+    description: >
+      Only users with the purchasing_manager role (or higher) can approve
+      purchase orders. Other roles receive an authorization error.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.25 -> high. Unauthorized approvals could lead to fraudulent spending."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning divides users into authorized/unauthorized
+      classes. Error guessing covers privilege escalation attempts.
+    examples:
+      - input:
+          user_role: "requester"
+          action: "approve"
+          po_id: "PO-2026-001"
+        expected:
+          error: "UNAUTHORIZED"
+          status: 403
+          po_status: "pending_approval"
+        description: "Requester role cannot approve — 403 returned."
+      - input:
+          user_role: "viewer"
+          action: "approve"
+          po_id: "PO-2026-001"
+        expected:
+          error: "UNAUTHORIZED"
+          status: 403
+        description: "Viewer role cannot approve."
+      - input:
+          user_role: "purchasing_manager"
+          action: "approve"
+          po_id: "PO-2026-001"
+        expected:
+          status: 200
+          po_status: "approved"
+        description: "Purchasing manager can approve."
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - authorization
+
+  - name: "Manager cannot approve their own PO (segregation of duties)"
+    description: >
+      A purchasing manager who created a PO cannot approve it themselves.
+      A different manager must approve to enforce segregation of duties.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Self-approval bypasses financial controls and enables fraud."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning: same-user vs different-user approval.
+      Error guessing covers attempts to circumvent the control (e.g., via API).
+    examples:
+      - input:
+          po_creator_id: "user-101"
+          approver_id: "user-101"
+          action: "approve"
+        expected:
+          error: "SELF_APPROVAL_NOT_ALLOWED"
+          po_status: "pending_approval"
+        description: "Same user cannot create and approve a PO."
+      - input:
+          po_creator_id: "user-101"
+          approver_id: "user-202"
+          action: "approve"
+        expected:
+          po_status: "approved"
+        description: "Different manager can approve the PO."
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - segregation-of-duties
+      - compliance
+
+  # ---------- Edge Case — Delegation ----------------------------------------
+  - name: "Approval delegation during manager absence"
+    description: >
+      When a purchasing manager is out of office, they can delegate
+      their approval authority to another qualified manager. The delegate
+      inherits the original manager's threshold limits.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.0 -> medium. Blocked approvals during absence delay procurement but workarounds exist."
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+    technique_rationale: >
+      Equivalence partitioning covers valid/invalid delegation scenarios.
+      Decision table maps delegation conditions (active, expired, revoked)
+      to approval outcomes.
+    decision_table:
+      conditions:
+        - "Delegation status"
+        - "Delegate authority level"
+        - "PO within delegator threshold"
+      actions:
+        - "Can approve"
+        - "Audit trail entry"
+      rules:
+        - description: "Active delegation, within threshold"
+          condition_values:
+            "Delegation status": "active"
+            "Delegate authority level": "sufficient"
+            "PO within delegator threshold": true
+          expected_actions:
+            "Can approve": true
+            "Audit trail entry": "approved_by_delegate"
+        - description: "Expired delegation"
+          condition_values:
+            "Delegation status": "expired"
+            "Delegate authority level": "sufficient"
+            "PO within delegator threshold": true
+          expected_actions:
+            "Can approve": false
+            "Audit trail entry": "delegation_expired"
+        - description: "Active delegation but PO exceeds delegator threshold"
+          condition_values:
+            "Delegation status": "active"
+            "Delegate authority level": "sufficient"
+            "PO within delegator threshold": false
+          expected_actions:
+            "Can approve": false
+            "Audit trail entry": "exceeds_delegator_threshold"
+    examples:
+      - input:
+          delegator_id: "mgr-101"
+          delegate_id: "mgr-202"
+          delegation_status: "active"
+          po_amount: 4000.00
+          delegator_threshold: 5000.00
+        expected:
+          can_approve: true
+          audit_shows_delegate: true
+        description: "Active delegation within threshold — delegate can approve."
+      - input:
+          delegator_id: "mgr-101"
+          delegate_id: "mgr-202"
+          delegation_status: "expired"
+          po_amount: 4000.00
+        expected:
+          can_approve: false
+          error: "DELEGATION_EXPIRED"
+        description: "Expired delegation — cannot approve."
+    status: uncovered
+    priority: 2
+    tags:
+      - delegation
+      - out-of-office
+      - workflow
+
+  # ---------- Edge Case — Duplicate Approval --------------------------------
+  - name: "Duplicate approval attempt on already-approved PO"
+    description: >
+      If a manager attempts to approve a PO that has already been approved,
+      the system rejects the action with an idempotent response rather than
+      triggering duplicate notifications or payments.
+    type: edge_case
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.25 -> high. Double approval could trigger duplicate vendor notifications and duplicate payment requests."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates double-click and race condition scenarios.
+      State transition verifies that approved state does not re-enter itself
+      via the approve trigger.
+    examples:
+      - input:
+          po_id: "PO-2026-001"
+          po_status: "approved"
+          action: "approve"
+        expected:
+          error: "PO_ALREADY_APPROVED"
+          duplicate_notification_sent: false
+          duplicate_payment_created: false
+        description: "Second approval attempt is rejected — no side effects."
+    status: uncovered
+    priority: 1
+    tags:
+      - idempotency
+      - edge-case
+      - race-condition
+
+  # ---------- Edge Case — Concurrent Approval Attempts ----------------------
+  - name: "Concurrent approval and rejection race condition"
+    description: >
+      Two managers attempt to approve and reject the same PO simultaneously.
+      The system must ensure only one action succeeds using optimistic
+      locking or equivalent concurrency control.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.25 -> medium. Rare but consequence of inconsistent state is severe."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing for concurrency scenarios. State transition verifies
+      that only one terminal transition occurs.
+    examples:
+      - input:
+          po_id: "PO-2026-010"
+          concurrent_actions:
+            - action: "approve"
+              manager: "mgr-101"
+              timestamp: "T1"
+            - action: "reject"
+              manager: "mgr-202"
+              timestamp: "T1+10ms"
+        expected:
+          one_action_succeeds: true
+          other_action_fails_with: "CONCURRENT_MODIFICATION"
+          po_status_consistent: true
+        description: "Only one concurrent action succeeds; the other gets a conflict error."
+    status: uncovered
+    priority: 2
+    tags:
+      - concurrency
+      - race-condition
+      - data-integrity
+
+  # ---------- Edge Case — PO with Zero/Negative Amount ----------------------
+  - name: "PO with zero or negative amount cannot be submitted"
+    description: >
+      A PO with a total amount of zero or negative value should not
+      be submittable for approval.
+    type: boundary
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.5 -> medium. Invalid amounts are easily caught but could cause accounting errors if not validated."
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests zero and negative amounts. Error guessing
+      covers edge cases like floating point rounding to zero.
+    examples:
+      - input:
+          po_amount: 0.00
+          action: "submit_for_approval"
+        expected:
+          error: "INVALID_PO_AMOUNT"
+          po_status: "draft"
+        description: "Zero amount PO cannot be submitted."
+      - input:
+          po_amount: -100.00
+          action: "submit_for_approval"
+        expected:
+          error: "INVALID_PO_AMOUNT"
+          po_status: "draft"
+        description: "Negative amount PO cannot be submitted."
+      - input:
+          po_amount: 0.01
+          action: "submit_for_approval"
+        expected:
+          po_status: "pending_approval"
+        description: "Minimum positive amount can be submitted."
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - validation
+
+  # ---------- Edge Case — Partial Approval / Multi-level --------------------
+  - name: "Multi-level approval chain for high-value POs"
+    description: >
+      POs exceeding a single manager's authority require sequential
+      approval through the chain: junior -> senior -> director -> VP.
+      Each level's approval is recorded in the audit trail.
+    type: combinatorial
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.25 -> high. Skipping approval levels could authorize spending beyond policy limits."
+    techniques:
+      - state_transition
+      - decision_table
+    technique_rationale: >
+      State transition models the multi-level approval chain. Decision
+      table maps amount ranges to required approval levels.
+    state_transition:
+      states:
+        - pending_junior_approval
+        - pending_senior_approval
+        - pending_director_approval
+        - pending_vp_approval
+        - approved
+      transitions:
+        - from: pending_junior_approval
+          to: pending_senior_approval
+          trigger: "junior_approves"
+          guard: "PO amount > $5,000"
+        - from: pending_junior_approval
+          to: approved
+          trigger: "junior_approves"
+          guard: "PO amount <= $5,000"
+        - from: pending_senior_approval
+          to: pending_director_approval
+          trigger: "senior_approves"
+          guard: "PO amount > $50,000"
+        - from: pending_senior_approval
+          to: approved
+          trigger: "senior_approves"
+          guard: "PO amount <= $50,000"
+        - from: pending_director_approval
+          to: pending_vp_approval
+          trigger: "director_approves"
+          guard: "PO amount > $500,000"
+        - from: pending_director_approval
+          to: approved
+          trigger: "director_approves"
+          guard: "PO amount <= $500,000"
+        - from: pending_vp_approval
+          to: approved
+          trigger: "vp_approves"
+    examples:
+      - input:
+          po_amount: 75000.00
+          approvals_received: ["junior", "senior"]
+        expected:
+          po_status: "pending_director_approval"
+        description: "$75K PO needs director after junior and senior approve."
+      - input:
+          po_amount: 3000.00
+          approvals_received: ["junior"]
+        expected:
+          po_status: "approved"
+        description: "$3K PO fully approved by junior manager alone."
+    status: uncovered
+    priority: 1
+    tags:
+      - approval-chain
+      - multi-level
+      - workflow
+
+  # ---------- Performance — Bulk Approval -----------------------------------
+  - name: "Bulk approval of multiple POs"
+    description: >
+      A purchasing manager selects and approves multiple POs in a single
+      action. Each PO is validated independently; partial success is
+      possible if some POs fail validation.
+    type: performance
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Bulk operations are common but failure is immediately visible."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning: all-valid batch, all-invalid batch, mixed batch.
+      Error guessing: timeout during bulk operation, partial commit.
+    examples:
+      - input:
+          po_ids: ["PO-001", "PO-002", "PO-003"]
+          all_within_threshold: true
+        expected:
+          approved_count: 3
+          failed_count: 0
+          vendor_notifications_sent: 3
+        description: "All POs valid — all approved in bulk."
+      - input:
+          po_ids: ["PO-001", "PO-004", "PO-005"]
+          po_004_over_threshold: true
+        expected:
+          approved_count: 2
+          failed_count: 1
+          failed_po_ids: ["PO-004"]
+          error_for_po_004: "EXCEEDS_AUTHORITY"
+        description: "Mixed batch — two approved, one fails validation."
+    status: uncovered
+    priority: 3
+    tags:
+      - bulk-operation
+      - performance
+      - partial-success
+
+  # ---------- Audit Trail ---------------------------------------------------
+  - name: "Audit trail records all approval actions"
+    description: >
+      Every approval, rejection, delegation, and escalation action is
+      recorded in an immutable audit trail with timestamp, actor, action,
+      and PO details.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.0 -> high. Missing audit trail violates compliance requirements and prevents forensic investigation."
+    techniques:
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      Equivalence partitioning covers each action type (approve, reject,
+      delegate, escalate). Cause-effect maps each action to its required
+      audit fields.
+    examples:
+      - input:
+          action: "approve"
+          actor_id: "mgr-101"
+          po_id: "PO-2026-001"
+        expected:
+          audit_entry_created: true
+          audit_timestamp: "non-null"
+          audit_actor: "mgr-101"
+          audit_action: "approve"
+          audit_po_id: "PO-2026-001"
+          audit_immutable: true
+        description: "Approval action fully captured in audit trail."
+      - input:
+          action: "reject"
+          actor_id: "mgr-202"
+          po_id: "PO-2026-005"
+          reason: "Budget exceeded"
+        expected:
+          audit_entry_created: true
+          audit_reason: "Budget exceeded"
+        description: "Rejection action includes the rejection reason."
+    status: uncovered
+    priority: 1
+    tags:
+      - audit
+      - compliance
+      - critical-path
+
+  # ---------- Error — Accounting System Unavailable -------------------------
+  - name: "Accounting system unavailable during payment handoff"
+    description: >
+      If the accounting system is down when the PO is approved, the payment
+      request is queued and retried. The PO is still approved but flagged
+      for payment-pending status.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 -> high. Silent failure to create payment request means vendor is never paid."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing covers infrastructure failures. State transition models
+      the payment handoff retry lifecycle.
+    examples:
+      - input:
+          po_id: "PO-2026-001"
+          accounting_system_status: "unavailable"
+          action: "approve"
+        expected:
+          po_status: "approved"
+          payment_request_queued: true
+          retry_scheduled: true
+          manager_alerted: true
+        description: "Accounting down — payment queued, PO still approved."
+      - input:
+          po_id: "PO-2026-001"
+          accounting_system_status: "available"
+          queued_payment_exists: true
+        expected:
+          payment_request_created: true
+          queue_cleared: true
+        description: "Queued payment processed when accounting comes back online."
+    status: uncovered
+    priority: 1
+    tags:
+      - reliability
+      - accounting
+      - retry
+
+  # ---------- Edge Case — PO Amendment After Approval -----------------------
+  - name: "PO amendment after approval requires re-approval"
+    description: >
+      If a PO needs to be amended after approval (e.g., quantity change,
+      price update), it must go through the approval process again.
+      The original approval is voided.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.25 -> medium. Unapproved amendments could change financial commitments without oversight."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition models the re-approval path from approved back
+      to pending. Error guessing covers attempts to amend without
+      triggering re-approval.
+    examples:
+      - input:
+          po_id: "PO-2026-001"
+          po_status: "approved"
+          action: "amend"
+          amendment: "quantity_increase"
+        expected:
+          po_status: "pending_approval"
+          original_approval_voided: true
+          vendor_notified_of_hold: true
+        description: "Amendment reverts PO to pending and voids original approval."
+      - input:
+          po_id: "PO-2026-001"
+          po_status: "fully_received"
+          action: "amend"
+        expected:
+          error: "CANNOT_AMEND_RECEIVED_PO"
+        description: "Cannot amend a PO after goods have been received."
+    status: uncovered
+    priority: 2
+    tags:
+      - amendment
+      - re-approval
+      - workflow
+
+# ---------------------------------------------------------------------------
+# Example Mapping — Three Amigos Output
+# ---------------------------------------------------------------------------
+example_mapping:
+  story: >
+    As a purchasing manager, I want to approve purchase orders so that
+    vendors receive notifications and accounting can process payments.
+  rules:
+    - rule_name: "Only authorized managers can approve POs"
+      examples:
+        - "Purchasing manager approves PO within their threshold -> PO approved"
+        - "Requester or viewer role attempts approval -> 403 unauthorized"
+        - "Manager approves PO above their threshold -> escalated to next level"
+        - "Manager attempts to approve their own PO -> self-approval blocked"
+        - "Delegated manager approves during original manager's absence -> approved with delegate audit entry"
+
+    - rule_name: "Approval routing depends on PO amount and manager level"
+      examples:
+        - "PO <= $5,000 -> junior manager can approve"
+        - "PO $5,001-$50,000 -> requires senior manager"
+        - "PO $50,001-$500,000 -> requires director"
+        - "PO > $500,000 -> requires VP approval"
+        - "PO at exact threshold boundary ($5,000.00) -> lower-level manager can approve"
+        - "PO one cent above threshold ($5,000.01) -> must escalate"
+
+    - rule_name: "Vendor must be notified after approval"
+      examples:
+        - "Approval triggers email notification to vendor with PO details"
+        - "Vendor without email receives portal notification"
+        - "Email notification bounces -> retry scheduled, manager alerted"
+        - "All retries exhausted -> escalate to procurement team"
+        - "Notification includes PO number, delivery date, and payment terms"
+
+    - rule_name: "Accounting must receive payment request after approval"
+      examples:
+        - "Approval creates payment request with correct amount and terms"
+        - "Net-30 terms -> payment due date set 30 days from approval"
+        - "Immediate terms -> same-day payment scheduled"
+        - "Accounting system unavailable -> payment queued for retry"
+        - "Queued payment processed when accounting system recovers"
+
+    - rule_name: "PO follows a defined lifecycle with valid state transitions"
+      examples:
+        - "Draft -> pending_approval (on submit)"
+        - "Pending -> approved (on manager approval)"
+        - "Pending -> rejected (on rejection with reason)"
+        - "Rejected -> draft (on revise and resubmit)"
+        - "Approved -> cancelled (only if no goods received)"
+        - "Cannot approve a PO in draft status"
+        - "Cannot cancel a PO after goods received"
+
+    - rule_name: "Rejection requires a reason and notifies requester"
+      examples:
+        - "Manager rejects with reason -> PO set to rejected, requester notified"
+        - "Manager rejects with empty reason -> validation error"
+        - "Manager rejects with whitespace-only reason -> validation error"
+
+    - rule_name: "Duplicate and concurrent actions are handled safely"
+      examples:
+        - "Approving already-approved PO -> idempotent rejection, no duplicate side effects"
+        - "Concurrent approve + reject on same PO -> only one succeeds, other gets conflict error"
+
+    - rule_name: "All actions are recorded in an immutable audit trail"
+      examples:
+        - "Approval recorded with timestamp, actor, action, PO ID"
+        - "Rejection recorded with reason"
+        - "Delegated approval recorded with delegate identity"
+        - "Audit entries cannot be modified or deleted"
+
+# ---------------------------------------------------------------------------
+# Open Questions (Ambiguities identified during Three Amigos)
+# ---------------------------------------------------------------------------
+# These questions capture real ambiguities that require human clarification
+# before the test plan can be finalized:
+#
+# Q1: What are the exact approval threshold amounts for each manager level?
+#     The plan assumes $5K/$50K/$500K tiers — is this correct, or are
+#     thresholds configurable per organization?
+#
+# Q2: Is segregation of duties enforced? Can the person who creates a PO
+#     also approve it, or must a different manager approve?
+#
+# Q3: What notification channels are supported for vendors — email only,
+#     or also EDI, portal, SMS, webhook?
+#
+# Q4: What happens if the vendor has no notification channel configured
+#     at all? Is the PO still approved, or is it blocked?
+#
+# Q5: What payment terms are supported? Is this a fixed enum (net-30,
+#     net-60, immediate) or free-form?
+#
+# Q6: Is delegation of approval authority supported? If so, are there
+#     time limits, and does the delegate inherit the original manager's
+#     threshold or their own?
+#
+# Q7: Can a PO be amended after approval? If so, does it require
+#     re-approval? What if goods have already been partially received?
+#
+# Q8: Is bulk approval of multiple POs supported? If so, is it
+#     all-or-nothing or does partial success apply?
+#
+# Q9: What is the retry policy for failed vendor notifications?
+#     How many retries? What interval? What happens after exhaustion?
+#
+# Q10: What is the retry policy for accounting system unavailability?
+#      How long do we queue? Is there a dead-letter mechanism?
+#
+# Q11: Is multi-level sequential approval required for high-value POs,
+#      or can a higher-level manager approve directly without lower-level
+#      sign-off?
+#
+# Q12: What currency is used for threshold comparison? Are POs in
+#      multiple currencies supported, and if so, what exchange rate
+#      is used for threshold evaluation?
+#
+# Q13: What constitutes a "valid PO" for submission? Must it have
+#      line items, a vendor, a delivery date, and payment terms?
+#
+# Q14: Are there any time-based auto-approval or auto-escalation rules
+#      (e.g., if not acted on within 48 hours, escalate)?
+#
+# Q15: Should the vendor notification happen synchronously (blocking the
+#      approval response) or asynchronously (fire-and-forget with retry)?
+#
+# Q16: Is there a maximum PO amount? Can a PO be for $10 million or is
+#      there a system-level cap?
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

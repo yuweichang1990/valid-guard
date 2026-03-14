@@ -1,0 +1,323 @@
+analysis:
+  problem_statement: >
+    A test suite of 500 test cases is suspected to contain significant redundancy
+    while simultaneously missing important edge cases. The goal is to identify
+    meaningless or redundant tests and discover untested execution paths.
+
+  phase_1_identifying_redundant_tests:
+    description: >
+      Systematic approaches to find tests that add no incremental value to the
+      suite's fault-detection capability.
+
+    techniques:
+
+      - name: Code Coverage Overlap Analysis
+        priority: high
+        approach: >
+          Run the full suite with branch-level or statement-level coverage
+          instrumentation. For each test, record the exact set of code lines and
+          branches it exercises. Two or more tests that cover an identical set of
+          lines and branches are strong redundancy candidates.
+        steps:
+          - Instrument the codebase with a coverage tool (e.g., Istanbul/nyc for
+            JS/TS, coverage.py for Python, JaCoCo for Java).
+          - Run each test individually and capture its per-test coverage profile.
+          - Build a coverage matrix mapping each test to the set of lines and
+            branches it touches.
+          - Cluster tests by identical or near-identical coverage fingerprints.
+          - Within each cluster, keep the test with the clearest intent and mark
+            the rest as redundancy candidates for review.
+        limitations:
+          - Same-coverage does not guarantee same fault-detection power; tests
+            may assert different properties of the same code path.
+          - Must inspect assertions manually before deleting any test.
+
+      - name: Mutation Testing
+        priority: high
+        approach: >
+          Introduce small syntactic faults (mutants) into the production code
+          and check which tests detect (kill) them. Tests that never uniquely
+          kill any mutant are redundant from a fault-detection standpoint.
+        steps:
+          - Run a mutation testing tool (e.g., Stryker for JS/TS, mutmut or
+            cosmic-ray for Python, PITest for Java).
+          - Collect the kill matrix showing which tests kill which mutants.
+          - Identify tests whose killed-mutant set is a strict subset of another
+            test's killed-mutant set; these are dominated tests.
+          - Flag tests that kill zero unique mutants as primary removal candidates.
+        limitations:
+          - Mutation testing is computationally expensive; consider running on
+            critical modules first.
+          - Equivalent mutants can skew results.
+
+      - name: Assertion Density and Quality Audit
+        priority: medium
+        approach: >
+          Scan every test for the number and specificity of its assertions. Tests
+          with zero assertions, only trivial assertions (e.g., asserting
+          truthiness of a non-null return), or duplicated assertion patterns
+          across multiple tests are low-value.
+        steps:
+          - Parse test files to extract assertion statements per test case.
+          - Flag tests with zero assertions (smoke tests masquerading as unit tests).
+          - Flag tests where the assertion is identical to another test's assertion
+            and the setup differs only in irrelevant parameters.
+          - Categorize remaining tests by assertion type (equality, exception,
+            state change, side effect verification).
+        indicators_of_low_value:
+          - "assert result is not None" with no further checks
+          - "assert typeof result === 'object'" without property inspection
+          - Identical assertions repeated across 5+ tests with trivially
+            different inputs that do not cross equivalence-class boundaries
+
+      - name: Test Execution Time vs. Incremental Value
+        priority: medium
+        approach: >
+          Profile each test's execution time and correlate it with its unique
+          coverage contribution. Slow tests that add no unique coverage are
+          strong candidates for removal or refactoring.
+        steps:
+          - Measure wall-clock time per test case.
+          - Cross-reference with the coverage matrix from technique 1.
+          - Compute a value ratio of unique-lines-covered divided by
+            execution-time-in-ms for each test.
+          - Tests with a value ratio of zero (no unique coverage) and high
+            execution time are top removal candidates.
+
+      - name: Historical Failure Analysis
+        priority: medium
+        approach: >
+          Examine CI history to find tests that have never failed (or only fail
+          due to flakiness, not actual regressions). Tests that have never caught
+          a real bug over a long period may be testing trivial or
+          already-guaranteed behavior.
+        steps:
+          - Query CI logs for test pass/fail history over the last 6-12 months.
+          - Identify tests with a 100% pass rate that were not recently added.
+          - Cross-reference with code-change frequency; a never-failing test on
+            frequently-changed code is fine, but a never-failing test on
+            stable code with no recent changes may be low-value.
+          - Separately flag flaky tests (intermittent failures unrelated to code
+            changes) for stabilization or removal.
+
+  phase_2_discovering_untested_paths:
+    description: >
+      Systematic approaches to find code paths, edge cases, and behavioral
+      scenarios that the existing 500 tests do not exercise.
+
+    techniques:
+
+      - name: Branch and Condition Coverage Gap Analysis
+        priority: high
+        approach: >
+          After running the full suite, examine the coverage report for uncovered
+          branches, conditions, and statements. Each uncovered branch represents
+          a concrete untested path.
+        steps:
+          - Generate an aggregate coverage report from the full test suite run.
+          - Filter for files with less than 80% branch coverage.
+          - For each uncovered branch, determine the condition that triggers it.
+          - Classify uncovered branches by risk (error handling paths, security
+            checks, and data validation branches are highest priority).
+          - Write targeted tests for the highest-risk uncovered branches first.
+        high_risk_uncovered_patterns:
+          - Error handling branches (catch blocks, error callbacks)
+          - Input validation branches (null checks, type guards, range checks)
+          - Security-related branches (authorization checks, sanitization)
+          - Resource cleanup branches (finally blocks, dispose patterns)
+          - Concurrency-related branches (lock contention, timeout paths)
+
+      - name: Equivalence Class and Boundary Value Analysis
+        priority: high
+        approach: >
+          For each public function or API endpoint, define the input domain,
+          partition it into equivalence classes, and check whether the existing
+          tests cover at least one representative from each class plus the
+          boundary values.
+        steps:
+          - Inventory all public functions and API endpoints.
+          - For each input parameter, define valid and invalid equivalence classes.
+          - Identify boundary values (min, max, min-1, max+1, empty, null, zero,
+            negative, maximum length, unicode edge cases).
+          - Map existing tests to equivalence classes and boundaries.
+          - Any unmapped class or boundary is a gap requiring a new test.
+        commonly_missed_boundaries:
+          - Empty string vs. null vs. undefined
+          - Zero vs. negative numbers
+          - Maximum integer or float precision limits
+          - Single-element collections vs. empty collections
+          - Unicode characters, especially multi-byte and surrogate pairs
+          - Timezone boundaries (DST transitions, UTC offset edge cases)
+          - Date boundaries (leap years, month-end, epoch)
+
+      - name: State Transition and Workflow Coverage
+        priority: high
+        approach: >
+          Many systems have stateful workflows (e.g., order states, user account
+          lifecycle, session management). Model these as state machines and check
+          whether every valid transition and every invalid transition is tested.
+        steps:
+          - Identify all stateful entities in the system.
+          - For each entity, draw a state transition diagram from the code or
+            specifications.
+          - List all valid transitions and all invalid transitions.
+          - Map existing tests to transitions.
+          - Write tests for uncovered transitions, especially invalid-transition
+            attempts that should produce errors.
+
+      - name: Error Path and Exception Handling Coverage
+        priority: high
+        approach: >
+          Error handling code is statistically the least tested and most
+          bug-prone code in most systems. Systematically test every catch block,
+          error callback, and fallback path.
+        steps:
+          - Grep the codebase for try/catch, .catch(), error event handlers,
+            fallback/default branches, and retry logic.
+          - For each error handler, determine what condition triggers it.
+          - Check whether any existing test triggers that condition.
+          - For untested error handlers, write tests that inject the triggering
+            fault (e.g., mock a dependency to throw, simulate network failure,
+            provide corrupt input).
+        common_untested_error_paths:
+          - Database connection failures
+          - Network timeouts and partial responses
+          - File system permission errors
+          - Out-of-memory or resource exhaustion
+          - Malformed input data (corrupt JSON, invalid encoding)
+          - Third-party API error responses (rate limits, 5xx errors)
+          - Concurrent modification conflicts
+
+      - name: Integration and Contract Boundary Testing
+        priority: medium
+        approach: >
+          Unit tests often mock dependencies, leaving the actual integration
+          points untested. Identify every external boundary (database, API, file
+          system, message queue) and verify that integration-level tests exist.
+        steps:
+          - List all external dependencies and integration points.
+          - For each, check whether an integration test exercises the real
+            interaction (not just a mocked version).
+          - Pay special attention to serialization/deserialization boundaries,
+            as many bugs hide in data format mismatches.
+          - Verify that contract tests exist for all inter-service APIs.
+
+      - name: Negative and Adversarial Input Testing
+        priority: medium
+        approach: >
+          Check whether the suite includes tests for deliberately malicious or
+          malformed inputs that an attacker or faulty upstream system might send.
+        steps:
+          - For each input point, attempt SQL injection, XSS, path traversal,
+            command injection, and other OWASP Top 10 payloads.
+          - Test with extremely large inputs to verify resource limits.
+          - Test with null bytes, control characters, and encoding edge cases.
+          - Verify that every authentication and authorization check has both
+            positive and negative tests.
+
+  phase_3_action_plan:
+    description: >
+      A prioritized, phased plan to reduce redundancy and close coverage gaps.
+
+    step_1_measure_baseline:
+      actions:
+        - Run full suite with branch-level coverage; record aggregate metrics.
+        - Run per-test coverage to build the coverage matrix.
+        - Record total execution time and per-test execution times.
+      expected_duration: 1-2 days
+      output: Coverage matrix, execution time profile, baseline metrics report.
+
+    step_2_identify_redundancy:
+      actions:
+        - Cluster tests by coverage fingerprint; flag identical clusters.
+        - Run mutation testing on the top 5 highest-risk modules.
+        - Audit assertions in flagged clusters to confirm redundancy.
+        - Create a candidate removal list with justification for each test.
+      expected_duration: 3-5 days
+      output: Redundancy report with candidates ranked by confidence level.
+
+    step_3_map_coverage_gaps:
+      actions:
+        - Analyze uncovered branches from the coverage report.
+        - Perform equivalence class and boundary value analysis on core APIs.
+        - Model state transitions for the top 3 stateful workflows.
+        - Catalog all untested error handling paths.
+      expected_duration: 3-5 days
+      output: Gap analysis document with prioritized list of missing tests.
+
+    step_4_execute_changes:
+      actions:
+        - Remove or consolidate confirmed redundant tests (with team review).
+        - Write new tests for high-priority coverage gaps.
+        - Re-run coverage and mutation testing to validate improvements.
+      expected_duration: 5-10 days
+      output: Leaner test suite with higher fault-detection capability.
+
+    step_5_establish_guardrails:
+      actions:
+        - Add coverage thresholds to CI pipeline (fail build if branch coverage
+          drops below agreed threshold).
+        - Add mutation score thresholds for critical modules.
+        - Require new tests to demonstrate unique coverage contribution during
+          code review.
+        - Schedule quarterly test suite health reviews.
+      expected_duration: 1-2 days
+      output: CI configuration and documented review process.
+
+  metrics_to_track:
+    - name: Branch Coverage Percentage
+      baseline_target: "Measure current, set improvement target"
+      description: Percentage of code branches exercised by the test suite.
+
+    - name: Mutation Score
+      baseline_target: "Measure current, target >80% for critical modules"
+      description: Percentage of injected mutants killed by the test suite.
+
+    - name: Test Suite Size
+      current: 500
+      description: >
+        Total number of test cases; should decrease as redundancy is removed
+        and increase as gaps are filled, netting a smaller but more effective suite.
+
+    - name: Unique Coverage Ratio
+      description: >
+        Percentage of tests that cover at least one line or branch not covered
+        by any other test. A low ratio indicates high redundancy.
+
+    - name: Test Execution Time
+      description: >
+        Total wall-clock time for the full suite. Removing redundant tests
+        should reduce this, improving developer feedback loops.
+
+    - name: Defect Escape Rate
+      description: >
+        Number of production bugs that existing tests should have caught but
+        did not. This is the ultimate measure of test suite effectiveness.
+
+  tools_by_language:
+    javascript_typescript:
+      coverage: "nyc / istanbul, c8 (for native V8 coverage)"
+      mutation: "Stryker"
+      assertion_analysis: "eslint-plugin-jest (no-disabled-tests, expect-expect)"
+    python:
+      coverage: "coverage.py, pytest-cov"
+      mutation: "mutmut, cosmic-ray"
+      assertion_analysis: "pylint, flake8-pytest-style"
+    java:
+      coverage: "JaCoCo, Cobertura"
+      mutation: "PITest"
+      assertion_analysis: "ArchUnit, SpotBugs"
+    csharp:
+      coverage: "dotCover, Coverlet"
+      mutation: "Stryker.NET"
+      assertion_analysis: "NUnit analyzers, xUnit analyzers"
+
+  key_principles:
+    - Never delete a test without confirming it is truly redundant; verify that
+      another test kills the same mutants and covers the same branches.
+    - Prioritize fault-detection power over coverage percentage; 80% branch
+      coverage with strong assertions beats 95% coverage with weak assertions.
+    - Treat test code as production code; apply the same refactoring and review
+      standards.
+    - Redundancy identification is not a one-time effort; incorporate it into
+      the regular development workflow via CI metrics and periodic reviews.

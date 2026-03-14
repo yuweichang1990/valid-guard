@@ -1,0 +1,336 @@
+test_plan:
+  function: isEligible
+  description: >
+    Tests for isEligible(age, income) which returns 'approved' when
+    age >= 18 AND income > 30000, and 'rejected' otherwise.
+  parameters:
+    - name: age
+      type: number
+      condition: "age >= 18"
+      boundary: 18
+    - name: income
+      type: number
+      condition: "income > 30000"
+      boundary: 30000
+
+  techniques:
+    - boundary_value_analysis
+    - equivalence_partitioning
+
+  equivalence_partitions:
+    age:
+      - partition: EP-AGE-1
+        description: "Age below minimum (invalid: age < 18)"
+        range: "age < 18"
+        representative_value: 10
+        expected_contribution: rejected
+      - partition: EP-AGE-2
+        description: "Age at or above minimum (valid: age >= 18)"
+        range: "age >= 18"
+        representative_value: 30
+        expected_contribution: approved
+    income:
+      - partition: EP-INC-1
+        description: "Income at or below threshold (invalid: income <= 30000)"
+        range: "income <= 30000"
+        representative_value: 20000
+        expected_contribution: rejected
+      - partition: EP-INC-2
+        description: "Income above threshold (valid: income > 30000)"
+        range: "income > 30000"
+        representative_value: 50000
+        expected_contribution: approved
+
+  boundary_values:
+    age:
+      - label: "just below boundary"
+        value: 17
+        on_boundary: false
+        expected_contribution: rejected
+      - label: "exactly at boundary"
+        value: 18
+        on_boundary: true
+        expected_contribution: approved
+      - label: "just above boundary"
+        value: 19
+        on_boundary: false
+        expected_contribution: approved
+    income:
+      - label: "just below boundary"
+        value: 29999
+        on_boundary: false
+        expected_contribution: rejected
+      - label: "exactly at boundary"
+        value: 30000
+        on_boundary: true
+        expected_contribution: rejected
+      - label: "just above boundary"
+        value: 30001
+        on_boundary: false
+        expected_contribution: approved
+
+  test_cases:
+    # ---------------------------------------------------------------
+    # Boundary Value Analysis - Age boundary with valid income
+    # ---------------------------------------------------------------
+    - id: TC-BVA-AGE-01
+      title: "Age just below boundary with valid income"
+      technique: boundary_value_analysis
+      input:
+        age: 17
+        income: 50000
+      expected: "rejected"
+      rationale: "Age 17 is just below the boundary of 18; condition age >= 18 fails."
+
+    - id: TC-BVA-AGE-02
+      title: "Age exactly at boundary with valid income"
+      technique: boundary_value_analysis
+      input:
+        age: 18
+        income: 50000
+      expected: "approved"
+      rationale: "Age 18 is exactly the boundary; age >= 18 is true, income > 30000 is true."
+
+    - id: TC-BVA-AGE-03
+      title: "Age just above boundary with valid income"
+      technique: boundary_value_analysis
+      input:
+        age: 19
+        income: 50000
+      expected: "approved"
+      rationale: "Age 19 is just above the boundary; both conditions satisfied."
+
+    # ---------------------------------------------------------------
+    # Boundary Value Analysis - Income boundary with valid age
+    # ---------------------------------------------------------------
+    - id: TC-BVA-INC-01
+      title: "Income just below boundary with valid age"
+      technique: boundary_value_analysis
+      input:
+        age: 25
+        income: 29999
+      expected: "rejected"
+      rationale: "Income 29999 is just below 30000; condition income > 30000 fails."
+
+    - id: TC-BVA-INC-02
+      title: "Income exactly at boundary with valid age"
+      technique: boundary_value_analysis
+      input:
+        age: 25
+        income: 30000
+      expected: "rejected"
+      rationale: "Income 30000 is exactly the boundary; income > 30000 is false (strict inequality)."
+
+    - id: TC-BVA-INC-03
+      title: "Income just above boundary with valid age"
+      technique: boundary_value_analysis
+      input:
+        age: 25
+        income: 30001
+      expected: "approved"
+      rationale: "Income 30001 is just above 30000; both conditions satisfied."
+
+    # ---------------------------------------------------------------
+    # Boundary Value Analysis - Both parameters at boundaries
+    # ---------------------------------------------------------------
+    - id: TC-BVA-COMBO-01
+      title: "Both age and income exactly at their boundaries"
+      technique: boundary_value_analysis
+      input:
+        age: 18
+        income: 30000
+      expected: "rejected"
+      rationale: "Age is at boundary (passes >= 18), but income equals 30000 (fails > 30000)."
+
+    - id: TC-BVA-COMBO-02
+      title: "Age at boundary, income just above boundary"
+      technique: boundary_value_analysis
+      input:
+        age: 18
+        income: 30001
+      expected: "approved"
+      rationale: "Both conditions are minimally satisfied: age >= 18 and income > 30000."
+
+    - id: TC-BVA-COMBO-03
+      title: "Age just below boundary, income just above boundary"
+      technique: boundary_value_analysis
+      input:
+        age: 17
+        income: 30001
+      expected: "rejected"
+      rationale: "Income passes but age 17 fails the >= 18 check."
+
+    - id: TC-BVA-COMBO-04
+      title: "Age just above boundary, income just below boundary"
+      technique: boundary_value_analysis
+      input:
+        age: 19
+        income: 29999
+      expected: "rejected"
+      rationale: "Age passes but income 29999 fails the > 30000 check."
+
+    - id: TC-BVA-COMBO-05
+      title: "Both parameters just below their boundaries"
+      technique: boundary_value_analysis
+      input:
+        age: 17
+        income: 29999
+      expected: "rejected"
+      rationale: "Both conditions fail: age < 18 and income <= 30000."
+
+    - id: TC-BVA-COMBO-06
+      title: "Both parameters just above their boundaries"
+      technique: boundary_value_analysis
+      input:
+        age: 19
+        income: 30001
+      expected: "approved"
+      rationale: "Both conditions comfortably satisfied."
+
+    # ---------------------------------------------------------------
+    # Equivalence Partitioning - Valid partition (both valid)
+    # ---------------------------------------------------------------
+    - id: TC-EP-01
+      title: "Both parameters in valid partitions"
+      technique: equivalence_partitioning
+      partitions: [EP-AGE-2, EP-INC-2]
+      input:
+        age: 30
+        income: 50000
+      expected: "approved"
+      rationale: "Representative values from both valid partitions; both conditions met."
+
+    - id: TC-EP-02
+      title: "High age, high income"
+      technique: equivalence_partitioning
+      partitions: [EP-AGE-2, EP-INC-2]
+      input:
+        age: 65
+        income: 120000
+      expected: "approved"
+      rationale: "Well within both valid partitions."
+
+    # ---------------------------------------------------------------
+    # Equivalence Partitioning - Invalid age partition
+    # ---------------------------------------------------------------
+    - id: TC-EP-03
+      title: "Invalid age, valid income"
+      technique: equivalence_partitioning
+      partitions: [EP-AGE-1, EP-INC-2]
+      input:
+        age: 10
+        income: 50000
+      expected: "rejected"
+      rationale: "Age in invalid partition; regardless of income, result is rejected."
+
+    - id: TC-EP-04
+      title: "Minor with high income"
+      technique: equivalence_partitioning
+      partitions: [EP-AGE-1, EP-INC-2]
+      input:
+        age: 5
+        income: 100000
+      expected: "rejected"
+      rationale: "Age clearly in invalid partition; AND condition fails."
+
+    # ---------------------------------------------------------------
+    # Equivalence Partitioning - Invalid income partition
+    # ---------------------------------------------------------------
+    - id: TC-EP-05
+      title: "Valid age, invalid income"
+      technique: equivalence_partitioning
+      partitions: [EP-AGE-2, EP-INC-1]
+      input:
+        age: 30
+        income: 20000
+      expected: "rejected"
+      rationale: "Income in invalid partition; AND condition fails."
+
+    - id: TC-EP-06
+      title: "Adult with zero income"
+      technique: equivalence_partitioning
+      partitions: [EP-AGE-2, EP-INC-1]
+      input:
+        age: 40
+        income: 0
+      expected: "rejected"
+      rationale: "Income is zero, well within the invalid income partition."
+
+    # ---------------------------------------------------------------
+    # Equivalence Partitioning - Both invalid partitions
+    # ---------------------------------------------------------------
+    - id: TC-EP-07
+      title: "Both parameters in invalid partitions"
+      technique: equivalence_partitioning
+      partitions: [EP-AGE-1, EP-INC-1]
+      input:
+        age: 10
+        income: 20000
+      expected: "rejected"
+      rationale: "Both conditions fail; result is rejected."
+
+    - id: TC-EP-08
+      title: "Newborn with no income"
+      technique: equivalence_partitioning
+      partitions: [EP-AGE-1, EP-INC-1]
+      input:
+        age: 0
+        income: 0
+      expected: "rejected"
+      rationale: "Extreme invalid values for both parameters."
+
+    # ---------------------------------------------------------------
+    # Edge cases and robustness
+    # ---------------------------------------------------------------
+    - id: TC-EDGE-01
+      title: "Negative age with valid income"
+      technique: edge_case
+      input:
+        age: -1
+        income: 50000
+      expected: "rejected"
+      rationale: "Negative age is invalid; age >= 18 fails."
+
+    - id: TC-EDGE-02
+      title: "Negative income with valid age"
+      technique: edge_case
+      input:
+        age: 25
+        income: -5000
+      expected: "rejected"
+      rationale: "Negative income is far below threshold; income > 30000 fails."
+
+    - id: TC-EDGE-03
+      title: "Very large age and income values"
+      technique: edge_case
+      input:
+        age: 150
+        income: 10000000
+      expected: "approved"
+      rationale: "Extreme but valid values; both conditions satisfied."
+
+    - id: TC-EDGE-04
+      title: "Age zero with income at boundary"
+      technique: edge_case
+      input:
+        age: 0
+        income: 30000
+      expected: "rejected"
+      rationale: "Both conditions fail: age < 18 and income not > 30000."
+
+  summary:
+    total_test_cases: 22
+    by_technique:
+      boundary_value_analysis: 12
+      equivalence_partitioning: 8
+      edge_case: 4
+    by_expected_outcome:
+      approved: 8
+      rejected: 14
+    coverage_notes:
+      - "All boundary values for age (17, 18, 19) tested with valid and invalid income."
+      - "All boundary values for income (29999, 30000, 30001) tested with valid and invalid age."
+      - "All four equivalence partition combinations (valid/valid, valid/invalid, invalid/valid, invalid/invalid) covered."
+      - "Strict inequality for income (> 30000) explicitly tested: income of exactly 30000 returns 'rejected'."
+      - "Non-inclusive boundary for age (>= 18) explicitly tested: age of exactly 18 returns 'approved' when income is valid."
+      - "Edge cases include negative values and extreme large values for robustness."

@@ -1,0 +1,636 @@
+# Valid Guard Test Plan — Eligibility Check
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Eligibility Check"
+
+feature_description: >
+  A function isEligible(age, income) that determines eligibility based on two
+  criteria: the applicant must be at least 18 years old AND have an income
+  strictly greater than 30000. Returns 'approved' when both conditions are met,
+  'rejected' otherwise.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: "inline function definition"
+
+scenarios:
+  # ---------- Happy Path ---------------------------------------------------
+  - name: "Approved when both conditions are met"
+    description: >
+      Verifies that the function returns 'approved' when age is at least 18
+      and income is strictly greater than 30000.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 → high.
+      This is the core approval logic — every applicant evaluation passes through it.
+      Incorrect approval has direct business and financial consequences. A false
+      approval may not be immediately visible without downstream auditing.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning validates the valid partition for both inputs
+      simultaneously — confirming the happy path with representative values
+      well inside the valid range.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 25
+          income: 50000
+        expected:
+          result: "approved"
+        description: "Typical eligible applicant — age well above 18, income well above 30000."
+      - input:
+          age: 40
+          income: 100000
+        expected:
+          result: "approved"
+        description: "Older applicant with high income — clearly eligible."
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+
+  # ---------- Boundary Value — Age ----------------------------------------
+  - name: "Age at exact boundary (age = 18, income valid)"
+    description: >
+      Tests the minimum accepted age value. Since the condition is age >= 18,
+      exactly 18 is the on-point boundary that should be approved.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 → high.
+      Off-by-one errors at the age boundary would wrongly reject eligible applicants
+      or approve ineligible ones. This directly affects business correctness. The
+      error is not immediately obvious without targeted testing.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Boundary value analysis targets the age >= 18 threshold with on-point (18),
+      off-point (17), and in-point (19) values to catch off-by-one errors in the
+      comparison operator.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 18
+          income: 50000
+        expected:
+          result: "approved"
+        description: "On-point: age exactly 18 with valid income — approved (>= boundary)."
+      - input:
+          age: 17
+          income: 50000
+        expected:
+          result: "rejected"
+        description: "Off-point: age 17 with valid income — rejected (below boundary)."
+      - input:
+          age: 19
+          income: 50000
+        expected:
+          result: "approved"
+        description: "In-point: age 19 with valid income — approved (above boundary)."
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - age-threshold
+
+  # ---------- Boundary Value — Income -------------------------------------
+  - name: "Income at exact boundary (income = 30000, age valid)"
+    description: >
+      Tests the income threshold. Since the condition is income > 30000 (strict
+      inequality), exactly 30000 should be rejected — only values above 30000 pass.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 → high.
+      Confusing > with >= at 30000 is a common defect. Approving at exactly 30000
+      when the rule requires strictly more has direct business and compliance
+      impact. The error is subtle and may go unnoticed.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Boundary value analysis targets the income > 30000 threshold with on-point
+      (30001), off-point (30000), and a secondary off-point (29999) to catch
+      confusion between strict and non-strict inequality operators.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 25
+          income: 30001
+        expected:
+          result: "approved"
+        description: "On-point: income 30001 — first value that passes strict > 30000."
+      - input:
+          age: 25
+          income: 30000
+        expected:
+          result: "rejected"
+        description: "Off-point: income exactly 30000 — rejected (not strictly greater)."
+      - input:
+          age: 25
+          income: 29999
+        expected:
+          result: "rejected"
+        description: "Below boundary: income 29999 — clearly rejected."
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - income-threshold
+
+  # ---------- Boundary Value — Both boundaries simultaneously -------------
+  - name: "Both inputs at boundary simultaneously"
+    description: >
+      Tests the corner case where both age and income are at their respective
+      boundary values. This is worst-case boundary testing where multiple
+      boundaries coincide.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 → high.
+      Dual-boundary combinations are rare but maximally fragile — errors in either
+      comparison compound. Silent failures at the intersection of two boundary
+      conditions are the hardest to detect in production.
+    techniques:
+      - boundary_value
+      - pairwise
+    technique_rationale: >
+      Boundary value analysis covers the boundary intersection point. Pairwise
+      ensures the combination of both boundary parameters is exercised, since
+      the two conditions are joined by logical AND.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 18
+          income: 30001
+        expected:
+          result: "approved"
+        description: "Both at boundary: age at minimum valid (18), income at minimum valid (30001) — approved."
+      - input:
+          age: 18
+          income: 30000
+        expected:
+          result: "rejected"
+        description: "Age at boundary valid, income at boundary invalid — rejected."
+      - input:
+          age: 17
+          income: 30001
+        expected:
+          result: "rejected"
+        description: "Age below boundary, income at boundary valid — rejected."
+      - input:
+          age: 17
+          income: 30000
+        expected:
+          result: "rejected"
+        description: "Both at boundary invalid — rejected."
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - worst-case
+      - corner-case
+
+  # ---------- Equivalence Partitioning — Invalid age partition -------------
+  - name: "Rejected when age is below 18 regardless of income"
+    description: >
+      Verifies that applicants under 18 are always rejected, even with very
+      high income. This tests the invalid age equivalence partition.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 2, Detectability: 1. Average: 2.0 → medium.
+      Approving a minor has compliance and legal implications but the condition
+      structure (AND) makes this failure mode less likely. Immediately visible in
+      output.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning groups all ages below 18 into one invalid class.
+      A single representative from this class (e.g., age 10) validates the
+      entire partition.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 10
+          income: 100000
+        expected:
+          result: "rejected"
+        description: "Child with very high income — still rejected due to age."
+      - input:
+          age: 0
+          income: 50000
+        expected:
+          result: "rejected"
+        description: "Newborn with valid income — rejected."
+    status: uncovered
+    priority: 2
+    tags:
+      - equivalence-class
+      - underage
+
+  # ---------- Equivalence Partitioning — Invalid income partition ----------
+  - name: "Rejected when income is 30000 or below regardless of age"
+    description: >
+      Verifies that applicants with income at or below 30000 are rejected, even
+      if they are well above the age threshold. Tests the invalid income
+      equivalence partition.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 → medium.
+      Income-based rejection is a secondary feature concern. The incorrect approval
+      is detectable in downstream processing.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning groups all income values <= 30000 into one invalid
+      class. Representative values from this class confirm the entire partition
+      is rejected.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 30
+          income: 20000
+        expected:
+          result: "rejected"
+        description: "Valid age but insufficient income — rejected."
+      - input:
+          age: 50
+          income: 0
+        expected:
+          result: "rejected"
+        description: "Valid age with zero income — rejected."
+    status: uncovered
+    priority: 2
+    tags:
+      - equivalence-class
+      - low-income
+
+  # ---------- Equivalence Partitioning — Both invalid partition ------------
+  - name: "Rejected when both age and income are invalid"
+    description: >
+      Verifies that applicants who fail both conditions are rejected. This tests
+      the intersection of both invalid equivalence partitions.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.0 → low.
+      Both conditions failing is the easiest case to handle correctly — any
+      reasonable implementation rejects this. Failure is immediately visible.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning confirms the double-invalid partition. This is a
+      baseline sanity check — if this fails, the logic is fundamentally broken.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 10
+          income: 10000
+        expected:
+          result: "rejected"
+        description: "Both under threshold — rejected."
+    status: uncovered
+    priority: 3
+    tags:
+      - equivalence-class
+      - baseline
+
+  # ---------- Decision Table — All condition combinations -----------------
+  - name: "Decision table for eligibility conditions"
+    description: >
+      Exhaustive decision table testing all four combinations of the two boolean
+      conditions (age >= 18) and (income > 30000). Only when both are true is
+      the result 'approved'.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 → high.
+      The decision table captures the complete business logic. Missing any
+      combination means a logic gap in the core eligibility determination.
+    techniques:
+      - decision_table
+    technique_rationale: >
+      Decision table testing is the definitive technique for compound boolean
+      conditions. With 2 conditions, there are exactly 4 rules. This ensures
+      100% condition combination coverage.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    decision_table:
+      conditions:
+        - "age >= 18"
+        - "income > 30000"
+      actions:
+        - "result"
+      rules:
+        - description: "Both conditions true — approved"
+          condition_values:
+            "age >= 18": true
+            "income > 30000": true
+          expected_actions:
+            result: "approved"
+        - description: "Age valid, income invalid — rejected"
+          condition_values:
+            "age >= 18": true
+            "income > 30000": false
+          expected_actions:
+            result: "rejected"
+        - description: "Age invalid, income valid — rejected"
+          condition_values:
+            "age >= 18": false
+            "income > 30000": true
+          expected_actions:
+            result: "rejected"
+        - description: "Both conditions false — rejected"
+          condition_values:
+            "age >= 18": false
+            "income > 30000": false
+          expected_actions:
+            result: "rejected"
+    examples:
+      - input:
+          age: 25
+          income: 50000
+        expected:
+          result: "approved"
+        description: "Rule 1: Both true — approved."
+      - input:
+          age: 25
+          income: 20000
+        expected:
+          result: "rejected"
+        description: "Rule 2: Age valid, income invalid — rejected."
+      - input:
+          age: 15
+          income: 50000
+        expected:
+          result: "rejected"
+        description: "Rule 3: Age invalid, income valid — rejected."
+      - input:
+          age: 15
+          income: 20000
+        expected:
+          result: "rejected"
+        description: "Rule 4: Both false — rejected."
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - combinatorial
+      - complete-coverage
+
+  # ---------- Error Guessing — Negative and special values ----------------
+  - name: "Negative age value"
+    description: >
+      Tests the function with a negative age. While the function does not
+      explicitly validate for negative ages, a negative age should still
+      result in rejection since it is less than 18.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.5 → medium.
+      Negative age is an unusual input that could arise from data errors. The
+      function handles it correctly by the existing condition, but it is worth
+      verifying explicitly.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates likely defects with unusual inputs — negative
+      numbers are a classic source of bugs in numeric range checks.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: -1
+          income: 50000
+        expected:
+          result: "rejected"
+        description: "Negative age — rejected."
+      - input:
+          age: -100
+          income: 100000
+        expected:
+          result: "rejected"
+        description: "Large negative age — rejected."
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - negative-input
+
+  - name: "Negative income value"
+    description: >
+      Tests the function with negative income (debt). A negative income is
+      below 30000, so it should be rejected.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.5 → medium.
+      Negative income could come from miscalculated financial data. The function
+      handles it correctly, but explicit testing guards against regressions.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets the possibility of negative monetary values being
+      incorrectly handled or causing unexpected behavior.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 25
+          income: -5000
+        expected:
+          result: "rejected"
+        description: "Negative income with valid age — rejected."
+    status: uncovered
+    priority: 3
+    tags:
+      - error-guessing
+      - negative-input
+
+  - name: "Zero values for age and income"
+    description: >
+      Tests the function with zero values — boundary between positive and
+      negative domains.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.0 → low.
+      Zero is a classic edge value but clearly falls in the rejected partition
+      for both parameters. Failure is immediately obvious.
+    techniques:
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Error guessing targets zero as a classic problematic value. Boundary value
+      analysis covers zero as a natural domain boundary.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 0
+          income: 0
+        expected:
+          result: "rejected"
+        description: "Both zero — rejected."
+      - input:
+          age: 0
+          income: 50000
+        expected:
+          result: "rejected"
+        description: "Zero age, valid income — rejected."
+      - input:
+          age: 25
+          income: 0
+        expected:
+          result: "rejected"
+        description: "Valid age, zero income — rejected."
+    status: uncovered
+    priority: 4
+    tags:
+      - error-guessing
+      - zero-values
+
+  - name: "Very large input values"
+    description: >
+      Tests the function with extremely large values to verify no overflow
+      or unexpected behavior in comparisons.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.0 → low.
+      JavaScript handles large numbers without overflow for typical integer
+      ranges, but testing extreme values is a defensive practice.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates potential issues with extreme numeric values
+      that might trigger floating-point precision problems or overflow.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 150
+          income: 999999999
+        expected:
+          result: "approved"
+        description: "Very large valid values — approved."
+      - input:
+          age: 999999
+          income: 50000
+        expected:
+          result: "approved"
+        description: "Unrealistically large age but valid — approved."
+    status: uncovered
+    priority: 5
+    tags:
+      - error-guessing
+      - extreme-values
+
+  # ---------- Cause-Effect — Logical dependency ---------------------------
+  - name: "AND condition dependency — one false causes rejection"
+    description: >
+      Verifies that the logical AND means both conditions must be true. If
+      either condition alone is false, the result flips to rejected. This
+      tests the cause-effect relationship between each individual condition
+      and the output.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 → high.
+      The AND operator is the core logic gate. If it were mistakenly implemented
+      as OR, the entire function would be broken — approving anyone who meets
+      either condition alone.
+    techniques:
+      - cause_effect
+    technique_rationale: >
+      Cause-effect graphing maps each input condition to the output. With an
+      AND dependency, toggling either cause from true to false while holding
+      the other true must flip the effect to 'rejected'.
+    preconditions:
+      - "Function isEligible is callable with two numeric arguments"
+    examples:
+      - input:
+          age: 25
+          income: 50000
+        expected:
+          result: "approved"
+        description: "Baseline: both causes true — effect is approved."
+      - input:
+          age: 16
+          income: 50000
+        expected:
+          result: "rejected"
+        description: "Age cause flipped to false — effect changes to rejected."
+      - input:
+          age: 25
+          income: 25000
+        expected:
+          result: "rejected"
+        description: "Income cause flipped to false — effect changes to rejected."
+    status: uncovered
+    priority: 1
+    tags:
+      - cause-effect
+      - logic-gate
+
+# ---------------------------------------------------------------------------
+# Example Mapping
+# ---------------------------------------------------------------------------
+example_mapping:
+  story: >
+    As an applicant, I want to check my eligibility based on my age and income
+    so that I know whether my application will be approved or rejected.
+  rules:
+    - rule_name: "Applicant must be at least 18 years old"
+      examples:
+        - "Age 25 with valid income -> approved"
+        - "Age 18 with valid income -> approved (minimum accepted age)"
+        - "Age 17 with valid income -> rejected (one below minimum)"
+        - "Age 10 with very high income -> rejected (age alone disqualifies)"
+        - "Age 0 -> rejected"
+        - "Negative age -> rejected"
+
+    - rule_name: "Applicant must have income strictly greater than 30000"
+      examples:
+        - "Income 50000 with valid age -> approved"
+        - "Income 30001 with valid age -> approved (minimum accepted income)"
+        - "Income 30000 with valid age -> rejected (not strictly greater)"
+        - "Income 29999 with valid age -> rejected"
+        - "Income 0 with valid age -> rejected"
+        - "Negative income with valid age -> rejected"
+
+    - rule_name: "Both conditions must be satisfied (AND logic)"
+      examples:
+        - "Age 25 and income 50000 -> approved (both valid)"
+        - "Age 25 and income 20000 -> rejected (only age valid)"
+        - "Age 15 and income 50000 -> rejected (only income valid)"
+        - "Age 15 and income 20000 -> rejected (neither valid)"
+        - "Age 18 and income 30001 -> approved (both at minimum boundary)"
+        - "Age 17 and income 30001 -> rejected (age just below, income just above)"
+        - "Age 18 and income 30000 -> rejected (age just at boundary, income at boundary)"
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "javascript"
+  test_framework: "jest"

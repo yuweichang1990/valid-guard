@@ -1,0 +1,669 @@
+test_suite:
+  name: OTP Verification for Payment Transaction
+  description: >
+    Comprehensive test cases covering OTP delivery, expiration, brute-force
+    protection, and invalid OTP handling during payment transactions.
+  version: "1.0"
+  created: "2026-03-14"
+
+  preconditions:
+    - User is authenticated and logged into the payment platform.
+    - User has a valid payment method on file.
+    - A payment transaction has been initiated and is awaiting OTP verification.
+    - The OTP delivery channel (SMS, email, authenticator app) is configured.
+
+  categories:
+
+    # =========================================================================
+    # 1. OTP DELIVERY
+    # =========================================================================
+    - name: OTP Delivery
+      description: Tests that the OTP is generated and delivered correctly to the user.
+      test_cases:
+
+        - id: OTP-DEL-001
+          title: OTP delivered via SMS after payment initiation
+          priority: Critical
+          description: >
+            Verify that an OTP is sent to the user's registered mobile number
+            immediately after a payment transaction is initiated.
+          preconditions:
+            - User has a verified mobile number on file.
+          steps:
+            - Initiate a payment transaction.
+            - Observe the OTP delivery to the registered mobile number.
+          expected_result: >
+            An OTP is delivered via SMS to the registered mobile number within
+            an acceptable time frame (e.g., under 30 seconds).
+
+        - id: OTP-DEL-002
+          title: OTP delivered via email after payment initiation
+          priority: High
+          description: >
+            Verify that an OTP is sent to the user's registered email address
+            when email is the configured delivery channel.
+          preconditions:
+            - User has a verified email address on file.
+            - Email is the configured OTP delivery channel.
+          steps:
+            - Initiate a payment transaction.
+            - Check the registered email inbox for the OTP message.
+          expected_result: >
+            An OTP is delivered to the registered email address within an
+            acceptable time frame (e.g., under 60 seconds).
+
+        - id: OTP-DEL-003
+          title: OTP is a numeric code of expected length
+          priority: High
+          description: >
+            Verify that the delivered OTP conforms to the expected format
+            (e.g., 6-digit numeric code).
+          steps:
+            - Initiate a payment transaction.
+            - Receive the OTP.
+            - Inspect the OTP value.
+          expected_result: >
+            The OTP is a numeric code of the configured length (e.g., 6 digits)
+            and contains no alphabetic or special characters.
+
+        - id: OTP-DEL-004
+          title: Resend OTP generates a new code
+          priority: High
+          description: >
+            Verify that clicking "Resend OTP" delivers a new, different OTP and
+            invalidates the previous one.
+          steps:
+            - Initiate a payment transaction and receive the first OTP.
+            - Click "Resend OTP" on the verification screen.
+            - Receive the new OTP.
+            - Attempt to verify using the first (old) OTP.
+          expected_result: >
+            A new OTP is delivered. The previous OTP is invalidated and cannot
+            be used for verification.
+
+        - id: OTP-DEL-005
+          title: OTP delivery to unregistered or missing phone number
+          priority: High
+          description: >
+            Verify system behavior when no phone number is associated with the
+            user's account and SMS is the delivery channel.
+          preconditions:
+            - User account has no registered mobile number.
+          steps:
+            - Initiate a payment transaction.
+            - Observe OTP delivery behavior.
+          expected_result: >
+            The system displays an appropriate error message indicating that no
+            phone number is on file and prompts the user to register one, or
+            offers an alternative delivery channel.
+
+        - id: OTP-DEL-006
+          title: OTP delivery failure due to network or service outage
+          priority: High
+          description: >
+            Verify system behavior when the SMS or email gateway is unavailable.
+          preconditions:
+            - SMS/email gateway is simulated as unavailable.
+          steps:
+            - Initiate a payment transaction.
+            - Observe system behavior when OTP delivery fails.
+          expected_result: >
+            The system displays a user-friendly error message, allows the user
+            to retry sending the OTP, and does not proceed with the transaction.
+
+        - id: OTP-DEL-007
+          title: OTP message content does not expose sensitive transaction details
+          priority: Medium
+          description: >
+            Verify that the OTP message does not include full payment amount,
+            full card number, or other sensitive data beyond what is necessary.
+          steps:
+            - Initiate a payment transaction.
+            - Receive the OTP via SMS or email.
+            - Inspect the message content.
+          expected_result: >
+            The OTP message contains only the OTP code and minimal context
+            (e.g., partial merchant name or masked amount). No full card
+            numbers or excessive personal data is included.
+
+        - id: OTP-DEL-008
+          title: Rate limiting on OTP resend requests
+          priority: High
+          description: >
+            Verify that there is a cooldown period between consecutive OTP
+            resend requests to prevent abuse.
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Immediately click "Resend OTP" multiple times in rapid succession.
+          expected_result: >
+            The system enforces a cooldown period (e.g., 30-60 seconds) between
+            resend requests and displays a message indicating the wait time.
+
+        - id: OTP-DEL-009
+          title: Maximum number of OTP resend attempts
+          priority: Medium
+          description: >
+            Verify that the system limits the total number of OTP resend
+            attempts per transaction.
+          steps:
+            - Initiate a payment transaction.
+            - Resend the OTP repeatedly until the limit is reached.
+          expected_result: >
+            After reaching the maximum number of resend attempts (e.g., 3-5),
+            the system disables the resend option and may cancel the transaction
+            or require the user to restart.
+
+        - id: OTP-DEL-010
+          title: OTP uniqueness across concurrent transactions
+          priority: Medium
+          description: >
+            Verify that OTPs generated for different concurrent transactions by
+            the same user are unique and cannot be interchanged.
+          steps:
+            - Initiate two separate payment transactions simultaneously.
+            - Receive an OTP for each transaction.
+            - Attempt to use the OTP from transaction A to verify transaction B.
+          expected_result: >
+            Each transaction receives a unique OTP. Using an OTP from one
+            transaction to verify another is rejected.
+
+    # =========================================================================
+    # 2. OTP EXPIRATION
+    # =========================================================================
+    - name: OTP Expiration
+      description: Tests that OTPs expire correctly after a defined time window.
+      test_cases:
+
+        - id: OTP-EXP-001
+          title: OTP accepted within validity window
+          priority: Critical
+          description: >
+            Verify that a valid OTP is accepted when submitted within the
+            configured expiration window.
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Submit the OTP within the validity window (e.g., within 3 minutes).
+          expected_result: >
+            The OTP is accepted and the payment transaction proceeds to
+            completion.
+
+        - id: OTP-EXP-002
+          title: OTP rejected after expiration
+          priority: Critical
+          description: >
+            Verify that an OTP is rejected when submitted after the expiration
+            window has elapsed.
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Wait for the OTP to expire (e.g., wait longer than 3 minutes).
+            - Submit the expired OTP.
+          expected_result: >
+            The system rejects the expired OTP with a clear message indicating
+            that the OTP has expired, and prompts the user to request a new one.
+
+        - id: OTP-EXP-003
+          title: OTP submitted at the exact expiration boundary
+          priority: Medium
+          description: >
+            Verify system behavior when the OTP is submitted at the exact moment
+            of expiration (boundary condition).
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Submit the OTP at the exact expiration time boundary.
+          expected_result: >
+            The system either accepts or rejects the OTP consistently. If
+            rejected, a clear expiration message is shown. No ambiguous or
+            error state occurs.
+
+        - id: OTP-EXP-004
+          title: Countdown timer displayed to user
+          priority: Medium
+          description: >
+            Verify that the OTP verification screen shows a countdown timer
+            indicating remaining validity time.
+          steps:
+            - Initiate a payment transaction and observe the OTP verification screen.
+          expected_result: >
+            A visible countdown timer is displayed showing the remaining time
+            to enter the OTP. The timer counts down accurately in real time.
+
+        - id: OTP-EXP-005
+          title: Expired OTP cannot be reused after resend
+          priority: High
+          description: >
+            Verify that after an OTP expires and a new one is sent, the expired
+            OTP cannot be used for verification.
+          steps:
+            - Initiate a payment transaction and receive the first OTP.
+            - Wait for the first OTP to expire.
+            - Request a new OTP via resend.
+            - Submit the first (expired) OTP.
+          expected_result: >
+            The expired OTP is rejected. Only the newly generated OTP is valid.
+
+        - id: OTP-EXP-006
+          title: Transaction cancellation after OTP expiration without resend
+          priority: Medium
+          description: >
+            Verify system behavior when the OTP expires and the user does not
+            request a new one or take any action.
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Allow the OTP to expire without submitting it or requesting a resend.
+            - Observe the transaction status after a timeout period.
+          expected_result: >
+            The transaction is either held in a pending state with an option to
+            resend, or automatically cancelled after a defined timeout, with an
+            appropriate notification to the user.
+
+        - id: OTP-EXP-007
+          title: OTP validity window is not extended by resend
+          priority: Medium
+          description: >
+            Verify that resending an OTP starts a fresh validity window for the
+            new OTP rather than extending the original window.
+          steps:
+            - Initiate a payment transaction and receive OTP at time T.
+            - At time T+2 minutes, resend the OTP.
+            - At time T+4 minutes (within 3 minutes of resend but beyond original window), submit the new OTP.
+          expected_result: >
+            The new OTP is accepted because it is within its own fresh validity
+            window. The expiration is calculated from the time the new OTP was
+            generated, not from the original request.
+
+    # =========================================================================
+    # 3. BRUTE-FORCE PROTECTION
+    # =========================================================================
+    - name: Brute-Force Protection
+      description: >
+        Tests that the system protects against automated or manual brute-force
+        OTP guessing attacks.
+      test_cases:
+
+        - id: OTP-BF-001
+          title: Account lockout after maximum failed OTP attempts
+          priority: Critical
+          description: >
+            Verify that the system locks out OTP verification after a defined
+            number of consecutive incorrect attempts.
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Enter an incorrect OTP repeatedly until the maximum attempt limit
+              is reached (e.g., 3-5 attempts).
+          expected_result: >
+            After reaching the maximum number of failed attempts, the system
+            locks the OTP verification for the transaction, displays a lockout
+            message, and may cancel the transaction.
+
+        - id: OTP-BF-002
+          title: Transaction cancelled after OTP lockout
+          priority: Critical
+          description: >
+            Verify that the pending payment transaction is cancelled or
+            suspended when OTP verification is locked out due to too many
+            failed attempts.
+          steps:
+            - Initiate a payment transaction.
+            - Trigger OTP lockout by exceeding the failed attempt limit.
+            - Check the transaction status.
+          expected_result: >
+            The transaction is cancelled or suspended. No funds are debited
+            from the user's account. The user is notified accordingly.
+
+        - id: OTP-BF-003
+          title: Incremental delay between failed OTP attempts
+          priority: High
+          description: >
+            Verify that the system introduces progressive delays between
+            consecutive failed OTP submissions to slow down brute-force attacks.
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Submit an incorrect OTP and measure the response time.
+            - Submit another incorrect OTP and measure the response time.
+            - Repeat for several attempts.
+          expected_result: >
+            Each consecutive failed attempt introduces an increasing delay
+            (e.g., 1s, 2s, 4s, 8s) before the system accepts the next
+            submission, making automated brute-force attacks impractical.
+
+        - id: OTP-BF-004
+          title: Failed attempt counter resets after successful verification
+          priority: Medium
+          description: >
+            Verify that the failed OTP attempt counter resets to zero after a
+            successful OTP verification on a subsequent transaction.
+          steps:
+            - Initiate a payment transaction and fail OTP verification twice.
+            - On the third attempt, enter the correct OTP successfully.
+            - Initiate a new payment transaction.
+            - Fail OTP verification once and then succeed.
+          expected_result: >
+            The failed attempt counter is reset after a successful verification.
+            The user is not penalized on new transactions for previous failures.
+
+        - id: OTP-BF-005
+          title: Notification sent on repeated failed OTP attempts
+          priority: High
+          description: >
+            Verify that the account holder is notified (via email, SMS, or
+            push notification) when multiple failed OTP attempts are detected.
+          steps:
+            - Initiate a payment transaction.
+            - Enter incorrect OTPs several times consecutively.
+          expected_result: >
+            The system sends a security alert notification to the account holder
+            warning of suspicious OTP verification activity on their account.
+
+        - id: OTP-BF-006
+          title: IP-based rate limiting on OTP verification endpoint
+          priority: High
+          description: >
+            Verify that the OTP verification API endpoint enforces rate limiting
+            per IP address to prevent distributed brute-force attacks.
+          steps:
+            - Send a high volume of OTP verification requests from a single IP
+              address in a short time window.
+          expected_result: >
+            The system throttles or blocks requests from the offending IP after
+            the rate limit is exceeded, returning an HTTP 429 (Too Many Requests)
+            response.
+
+        - id: OTP-BF-007
+          title: Automated bot detection on OTP submission
+          priority: Medium
+          description: >
+            Verify that the system can detect and block automated (bot-driven)
+            OTP submission attempts.
+          preconditions:
+            - CAPTCHA or bot-detection mechanism is enabled.
+          steps:
+            - Use an automated script to submit OTP verification requests rapidly.
+          expected_result: >
+            The system detects the automated pattern and either presents a
+            CAPTCHA challenge or blocks the requests entirely.
+
+        - id: OTP-BF-008
+          title: Lockout duration and recovery mechanism
+          priority: High
+          description: >
+            Verify that after an OTP brute-force lockout, the user can recover
+            after a defined cooldown period or through a recovery process.
+          steps:
+            - Trigger OTP lockout by exceeding the failed attempt limit.
+            - Wait for the lockout period to elapse (e.g., 15-30 minutes).
+            - Initiate a new payment transaction and attempt OTP verification.
+          expected_result: >
+            After the lockout period expires, the user can initiate a new
+            transaction and verify via OTP normally. Alternatively, a recovery
+            mechanism (e.g., contacting support) is available.
+
+        - id: OTP-BF-009
+          title: Brute-force attempt logged for audit
+          priority: Medium
+          description: >
+            Verify that all failed OTP attempts and lockout events are logged
+            for security auditing purposes.
+          steps:
+            - Trigger multiple failed OTP attempts and a lockout.
+            - Review the system's security or audit logs.
+          expected_result: >
+            Each failed OTP attempt is logged with timestamp, user ID, IP
+            address, and transaction reference. Lockout events are also logged.
+
+        - id: OTP-BF-010
+          title: Concurrent sessions do not bypass attempt limits
+          priority: High
+          description: >
+            Verify that opening multiple sessions or browser tabs does not allow
+            a user to bypass the OTP attempt limit.
+          steps:
+            - Initiate the same payment transaction.
+            - Open multiple browser sessions or tabs.
+            - Submit incorrect OTPs from different sessions simultaneously.
+          expected_result: >
+            The attempt counter is tracked server-side per transaction. The
+            total failed attempts across all sessions are aggregated and the
+            lockout is enforced globally for that transaction.
+
+    # =========================================================================
+    # 4. INVALID OTP HANDLING
+    # =========================================================================
+    - name: Invalid OTP Handling
+      description: >
+        Tests that the system correctly rejects invalid OTPs and handles
+        edge cases gracefully.
+      test_cases:
+
+        - id: OTP-INV-001
+          title: Incorrect OTP is rejected with clear error message
+          priority: Critical
+          description: >
+            Verify that submitting an incorrect OTP results in a rejection with
+            a clear and user-friendly error message.
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Enter an incorrect OTP value.
+            - Submit the OTP.
+          expected_result: >
+            The system rejects the OTP and displays a message such as
+            "Incorrect OTP. Please try again." The remaining attempt count
+            may be shown.
+
+        - id: OTP-INV-002
+          title: Empty OTP submission is rejected
+          priority: High
+          description: >
+            Verify that submitting an empty OTP field is rejected with
+            appropriate validation.
+          steps:
+            - Initiate a payment transaction.
+            - Leave the OTP input field empty.
+            - Click the submit/verify button.
+          expected_result: >
+            The system prevents submission or displays a validation error
+            such as "Please enter the OTP." The attempt is not counted as a
+            failed verification attempt.
+
+        - id: OTP-INV-003
+          title: OTP with alphabetic characters is rejected
+          priority: High
+          description: >
+            Verify that an OTP containing alphabetic characters is rejected
+            when only numeric input is expected.
+          steps:
+            - Initiate a payment transaction.
+            - Enter an OTP containing letters (e.g., "12AB56").
+            - Submit the OTP.
+          expected_result: >
+            The system rejects the input with a validation error indicating
+            that only numeric characters are accepted, or the input field
+            prevents non-numeric entry altogether.
+
+        - id: OTP-INV-004
+          title: OTP with special characters is rejected
+          priority: Medium
+          description: >
+            Verify that an OTP containing special characters is rejected.
+          steps:
+            - Initiate a payment transaction.
+            - Enter an OTP containing special characters (e.g., "12!@56").
+            - Submit the OTP.
+          expected_result: >
+            The system rejects the input with a validation error or the input
+            field prevents special character entry.
+
+        - id: OTP-INV-005
+          title: OTP with incorrect length is rejected
+          priority: High
+          description: >
+            Verify that an OTP with fewer or more digits than expected is
+            rejected.
+          steps:
+            - Initiate a payment transaction.
+            - Enter an OTP that is shorter than expected (e.g., "123" for a 6-digit OTP).
+            - Submit the OTP.
+            - Enter an OTP that is longer than expected (e.g., "12345678").
+            - Submit the OTP.
+          expected_result: >
+            Both the shorter and longer OTPs are rejected with a validation
+            message indicating the correct OTP length is required.
+
+        - id: OTP-INV-006
+          title: OTP with leading or trailing spaces is handled
+          priority: Medium
+          description: >
+            Verify that the system trims whitespace from the OTP input before
+            validation or rejects it explicitly.
+          steps:
+            - Initiate a payment transaction and receive the OTP (e.g., "123456").
+            - Enter the OTP with leading/trailing spaces (e.g., " 123456 ").
+            - Submit the OTP.
+          expected_result: >
+            The system either trims the whitespace and accepts the correct OTP,
+            or rejects the input with a clear validation message about invalid
+            characters.
+
+        - id: OTP-INV-007
+          title: SQL injection attempt in OTP field is blocked
+          priority: Critical
+          description: >
+            Verify that the OTP input field is not vulnerable to SQL injection
+            attacks.
+          steps:
+            - Initiate a payment transaction.
+            - Enter a SQL injection payload in the OTP field (e.g., "' OR 1=1 --").
+            - Submit the OTP.
+          expected_result: >
+            The system rejects the input without executing any injected SQL.
+            The input is sanitized or parameterized. No database error messages
+            are exposed to the user.
+
+        - id: OTP-INV-008
+          title: XSS payload in OTP field is neutralized
+          priority: Critical
+          description: >
+            Verify that the OTP input field is not vulnerable to cross-site
+            scripting (XSS) attacks.
+          steps:
+            - Initiate a payment transaction.
+            - Enter an XSS payload in the OTP field (e.g., "<script>alert('xss')</script>").
+            - Submit the OTP.
+          expected_result: >
+            The system rejects or sanitizes the input. No script is executed in
+            the browser. The error message does not reflect unsanitized input.
+
+        - id: OTP-INV-009
+          title: Previously used OTP cannot be replayed
+          priority: Critical
+          description: >
+            Verify that a successfully used OTP cannot be submitted again for
+            the same or a different transaction (replay attack prevention).
+          steps:
+            - Initiate a payment transaction and successfully verify with the OTP.
+            - Attempt to use the same OTP to verify a new transaction.
+          expected_result: >
+            The previously used OTP is rejected. Each OTP is single-use and
+            invalidated after successful verification.
+
+        - id: OTP-INV-010
+          title: OTP from a different user's transaction is rejected
+          priority: Critical
+          description: >
+            Verify that an OTP generated for one user's transaction cannot be
+            used to verify another user's transaction.
+          steps:
+            - User A initiates a payment transaction and receives an OTP.
+            - User B initiates a separate payment transaction.
+            - Attempt to verify User B's transaction using User A's OTP.
+          expected_result: >
+            The OTP is rejected. OTPs are bound to the specific user and
+            transaction for which they were generated.
+
+        - id: OTP-INV-011
+          title: OTP field does not accept paste of excessively long string
+          priority: Low
+          description: >
+            Verify that the OTP input field has a maximum length restriction
+            to prevent buffer overflow or denial-of-service via oversized input.
+          steps:
+            - Initiate a payment transaction.
+            - Attempt to paste a very long string (e.g., 10,000 characters) into the OTP field.
+            - Submit the form.
+          expected_result: >
+            The input field truncates or rejects the oversized input. The
+            system handles the input gracefully without crashing or degrading
+            performance.
+
+        - id: OTP-INV-012
+          title: OTP verification error does not reveal system internals
+          priority: High
+          description: >
+            Verify that error messages from failed OTP verification do not
+            expose internal system details such as stack traces, database
+            schema, or server configuration.
+          steps:
+            - Initiate a payment transaction.
+            - Submit various invalid OTP values including edge cases.
+            - Observe the error messages returned.
+          expected_result: >
+            All error messages are generic and user-friendly. No internal
+            system information, stack traces, or technical details are exposed
+            to the user.
+
+        - id: OTP-INV-013
+          title: OTP verification over insecure channel is prevented
+          priority: High
+          description: >
+            Verify that the OTP verification endpoint only accepts requests
+            over HTTPS and rejects plain HTTP requests.
+          steps:
+            - Attempt to submit OTP verification via an HTTP (non-TLS) connection.
+          expected_result: >
+            The request is either redirected to HTTPS or rejected entirely.
+            OTP data is never transmitted in plaintext.
+
+        - id: OTP-INV-014
+          title: Correct OTP with tampered transaction ID is rejected
+          priority: Critical
+          description: >
+            Verify that submitting a valid OTP but with a modified or tampered
+            transaction reference is rejected.
+          steps:
+            - Initiate a payment transaction and receive the OTP.
+            - Intercept the verification request and modify the transaction ID.
+            - Submit the modified request with the correct OTP.
+          expected_result: >
+            The system rejects the request because the OTP does not match the
+            tampered transaction ID. The OTP is cryptographically bound to the
+            original transaction.
+
+        - id: OTP-INV-015
+          title: Unicode and multibyte characters in OTP field are handled
+          priority: Low
+          description: >
+            Verify that the OTP input field properly handles Unicode or
+            multibyte character inputs without causing errors.
+          steps:
+            - Initiate a payment transaction.
+            - Enter Unicode characters in the OTP field (e.g., Chinese, Arabic, emoji).
+            - Submit the OTP.
+          expected_result: >
+            The system rejects the input gracefully with a validation error.
+            No server-side exceptions, encoding errors, or crashes occur.
+
+  summary:
+    total_test_cases: 42
+    categories:
+      - name: OTP Delivery
+        count: 10
+      - name: OTP Expiration
+        count: 7
+      - name: Brute-Force Protection
+        count: 10
+      - name: Invalid OTP Handling
+        count: 15
+    priority_distribution:
+      critical: 10
+      high: 17
+      medium: 12
+      low: 3

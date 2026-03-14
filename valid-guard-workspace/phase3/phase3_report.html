@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Valid Guard — Phase 3 Benchmark Report</title>
+<style>
+  :root {
+    --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
+    --text: #f1f5f9; --text2: #94a3b8; --accent: #3b82f6;
+    --green: #16a34a; --yellow: #ca8a04; --red: #dc2626;
+    --ws-color: #3b82f6; --wos-color: #64748b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: var(--text2); font-size: 14px; margin-bottom: 32px; }
+
+  /* Summary Cards */
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .summary-card { background: var(--surface); border-radius: 12px; padding: 20px; }
+  .summary-card .label { color: var(--text2); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .summary-card .value { font-size: 36px; font-weight: 700; }
+  .summary-card .sub { color: var(--text2); font-size: 13px; margin-top: 4px; }
+
+  /* Section */
+  .section { background: var(--surface); border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+  .section h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--surface2); color: var(--text2); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  tr:hover { background: rgba(255,255,255,0.03); }
+  .score { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  .delta { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+  .count { text-align: center; color: var(--text2); }
+  .cat-name, .eval-cat { text-transform: capitalize; }
+  .eval-id { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; color: var(--text2); }
+  .eval-name { font-weight: 500; }
+
+  /* Bars */
+  .bar-cell { width: 200px; }
+  .bar-bg { background: var(--surface2); border-radius: 4px; height: 20px; position: relative; overflow: hidden; }
+  .bar-ws { position: absolute; left: 0; top: 0; height: 10px; background: var(--ws-color); border-radius: 4px 4px 0 0; opacity: 0.8; }
+  .bar-wos { position: absolute; left: 0; top: 10px; height: 10px; background: var(--wos-color); border-radius: 0 0 4px 4px; opacity: 0.6; }
+
+  /* Legend */
+  .legend { display: flex; gap: 24px; margin-bottom: 16px; font-size: 13px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+
+  /* Gains */
+  .gains-list { display: flex; flex-direction: column; gap: 8px; }
+  .gain-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--surface2); border-radius: 8px; }
+  .gain-delta { font-weight: 700; font-size: 16px; min-width: 70px; }
+  .gain-name { font-weight: 500; }
+
+  /* Canvas */
+  .chart-container { position: relative; height: 320px; margin-top: 16px; }
+  canvas { width: 100% !important; height: 100% !important; }
+
+  /* Footer */
+  .footer { text-align: center; color: var(--text2); font-size: 12px; margin-top: 40px; padding: 16px; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .summary-grid { grid-template-columns: 1fr 1fr; }
+    .bar-cell { display: none; }
+    .container { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Valid Guard — Phase 3 Benchmark</h1>
+  <p class="subtitle">Generated 2026-03-14 13:45 | 30 evals | Rubric-based weighted scoring</p>
+
+  <!-- Summary Cards -->
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">With Skill (Combined)</div>
+      <div class="value" style="color:#16a34a">99.7%</div>
+      <div class="sub">content 100.0% / structural 99.2%</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Without Skill (Combined)</div>
+      <div class="value" style="color:#dc2626">58.9%</div>
+      <div class="sub">content 89.9% / structural 15.0%</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Delta (Combined)</div>
+      <div class="value" style="color:#16a34a">+40.8%</div>
+      <div class="sub">30 eval cases</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Delta (Content Only)</div>
+      <div class="value" style="color:#65a30d">+10.1%</div>
+      <div class="sub">test design quality only</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Delta (Structural)</div>
+      <div class="value" style="color:#16a34a">+84.2%</div>
+      <div class="sub">schema compliance only</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Categories</div>
+      <div class="value">11</div>
+      <div class="sub">correctness, completeness, brownfield, codegen, adversarial, state transition, domain specific, tdd best practices, risk assessment, concurrency, security</div>
+    </div>
+  </div>
+
+  <!-- Top Skill Gains -->
+  <div class="section">
+    <h2>Top Skill Gains</h2>
+    <div class="gains-list">
+      <div class="gain-item"><span class="gain-delta" style="color:#16a34a">+63.6%</span> <span class="gain-name">ATM PIN entry state machine</span></div><div class="gain-item"><span class="gain-delta" style="color:#16a34a">+60.9%</span> <span class="gain-name">Order lifecycle with time guards</span></div><div class="gain-item"><span class="gain-delta" style="color:#16a34a">+60.9%</span> <span class="gain-name">Inventory race condition prevention</span></div><div class="gain-item"><span class="gain-delta" style="color:#16a34a">+60.9%</span> <span class="gain-name">Payment failure recovery flow</span></div><div class="gain-item"><span class="gain-delta" style="color:#16a34a">+60.9%</span> <span class="gain-name">Multi-currency payment API edge cases</span></div>
+    </div>
+  </div>
+
+  <!-- Category Breakdown -->
+  <div class="section">
+    <h2>By Category</h2>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--ws-color)"></div> With Skill</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--wos-color)"></div> Without Skill</div>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Category</th><th style="text-align:right">With Skill</th><th style="text-align:right">Without (Combined)</th><th style="text-align:right">Without (Content)</th><th style="text-align:right">Content Delta</th><th style="text-align:right">Combined Delta</th><th style="text-align:center">Evals</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="cat-name">Domain Specific</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">43.4%</td>
+          <td class="score" style="color:#65a30d">92.7%</td>
+          <td class="delta" style="color:#ca8a04">+7.3%</td>
+          <td class="delta" style="color:#16a34a">+56.6%</td>
+          <td class="count">5</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Concurrency</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">43.4%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+          <td class="delta" style="color:#16a34a">+56.6%</td>
+          <td class="count">2</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Tdd Best Practices</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">43.5%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+          <td class="delta" style="color:#16a34a">+56.5%</td>
+          <td class="count">1</td>
+        </tr>
+        <tr>
+          <td class="cat-name">State Transition</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">45.1%</td>
+          <td class="score" style="color:#65a30d">92.4%</td>
+          <td class="delta" style="color:#ca8a04">+7.6%</td>
+          <td class="delta" style="color:#16a34a">+54.9%</td>
+          <td class="count">5</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Correctness</td>
+          <td class="score" style="color:#16a34a">99.0%</td>
+          <td class="score" style="color:#dc2626">51.2%</td>
+          <td class="score" style="color:#16a34a">98.2%</td>
+          <td class="delta" style="color:#ca8a04">+1.8%</td>
+          <td class="delta" style="color:#16a34a">+47.8%</td>
+          <td class="count">4</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Security</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">54.5%</td>
+          <td class="score" style="color:#dc2626">54.5%</td>
+          <td class="delta" style="color:#16a34a">+45.5%</td>
+          <td class="delta" style="color:#16a34a">+45.5%</td>
+          <td class="count">1</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Brownfield</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">57.5%</td>
+          <td class="score" style="color:#ca8a04">74.6%</td>
+          <td class="delta" style="color:#65a30d">+25.4%</td>
+          <td class="delta" style="color:#16a34a">+42.5%</td>
+          <td class="count">2</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Completeness</td>
+          <td class="score" style="color:#16a34a">98.1%</td>
+          <td class="score" style="color:#dc2626">59.3%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">+0.0%</td>
+          <td class="delta" style="color:#16a34a">+38.8%</td>
+          <td class="count">2</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Adversarial</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">84.5%</td>
+          <td class="score" style="color:#65a30d">84.5%</td>
+          <td class="delta" style="color:#65a30d">+15.5%</td>
+          <td class="delta" style="color:#65a30d">+15.5%</td>
+          <td class="count">3</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Codegen</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">87.3%</td>
+          <td class="score" style="color:#65a30d">87.3%</td>
+          <td class="delta" style="color:#65a30d">+12.7%</td>
+          <td class="delta" style="color:#65a30d">+12.7%</td>
+          <td class="count">2</td>
+        </tr>
+        <tr>
+          <td class="cat-name">Risk Assessment</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+          <td class="count">3</td>
+        </tr></tbody>
+    </table>
+    <div class="chart-container">
+      <canvas id="catChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Per-Eval Breakdown -->
+  <div class="section">
+    <h2>Per-Eval Detail (sorted by delta)</h2>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Name</th><th>Category</th><th style="text-align:right">With Skill</th><th style="text-align:right">Without (Comb.)</th><th style="text-align:right">Without (Content)</th><th style="text-align:right">Content Delta</th><th style="text-align:right">Combined Delta</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="eval-id">p3-11-st-atm-pin</td>
+          <td class="eval-name">ATM PIN entry state machine</td>
+          <td class="eval-cat">state_transition</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">36.4%</td>
+          <td class="score" style="color:#65a30d">80.0%</td>
+          <td class="delta" style="color:#65a30d">+20.0%</td>
+          <td class="delta" style="color:#16a34a">+63.6%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-12-st-order-lifecycle</td>
+          <td class="eval-name">Order lifecycle with time guards</td>
+          <td class="eval-cat">state_transition</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">39.1%</td>
+          <td class="score" style="color:#65a30d">81.8%</td>
+          <td class="delta" style="color:#65a30d">+18.2%</td>
+          <td class="delta" style="color:#16a34a">+60.9%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-25-concurrency-inventory</td>
+          <td class="eval-name">Inventory race condition prevention</td>
+          <td class="eval-cat">concurrency</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">39.1%</td>
+          <td class="score" style="color:#65a30d">81.8%</td>
+          <td class="delta" style="color:#65a30d">+18.2%</td>
+          <td class="delta" style="color:#16a34a">+60.9%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-28-domain-payment-recovery</td>
+          <td class="eval-name">Payment failure recovery flow</td>
+          <td class="eval-cat">domain_specific</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">39.1%</td>
+          <td class="score" style="color:#65a30d">81.8%</td>
+          <td class="delta" style="color:#65a30d">+18.2%</td>
+          <td class="delta" style="color:#16a34a">+60.9%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-30-domain-multicurrency</td>
+          <td class="eval-name">Multi-currency payment API edge cases</td>
+          <td class="eval-cat">domain_specific</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">39.1%</td>
+          <td class="score" style="color:#65a30d">81.8%</td>
+          <td class="delta" style="color:#65a30d">+18.2%</td>
+          <td class="delta" style="color:#16a34a">+60.9%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-19-st-vending-machine</td>
+          <td class="eval-name">Vending machine state transitions</td>
+          <td class="eval-cat">correctness</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">42.9%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+57.1%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-17-tdd-throttle</td>
+          <td class="eval-name">Throttle function TDD with state + BVA</td>
+          <td class="eval-cat">tdd_best_practices</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">43.5%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+          <td class="delta" style="color:#16a34a">+56.5%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-15-domain-login-lockout</td>
+          <td class="eval-name">Login authentication with lockout</td>
+          <td class="eval-cat">domain_specific</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">45.5%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+54.5%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-16-domain-otp</td>
+          <td class="eval-name">OTP verification for payment</td>
+          <td class="eval-cat">domain_specific</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">45.5%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+54.5%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-18-dt-loan-approval</td>
+          <td class="eval-name">Loan approval multi-condition DT</td>
+          <td class="eval-cat">correctness</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">47.6%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+52.4%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-14-domain-double-payment</td>
+          <td class="eval-name">Double payment prevention</td>
+          <td class="eval-cat">domain_specific</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">47.8%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+52.2%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-21-st-shopping-cart</td>
+          <td class="eval-name">Shopping cart state machine</td>
+          <td class="eval-cat">state_transition</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">47.8%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+52.2%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-22-st-airport-kiosk</td>
+          <td class="eval-name">Airport self-service kiosk workflow</td>
+          <td class="eval-cat">state_transition</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">47.8%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+52.2%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-26-concurrency-payment-gw</td>
+          <td class="eval-name">Concurrent payment gateway load</td>
+          <td class="eval-cat">concurrency</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">47.8%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+52.2%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-05-brownfield-gap</td>
+          <td class="eval-name">Brownfield gap analysis on order_processor</td>
+          <td class="eval-cat">brownfield</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">48.3%</td>
+          <td class="score" style="color:#65a30d">82.4%</td>
+          <td class="delta" style="color:#65a30d">+17.6%</td>
+          <td class="delta" style="color:#16a34a">+51.7%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-13-st-ticket-booking</td>
+          <td class="eval-name">Ticket booking with timer and refund rules</td>
+          <td class="eval-cat">state_transition</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">54.5%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+45.5%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-27-security-attack-payloads</td>
+          <td class="eval-name">Security attack payload testing</td>
+          <td class="eval-cat">security</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">54.5%</td>
+          <td class="score" style="color:#dc2626">54.5%</td>
+          <td class="delta" style="color:#16a34a">+45.5%</td>
+          <td class="delta" style="color:#16a34a">+45.5%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-01-dt-correctness</td>
+          <td class="eval-name">Decision Table for max(x,y,z)</td>
+          <td class="eval-cat">correctness</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">56.5%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+43.5%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-03-conway-completeness</td>
+          <td class="eval-name">Conway's Game of Life completeness</td>
+          <td class="eval-cat">completeness</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#dc2626">57.1%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+42.9%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-02-bva-correctness</td>
+          <td class="eval-name">BVA for isEligible(age, income)</td>
+          <td class="eval-cat">correctness</td>
+          <td class="score" style="color:#16a34a">96.2%</td>
+          <td class="score" style="color:#dc2626">57.7%</td>
+          <td class="score" style="color:#65a30d">92.9%</td>
+          <td class="delta" style="color:#ca8a04">+7.1%</td>
+          <td class="delta" style="color:#16a34a">+38.5%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-04-amigos-completeness</td>
+          <td class="eval-name">Three Amigos purchase order</td>
+          <td class="eval-cat">completeness</td>
+          <td class="score" style="color:#16a34a">96.2%</td>
+          <td class="score" style="color:#ca8a04">61.5%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#16a34a">+34.7%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-06-brownfield-redundancy</td>
+          <td class="eval-name">Test suite redundancy analysis</td>
+          <td class="eval-cat">brownfield</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#ca8a04">66.7%</td>
+          <td class="score" style="color:#ca8a04">66.7%</td>
+          <td class="delta" style="color:#16a34a">+33.3%</td>
+          <td class="delta" style="color:#16a34a">+33.3%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-10-adversarial-misconception</td>
+          <td class="eval-name">Adversarial: 100% coverage misconception</td>
+          <td class="eval-cat">adversarial</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#ca8a04">72.7%</td>
+          <td class="score" style="color:#ca8a04">72.7%</td>
+          <td class="delta" style="color:#65a30d">+27.3%</td>
+          <td class="delta" style="color:#65a30d">+27.3%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-08-codegen-fix</td>
+          <td class="eval-name">Weak assertion detection and fix</td>
+          <td class="eval-cat">codegen</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">80.0%</td>
+          <td class="score" style="color:#65a30d">80.0%</td>
+          <td class="delta" style="color:#65a30d">+20.0%</td>
+          <td class="delta" style="color:#65a30d">+20.0%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-24-risk-tax-filing</td>
+          <td class="eval-name">Government tax filing risk matrix</td>
+          <td class="eval-cat">risk_assessment</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">81.8%</td>
+          <td class="score" style="color:#65a30d">81.8%</td>
+          <td class="delta" style="color:#65a30d">+18.2%</td>
+          <td class="delta" style="color:#65a30d">+18.2%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-20-adversarial-ai-trust</td>
+          <td class="eval-name">Adversarial: AI tests all pass, should I ship?</td>
+          <td class="eval-cat">adversarial</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">90.0%</td>
+          <td class="score" style="color:#65a30d">90.0%</td>
+          <td class="delta" style="color:#ca8a04">+10.0%</td>
+          <td class="delta" style="color:#ca8a04">+10.0%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-09-adversarial-antipattern</td>
+          <td class="eval-name">Adversarial: testing trivial code</td>
+          <td class="eval-cat">adversarial</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-29-risk-regression-priority</td>
+          <td class="eval-name">Microservices regression prioritization</td>
+          <td class="eval-cat">risk_assessment</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="score" style="color:#65a30d">90.9%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+          <td class="delta" style="color:#ca8a04">+9.1%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-07-codegen-runnable</td>
+          <td class="eval-name">Generate runnable pytest code</td>
+          <td class="eval-cat">codegen</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#65a30d">94.7%</td>
+          <td class="score" style="color:#65a30d">94.7%</td>
+          <td class="delta" style="color:#ca8a04">+5.3%</td>
+          <td class="delta" style="color:#ca8a04">+5.3%</td>
+        </tr>
+        <tr>
+          <td class="eval-id">p3-23-risk-insurance-fmea</td>
+          <td class="eval-name">Insurance claims FMEA analysis</td>
+          <td class="eval-cat">risk_assessment</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="score" style="color:#16a34a">100.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+          <td class="delta" style="color:#dc2626">0.0%</td>
+        </tr></tbody>
+    </table>
+    <div class="chart-container" style="height:400px">
+      <canvas id="evalChart"></canvas>
+    </div>
+  </div>
+
+  <div class="footer">
+    Valid Guard Phase 3 Benchmark Report | Skill: valid-guard | Method: rubric-based weighted scoring
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+  const catLabels = ["Domain Specific", "Concurrency", "Tdd Best Practices", "State Transition", "Correctness", "Security", "Brownfield", "Completeness", "Adversarial", "Codegen", "Risk Assessment"];
+  const catWS = [100.0, 100.0, 100.0, 100.0, 99.0, 100.0, 100.0, 98.1, 100.0, 100.0, 100.0];
+  const catWOS = [43.4, 43.4, 43.5, 45.1, 51.2, 54.5, 57.5, 59.3, 84.5, 87.3, 90.9];
+
+  const catWOSC = [92.7, 90.9, 90.9, 92.4, 98.2, 54.5, 74.6, 100.0, 84.5, 87.3, 90.9];
+  new Chart(document.getElementById('catChart'), {
+    type: 'bar',
+    data: {
+      labels: catLabels,
+      datasets: [
+        { label: 'With Skill', data: catWS, backgroundColor: 'rgba(59,130,246,0.7)', borderRadius: 4 },
+        { label: 'Without (Content Only)', data: catWOSC, backgroundColor: 'rgba(234,179,8,0.5)', borderRadius: 4 },
+        { label: 'Without (Combined)', data: catWOS, backgroundColor: 'rgba(100,116,139,0.5)', borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: true, max: 100, ticks: { color: '#94a3b8', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        x: { ticks: { color: '#94a3b8' }, grid: { display: false } }
+      },
+      plugins: { legend: { labels: { color: '#f1f5f9' } } }
+    }
+  });
+
+  const evalLabels = ["11-st-atm-pin", "12-st-order-lifecycle", "25-concurrency-inventory", "28-domain-payment-recovery", "30-domain-multicurrency", "19-st-vending-machine", "17-tdd-throttle", "15-domain-login-lockout", "16-domain-otp", "18-dt-loan-approval", "14-domain-double-payment", "21-st-shopping-cart", "22-st-airport-kiosk", "26-concurrency-payment-gw", "05-brownfield-gap", "13-st-ticket-booking", "27-security-attack-payloads", "01-dt-correctness", "03-conway-completeness", "02-bva-correctness", "04-amigos-completeness", "06-brownfield-redundancy", "10-adversarial-misconception", "08-codegen-fix", "24-risk-tax-filing", "20-adversarial-ai-trust", "09-adversarial-antipattern", "29-risk-regression-priority", "07-codegen-runnable", "23-risk-insurance-fmea"];
+  const evalWS = [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 96.2, 96.2, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0];
+  const evalWOS = [36.4, 39.1, 39.1, 39.1, 39.1, 42.9, 43.5, 45.5, 45.5, 47.6, 47.8, 47.8, 47.8, 47.8, 48.3, 54.5, 54.5, 56.5, 57.1, 57.7, 61.5, 66.7, 72.7, 80.0, 81.8, 90.0, 90.9, 90.9, 94.7, 100.0];
+  const evalWOSC = [80.0, 81.8, 81.8, 81.8, 81.8, 100.0, 90.9, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 82.4, 100.0, 54.5, 100.0, 100.0, 92.9, 100.0, 66.7, 72.7, 80.0, 81.8, 90.0, 90.9, 90.9, 94.7, 100.0];
+
+  new Chart(document.getElementById('evalChart'), {
+    type: 'bar',
+    data: {
+      labels: evalLabels,
+      datasets: [
+        { label: 'With Skill', data: evalWS, backgroundColor: 'rgba(59,130,246,0.7)', borderRadius: 4 },
+        { label: 'Without (Content)', data: evalWOSC, backgroundColor: 'rgba(234,179,8,0.5)', borderRadius: 4 },
+        { label: 'Without (Combined)', data: evalWOS, backgroundColor: 'rgba(100,116,139,0.5)', borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y',
+      scales: {
+        x: { beginAtZero: true, max: 100, ticks: { color: '#94a3b8', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { display: false } }
+      },
+      plugins: { legend: { labels: { color: '#f1f5f9' } } }
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,762 @@
+test_plan:
+  title: "Ticket Booking System Workflow - State Transition Test Plan"
+  system_under_test: "Ticket Booking System"
+  version: "1.0"
+
+# =============================================================================
+# STATE MODEL
+# =============================================================================
+state_model:
+  states:
+    - id: available
+      description: "Ticket is available for purchase by any user."
+      initial: true
+      terminal: false
+
+    - id: reserved
+      description: "Ticket is temporarily held for a user. A 10-minute countdown timer is active."
+      initial: false
+      terminal: false
+      invariants:
+        - "A reservation timer of exactly 10 minutes is running."
+        - "The ticket is associated with exactly one user session."
+        - "No other user can select or reserve this ticket."
+
+    - id: booked
+      description: "Payment completed successfully. Ticket is confirmed for the user."
+      initial: false
+      terminal: false
+      invariants:
+        - "Payment has been captured/settled."
+        - "A booking confirmation record exists."
+        - "The ticket is associated with exactly one user."
+
+    - id: cancelled
+      description: "A previously booked ticket has been cancelled by the user. Transient state before returning to available."
+      initial: false
+      terminal: false
+      note: "This is modeled as a distinct state to capture refund processing. Once refund is resolved, the ticket transitions to available."
+
+    - id: used
+      description: "Ticket has been scanned at the event venue. Terminal state."
+      initial: false
+      terminal: true
+      invariants:
+        - "A scan record exists with timestamp and location."
+        - "The event date is today."
+
+  transitions:
+    - id: T1
+      name: select_ticket
+      from: available
+      to: reserved
+      trigger: "User selects/clicks on an available ticket"
+      guards:
+        - "Ticket exists and is in 'available' state."
+        - "User is authenticated."
+      actions:
+        - "Associate ticket with user session."
+        - "Start 10-minute reservation timer."
+        - "Lock ticket from other users."
+
+    - id: T2
+      name: complete_payment
+      from: reserved
+      to: booked
+      trigger: "User completes payment within the reservation window"
+      guards:
+        - "Reservation timer has NOT expired (elapsed < 10 minutes)."
+        - "Payment is valid and successfully processed."
+        - "Ticket is still in 'reserved' state for this user."
+      actions:
+        - "Capture/settle the payment."
+        - "Cancel the reservation timer."
+        - "Generate booking confirmation."
+        - "Send confirmation email/notification."
+
+    - id: T3
+      name: reservation_timeout
+      from: reserved
+      to: available
+      trigger: "10-minute reservation timer expires without payment"
+      guards:
+        - "Timer has reached 10 minutes."
+        - "No payment has been received."
+      actions:
+        - "Release ticket lock."
+        - "Disassociate ticket from user session."
+        - "Notify user that reservation expired."
+
+    - id: T4
+      name: cancel_booking
+      from: booked
+      to: cancelled
+      trigger: "User requests cancellation of a booked ticket"
+      guards:
+        - "Ticket is in 'booked' state."
+        - "Event has not yet occurred (event date/time is in the future)."
+        - "Ticket has not been scanned/used."
+      actions:
+        - "Calculate refund amount based on cancellation policy."
+        - "Process refund (full, partial, or none)."
+        - "Generate cancellation record."
+        - "Send cancellation confirmation."
+
+    - id: T5
+      name: return_to_pool
+      from: cancelled
+      to: available
+      trigger: "Cancellation and refund processing complete"
+      guards:
+        - "Refund has been processed (or waived if no refund applicable)."
+      actions:
+        - "Remove user association from ticket."
+        - "Make ticket available in inventory."
+
+    - id: T6
+      name: scan_ticket
+      from: booked
+      to: used
+      trigger: "Ticket QR code or barcode is scanned at the venue"
+      guards:
+        - "Current date matches the event date."
+        - "Ticket has not already been scanned."
+        - "Ticket is in 'booked' state (not cancelled)."
+      actions:
+        - "Record scan timestamp and entry point."
+        - "Mark ticket as used."
+        - "Grant venue entry to the user."
+
+    - id: T7
+      name: user_releases_reservation
+      from: reserved
+      to: available
+      trigger: "User voluntarily abandons the reservation before timeout"
+      guards:
+        - "Ticket is in 'reserved' state for this user."
+      actions:
+        - "Cancel the reservation timer."
+        - "Release ticket lock."
+        - "Disassociate ticket from user session."
+
+# =============================================================================
+# REFUND DECISION TABLE
+# =============================================================================
+refund_decision_table:
+  description: "Determines refund amount when a booked ticket is cancelled."
+  input: "time_until_event (duration between cancellation request and event start)"
+  rules:
+    - id: R1
+      condition: "time_until_event > 24 hours"
+      refund_type: full
+      refund_percentage: 100
+      description: "Full refund when cancelled more than 24 hours before the event."
+
+    - id: R2
+      condition: "2 hours < time_until_event <= 24 hours"
+      refund_type: partial
+      refund_percentage: 50
+      description: "Partial refund (50%) when cancelled between 2 and 24 hours before the event."
+      note: "The exact partial refund percentage (50%) is assumed; adjust per business rules."
+
+    - id: R3
+      condition: "time_until_event <= 2 hours"
+      refund_type: none
+      refund_percentage: 0
+      description: "No refund when cancelled less than 2 hours before the event."
+
+  boundary_values:
+    - point: "exactly 24 hours before event"
+      expected_rule: R2
+      note: "At exactly 24h, condition is NOT strictly greater than 24h, so partial refund applies."
+
+    - point: "exactly 2 hours before event"
+      expected_rule: R3
+      note: "At exactly 2h, condition is <= 2h, so no refund applies."
+
+    - point: "24 hours + 1 second before event"
+      expected_rule: R1
+      note: "Just over 24h triggers full refund."
+
+    - point: "2 hours + 1 second before event"
+      expected_rule: R2
+      note: "Just over 2h triggers partial refund."
+
+# =============================================================================
+# TEST CASES
+# =============================================================================
+test_cases:
+
+  # ---------------------------------------------------------------------------
+  # HAPPY PATH TESTS
+  # ---------------------------------------------------------------------------
+  happy_path:
+    - id: TC-HP-001
+      title: "Full lifecycle: available -> reserved -> booked -> used"
+      description: "A ticket goes through the complete normal flow from selection to event-day scan."
+      preconditions:
+        - "Ticket is in 'available' state."
+        - "User is authenticated."
+        - "Event is scheduled for a future date."
+      steps:
+        - action: "User selects the ticket."
+          expected_state: reserved
+          expected_behavior: "10-minute timer starts. Ticket is locked."
+        - action: "User completes payment within 10 minutes."
+          expected_state: booked
+          expected_behavior: "Payment captured. Timer cancelled. Confirmation issued."
+        - action: "On event day, ticket is scanned at venue."
+          expected_state: used
+          expected_behavior: "Scan recorded. Entry granted."
+      expected_final_state: used
+      transitions_covered: [T1, T2, T6]
+
+    - id: TC-HP-002
+      title: "Reservation followed by successful payment at 9 minutes 59 seconds"
+      description: "Payment completes just before the reservation expires."
+      preconditions:
+        - "Ticket is in 'available' state."
+        - "User is authenticated."
+      steps:
+        - action: "User selects the ticket."
+          expected_state: reserved
+        - action: "User submits payment at 9 minutes 59 seconds."
+          expected_state: booked
+          expected_behavior: "Payment accepted. Timer cancelled before expiry."
+      expected_final_state: booked
+      transitions_covered: [T1, T2]
+
+    - id: TC-HP-003
+      title: "Cancellation with full refund (> 24 hours before event)"
+      description: "User cancels a booked ticket well before the event and receives a full refund."
+      preconditions:
+        - "Ticket is in 'booked' state."
+        - "Event is more than 24 hours away."
+      steps:
+        - action: "User requests cancellation."
+          expected_state: cancelled
+          expected_behavior: "Full refund processed. Cancellation confirmation sent."
+        - action: "System returns ticket to pool."
+          expected_state: available
+          expected_behavior: "Ticket is available for other users."
+      expected_final_state: available
+      transitions_covered: [T4, T5]
+      refund_rule: R1
+
+  # ---------------------------------------------------------------------------
+  # TIMER AND TIMEOUT TESTS
+  # ---------------------------------------------------------------------------
+  timer_tests:
+    - id: TC-TM-001
+      title: "Reservation timeout - no payment within 10 minutes"
+      description: "User selects a ticket but does not pay. After 10 minutes the ticket returns to available."
+      preconditions:
+        - "Ticket is in 'available' state."
+      steps:
+        - action: "User selects the ticket."
+          expected_state: reserved
+        - action: "10 minutes elapse with no payment."
+          expected_state: available
+          expected_behavior: "Timer fires. Ticket released. User notified."
+      expected_final_state: available
+      transitions_covered: [T1, T3]
+
+    - id: TC-TM-002
+      title: "Payment attempt at exactly 10 minutes (boundary)"
+      description: "User attempts payment at the exact moment the timer expires."
+      preconditions:
+        - "Ticket is in 'reserved' state."
+        - "Timer is at 10 minutes exactly."
+      steps:
+        - action: "User submits payment at T=10:00.000."
+          expected_behavior: "System must handle race condition. Either payment succeeds (timer not yet fired) or payment is rejected (timer already fired). System must not double-process."
+      expected_outcome: "Deterministic result: one of booked or available, never both."
+      notes: "This is a critical race condition test. Implementation should use atomic state checks."
+      transitions_covered: [T2, T3]
+
+    - id: TC-TM-003
+      title: "Payment attempt after timeout"
+      description: "User tries to pay after the 10-minute window has expired."
+      preconditions:
+        - "Ticket was in 'reserved' state."
+        - "Timer has already expired, ticket returned to 'available'."
+      steps:
+        - action: "User submits payment for the now-available ticket."
+          expected_behavior: "Payment is rejected. User is informed the reservation expired."
+      expected_final_state: available
+      transitions_covered: [T3]
+
+    - id: TC-TM-004
+      title: "User voluntarily releases reservation before timeout"
+      description: "User decides not to purchase and releases the reservation early."
+      preconditions:
+        - "Ticket is in 'reserved' state."
+        - "Less than 10 minutes have elapsed."
+      steps:
+        - action: "User clicks 'Cancel' or navigates away."
+          expected_state: available
+          expected_behavior: "Timer is cancelled. Ticket is released immediately."
+      expected_final_state: available
+      transitions_covered: [T7]
+
+    - id: TC-TM-005
+      title: "Ticket re-selected after timeout releases it"
+      description: "After a reservation times out, another user can select the same ticket."
+      preconditions:
+        - "Ticket was reserved by User A."
+        - "Reservation timed out."
+      steps:
+        - action: "Timer expires."
+          expected_state: available
+        - action: "User B selects the ticket."
+          expected_state: reserved
+          expected_behavior: "Ticket is now reserved for User B with a fresh 10-minute timer."
+      expected_final_state: reserved
+      transitions_covered: [T3, T1]
+
+  # ---------------------------------------------------------------------------
+  # CANCELLATION AND REFUND TESTS
+  # ---------------------------------------------------------------------------
+  cancellation_tests:
+    - id: TC-CN-001
+      title: "Cancel booked ticket > 24 hours before event - full refund"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Event is 48 hours away."
+      steps:
+        - action: "User cancels ticket."
+          expected_refund: "100% of ticket price"
+          expected_state: cancelled
+        - action: "Ticket returns to pool."
+          expected_state: available
+      refund_rule: R1
+      transitions_covered: [T4, T5]
+
+    - id: TC-CN-002
+      title: "Cancel booked ticket between 2-24 hours before event - partial refund"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Event is 12 hours away."
+      steps:
+        - action: "User cancels ticket."
+          expected_refund: "50% of ticket price"
+          expected_state: cancelled
+        - action: "Ticket returns to pool."
+          expected_state: available
+      refund_rule: R2
+      transitions_covered: [T4, T5]
+
+    - id: TC-CN-003
+      title: "Cancel booked ticket < 2 hours before event - no refund"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Event is 30 minutes away."
+      steps:
+        - action: "User cancels ticket."
+          expected_refund: "0% (no refund)"
+          expected_state: cancelled
+        - action: "Ticket returns to pool."
+          expected_state: available
+      refund_rule: R3
+      transitions_covered: [T4, T5]
+
+    - id: TC-CN-004
+      title: "Boundary: cancel at exactly 24 hours before event"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Event is exactly 24 hours away."
+      steps:
+        - action: "User cancels ticket."
+          expected_refund: "50% (partial) - boundary falls into R2"
+          expected_state: cancelled
+      refund_rule: R2
+      transitions_covered: [T4, T5]
+
+    - id: TC-CN-005
+      title: "Boundary: cancel at exactly 2 hours before event"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Event is exactly 2 hours away."
+      steps:
+        - action: "User cancels ticket."
+          expected_refund: "0% (no refund) - boundary falls into R3"
+          expected_state: cancelled
+      refund_rule: R3
+      transitions_covered: [T4, T5]
+
+    - id: TC-CN-006
+      title: "Boundary: cancel at 24 hours + 1 second before event"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Event is 24 hours and 1 second away."
+      steps:
+        - action: "User cancels ticket."
+          expected_refund: "100% (full refund) - just over 24h boundary"
+          expected_state: cancelled
+      refund_rule: R1
+      transitions_covered: [T4, T5]
+
+    - id: TC-CN-007
+      title: "Boundary: cancel at 2 hours + 1 second before event"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Event is 2 hours and 1 second away."
+      steps:
+        - action: "User cancels ticket."
+          expected_refund: "50% (partial refund) - just over 2h boundary"
+          expected_state: cancelled
+      refund_rule: R2
+      transitions_covered: [T4, T5]
+
+    - id: TC-CN-008
+      title: "Re-booking a cancelled ticket by a different user"
+      description: "After cancellation returns a ticket to available, another user can book it."
+      preconditions:
+        - "User A booked a ticket. User A cancels."
+      steps:
+        - action: "User A cancels."
+          expected_state: cancelled
+        - action: "Ticket returns to pool."
+          expected_state: available
+        - action: "User B selects the ticket."
+          expected_state: reserved
+        - action: "User B pays."
+          expected_state: booked
+      expected_final_state: booked
+      transitions_covered: [T4, T5, T1, T2]
+
+  # ---------------------------------------------------------------------------
+  # SCAN / USED STATE TESTS
+  # ---------------------------------------------------------------------------
+  scan_tests:
+    - id: TC-SC-001
+      title: "Scan a booked ticket on event day"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Current date is the event date."
+      steps:
+        - action: "Ticket is scanned at venue entrance."
+          expected_state: used
+          expected_behavior: "Scan timestamp recorded. Entry granted."
+      transitions_covered: [T6]
+
+    - id: TC-SC-002
+      title: "Attempt to scan a ticket before event day"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "Current date is before the event date."
+      steps:
+        - action: "Ticket is scanned."
+          expected_behavior: "Scan is rejected. Ticket remains 'booked'. Error message displayed."
+      expected_final_state: booked
+      guard_tested: "Current date must match event date."
+
+    - id: TC-SC-003
+      title: "Attempt to scan a ticket that has already been scanned (duplicate scan)"
+      preconditions:
+        - "Ticket is in 'used' state (already scanned)."
+      steps:
+        - action: "Ticket is scanned again."
+          expected_behavior: "Scan is rejected. System shows 'already used' error."
+      expected_final_state: used
+      guard_tested: "Ticket has not already been scanned."
+
+    - id: TC-SC-004
+      title: "Attempt to scan a cancelled ticket"
+      preconditions:
+        - "Ticket was booked but then cancelled."
+        - "Ticket is now in 'available' or 'cancelled' state."
+      steps:
+        - action: "Ticket is scanned."
+          expected_behavior: "Scan is rejected. Ticket is not in 'booked' state."
+      guard_tested: "Ticket must be in 'booked' state to be scanned."
+
+  # ---------------------------------------------------------------------------
+  # INVALID TRANSITION TESTS (NEGATIVE)
+  # ---------------------------------------------------------------------------
+  invalid_transitions:
+    - id: TC-NEG-001
+      title: "Attempt to pay for a ticket in 'available' state (not reserved)"
+      from_state: available
+      attempted_transition: complete_payment
+      expected_behavior: "Payment is rejected. Ticket must be reserved first."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-002
+      title: "Attempt to cancel an 'available' ticket"
+      from_state: available
+      attempted_transition: cancel_booking
+      expected_behavior: "Cancellation request is rejected. Only booked tickets can be cancelled."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-003
+      title: "Attempt to cancel a 'reserved' ticket (not yet booked)"
+      from_state: reserved
+      attempted_transition: cancel_booking
+      expected_behavior: "Cancellation is rejected. Ticket is not yet booked. User should release reservation instead."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-004
+      title: "Attempt to scan a 'reserved' ticket"
+      from_state: reserved
+      attempted_transition: scan_ticket
+      expected_behavior: "Scan is rejected. Ticket must be 'booked' to be scanned."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-005
+      title: "Attempt to scan an 'available' ticket"
+      from_state: available
+      attempted_transition: scan_ticket
+      expected_behavior: "Scan is rejected. Ticket must be 'booked'."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-006
+      title: "Attempt to reserve a ticket that is already reserved by another user"
+      from_state: reserved
+      attempted_transition: select_ticket
+      expected_behavior: "Selection is rejected. Ticket is locked by another user."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-007
+      title: "Attempt to reserve a 'booked' ticket"
+      from_state: booked
+      attempted_transition: select_ticket
+      expected_behavior: "Selection is rejected. Ticket is already booked."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-008
+      title: "Attempt to cancel a 'used' ticket"
+      from_state: used
+      attempted_transition: cancel_booking
+      expected_behavior: "Cancellation is rejected. Ticket has already been used."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-009
+      title: "Attempt to book a 'used' ticket"
+      from_state: used
+      attempted_transition: complete_payment
+      expected_behavior: "Rejected. 'used' is a terminal state. No outbound transitions allowed."
+      expected_state_unchanged: true
+
+    - id: TC-NEG-010
+      title: "Attempt to cancel a ticket after the event has already occurred"
+      from_state: booked
+      attempted_transition: cancel_booking
+      precondition: "Event date/time has passed."
+      expected_behavior: "Cancellation is rejected. Event has already occurred."
+      expected_state_unchanged: true
+
+  # ---------------------------------------------------------------------------
+  # CONCURRENCY AND RACE CONDITION TESTS
+  # ---------------------------------------------------------------------------
+  concurrency_tests:
+    - id: TC-CC-001
+      title: "Two users attempt to reserve the same available ticket simultaneously"
+      preconditions:
+        - "Ticket is in 'available' state."
+        - "User A and User B both see the ticket as available."
+      steps:
+        - action: "User A and User B both click 'Select' at the same time."
+          expected_behavior: "Exactly one user gets the reservation. The other receives a 'ticket unavailable' error."
+      invariants:
+        - "Ticket must be reserved by exactly one user, never both."
+        - "No lost updates or phantom reservations."
+
+    - id: TC-CC-002
+      title: "Payment and timeout race at the 10-minute boundary"
+      preconditions:
+        - "Ticket is 'reserved'."
+        - "Timer is about to expire."
+      steps:
+        - action: "Payment request and timer expiry fire simultaneously."
+          expected_behavior: "Atomic check ensures exactly one wins: either payment succeeds (ticket becomes booked) or timeout wins (ticket becomes available and payment is refunded/rejected)."
+      invariants:
+        - "Ticket must end in exactly one state."
+        - "If payment was captured but timeout won, payment must be reversed."
+
+    - id: TC-CC-003
+      title: "User cancels while ticket is being scanned"
+      preconditions:
+        - "Ticket is 'booked'."
+        - "It is event day."
+      steps:
+        - action: "User submits cancellation while venue scanner processes the ticket simultaneously."
+          expected_behavior: "Exactly one operation succeeds. If scan wins, ticket is 'used' and cancellation fails. If cancellation wins, scan fails."
+
+  # ---------------------------------------------------------------------------
+  # END-TO-END SCENARIO TESTS
+  # ---------------------------------------------------------------------------
+  e2e_scenarios:
+    - id: TC-E2E-001
+      title: "Full cycle with cancellation and re-purchase"
+      description: "available -> reserved -> booked -> cancelled -> available -> reserved -> booked -> used"
+      steps:
+        - { action: "User A selects ticket", state: reserved }
+        - { action: "User A pays", state: booked }
+        - { action: "User A cancels (> 24h before event)", state: cancelled, refund: "100%" }
+        - { action: "Ticket returns to pool", state: available }
+        - { action: "User B selects ticket", state: reserved }
+        - { action: "User B pays", state: booked }
+        - { action: "User B scans ticket on event day", state: used }
+      transitions_covered: [T1, T2, T4, T5, T1, T2, T6]
+
+    - id: TC-E2E-002
+      title: "Reservation timeout then successful booking"
+      description: "available -> reserved -> available (timeout) -> reserved -> booked"
+      steps:
+        - { action: "User A selects ticket", state: reserved }
+        - { action: "10 minutes elapse, no payment", state: available }
+        - { action: "User A selects ticket again", state: reserved }
+        - { action: "User A pays within 10 minutes", state: booked }
+      transitions_covered: [T1, T3, T1, T2]
+
+    - id: TC-E2E-003
+      title: "Multiple cancellation and re-booking cycles"
+      description: "Ticket is booked and cancelled multiple times with different refund rules."
+      steps:
+        - { action: "Book ticket (event in 3 days)", state: booked }
+        - { action: "Cancel (> 24h)", state: cancelled, refund: "100%" }
+        - { action: "Return to pool", state: available }
+        - { action: "Book again (event now 2 days away)", state: booked }
+        - { action: "Cancel (> 24h)", state: cancelled, refund: "100%" }
+        - { action: "Return to pool", state: available }
+        - { action: "Book again (event now 12h away)", state: booked }
+        - { action: "Cancel (2-24h window)", state: cancelled, refund: "50%" }
+        - { action: "Return to pool", state: available }
+
+  # ---------------------------------------------------------------------------
+  # STATE TRANSITION MATRIX
+  # ---------------------------------------------------------------------------
+  state_transition_matrix:
+    description: "Complete matrix showing all state pairs and whether a valid transition exists."
+    matrix:
+      #           | available | reserved | booked | cancelled | used
+      available:
+        available: { valid: false, note: "Self-transition not defined." }
+        reserved:  { valid: true,  transition: T1 }
+        booked:    { valid: false, note: "Must go through reserved first." }
+        cancelled: { valid: false, note: "Cannot cancel what is not booked." }
+        used:      { valid: false, note: "Must go through reserved and booked first." }
+      reserved:
+        available: { valid: true,  transition: "T3 or T7" }
+        reserved:  { valid: false, note: "Cannot re-reserve." }
+        booked:    { valid: true,  transition: T2 }
+        cancelled: { valid: false, note: "Cannot cancel a reservation, only a booking." }
+        used:      { valid: false, note: "Must be booked first." }
+      booked:
+        available: { valid: false, note: "Must go through cancelled first." }
+        reserved:  { valid: false, note: "Cannot re-reserve a booked ticket." }
+        booked:    { valid: false, note: "Self-transition not defined." }
+        cancelled: { valid: true,  transition: T4 }
+        used:      { valid: true,  transition: T6 }
+      cancelled:
+        available: { valid: true,  transition: T5 }
+        reserved:  { valid: false, note: "Must go to available first." }
+        booked:    { valid: false, note: "Must go to available first." }
+        cancelled: { valid: false, note: "Self-transition not defined." }
+        used:      { valid: false, note: "Cancelled tickets cannot be used." }
+      used:
+        available: { valid: false, note: "Terminal state. No outbound transitions." }
+        reserved:  { valid: false, note: "Terminal state." }
+        booked:    { valid: false, note: "Terminal state." }
+        cancelled: { valid: false, note: "Terminal state." }
+        used:      { valid: false, note: "Terminal state. Self-transition not defined." }
+
+  # ---------------------------------------------------------------------------
+  # GUARD CONDITION SUMMARY
+  # ---------------------------------------------------------------------------
+  guard_conditions:
+    - id: G1
+      transition: T1
+      guard: "Ticket is in 'available' state"
+      test_when_true: TC-HP-001
+      test_when_false: TC-NEG-006, TC-NEG-007
+
+    - id: G2
+      transition: T2
+      guard: "Reservation timer has NOT expired (< 10 minutes)"
+      test_when_true: TC-HP-001, TC-HP-002
+      test_when_false: TC-TM-003
+
+    - id: G3
+      transition: T2
+      guard: "Payment is valid and successfully processed"
+      test_when_true: TC-HP-001
+      test_when_false: "Implicit in payment failure tests"
+
+    - id: G4
+      transition: T4
+      guard: "Event has not yet occurred"
+      test_when_true: TC-CN-001
+      test_when_false: TC-NEG-010
+
+    - id: G5
+      transition: T6
+      guard: "Current date matches event date"
+      test_when_true: TC-SC-001
+      test_when_false: TC-SC-002
+
+    - id: G6
+      transition: T6
+      guard: "Ticket has not already been scanned"
+      test_when_true: TC-SC-001
+      test_when_false: TC-SC-003
+
+    - id: G7
+      transition: T6
+      guard: "Ticket is in 'booked' state"
+      test_when_true: TC-SC-001
+      test_when_false: TC-SC-004
+
+    - id: G8
+      transition: T4
+      guard: "time_until_event > 24h => full refund"
+      test_boundary: TC-CN-004, TC-CN-006
+
+    - id: G9
+      transition: T4
+      guard: "2h < time_until_event <= 24h => partial refund"
+      test_boundary: TC-CN-005, TC-CN-007
+
+    - id: G10
+      transition: T4
+      guard: "time_until_event <= 2h => no refund"
+      test_boundary: TC-CN-005
+
+  # ---------------------------------------------------------------------------
+  # COVERAGE SUMMARY
+  # ---------------------------------------------------------------------------
+  coverage:
+    states_covered:
+      - available
+      - reserved
+      - booked
+      - cancelled
+      - used
+    total_states: 5
+    states_tested: 5
+
+    transitions_covered:
+      - T1 (select_ticket)
+      - T2 (complete_payment)
+      - T3 (reservation_timeout)
+      - T4 (cancel_booking)
+      - T5 (return_to_pool)
+      - T6 (scan_ticket)
+      - T7 (user_releases_reservation)
+    total_transitions: 7
+    transitions_tested: 7
+
+    refund_rules_covered:
+      - R1 (full refund > 24h)
+      - R2 (partial refund 2-24h)
+      - R3 (no refund < 2h)
+    total_refund_rules: 3
+    refund_rules_tested: 3
+    boundary_values_tested: 4
+
+    invalid_transitions_tested: 10
+    concurrency_scenarios_tested: 3
+    e2e_scenarios_tested: 3
+
+    total_test_cases: 35

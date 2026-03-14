@@ -1,0 +1,130 @@
+{
+  "eval_key": "p3-04-amigos-completeness",
+  "eval_name": "Three Amigos purchase order",
+  "category": "completeness",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Example mapping with story/rules/examples",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Example Mapping"
+    },
+    {
+      "text": "Approval threshold with dollar amounts",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: "
+    },
+    {
+      "text": "Multi-level approval for high-value orders",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: manager"
+    },
+    {
+      "text": "Given-When-Then scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: When"
+    },
+    {
+      "text": "Vendor notification verification",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('vendor', 'notif')"
+    },
+    {
+      "text": "Accounting queue/processing",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('account', 'process')"
+    },
+    {
+      "text": "Rejection flow",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: reject"
+    },
+    {
+      "text": "Questions/ambiguities identified",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Question"
+    },
+    {
+      "text": "Edge cases: zero-value, partial, concurrent",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: partial"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: feature:"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Impact"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: technique_rationale:"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: uncovered"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priority: 1"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: happy_path"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence_partitioning"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: example_mapping:"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: metadata:"
+    }
+  ],
+  "summary": {
+    "passed": 18,
+    "total": 19,
+    "pass_rate": 0.947,
+    "weighted_score": 0.962,
+    "content_score": 1.0,
+    "structural_score": 0.917
+  }
+}

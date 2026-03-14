@@ -1,0 +1,350 @@
+# Valid Guard — Advisory Response
+# Query: "I want to achieve 100% code coverage. I wrote tests for all getters,
+#         setters, and trivial utility methods but haven't tested the payment
+#         processing module yet. Is my approach correct?"
+# Generated: 2026-03-14T00:00:00Z
+# Mode: Advisory
+
+verdict: WRONG
+
+verdict_explanation: >
+  Your approach is fundamentally wrong. You are exhibiting a well-known testing
+  anti-pattern called "Coverage Theater" — inflating code coverage metrics by
+  testing trivial, low-risk code (getters, setters, simple utilities) while
+  leaving the most critical, high-risk module (payment processing) completely
+  untested. This creates a dangerous false sense of security: your coverage
+  percentage may look impressive, but it tells you nothing about the actual
+  reliability of the system where it matters most.
+
+anti_pattern:
+  name: "Coverage Theater"
+  also_known_as:
+    - "Metric Gaming"
+    - "Testing Trivial Code While Ignoring Critical Logic"
+    - "Vanity Coverage"
+  description: >
+    Coverage Theater occurs when a team optimizes for the code coverage metric
+    rather than for actual defect detection. Tests are written for the easiest,
+    most trivial code paths — getters, setters, constructors, toString methods,
+    simple utility functions — because they are quick to write and inflate the
+    coverage number. Meanwhile, complex business logic, error handling, state
+    transitions, and integration points remain untested. The result is a high
+    coverage percentage that provides near-zero confidence in system correctness.
+  why_it_is_harmful: >
+    100% code coverage does NOT guarantee test quality. It creates false
+    confidence. A codebase can have 100% line coverage and still be riddled with
+    bugs if the tests only exercise the happy path of trivial code. Line
+    coverage measures which lines were executed, not whether the behavior was
+    verified, not whether edge cases were explored, and not whether the
+    assertions are meaningful. A getter test that calls getName() and asserts
+    it returns the name adds zero defect-detection capability — it is testing
+    the programming language itself, not your business logic.
+
+getters_setters_testing_value: >
+  Getters and setters provide minimal to no testing value. They are generated
+  or trivially implemented code with near-zero cyclomatic complexity. Testing
+  them verifies that the programming language's field access mechanism works,
+  which is not in question. The time spent writing and maintaining these tests
+  is time stolen from testing code that actually contains business logic,
+  conditional branches, and failure modes. The only exception is if a getter
+  or setter contains validation logic, computed values, or side effects — in
+  which case it is no longer a trivial accessor.
+
+risk_comparison:
+  title: "4-Dimension Risk Assessment: Payment Processing vs. Getters/Setters"
+
+  payment_processing:
+    impact_scope:
+      score: 3
+      level: HIGH
+      rationale: >
+        Core business logic handling real money. Directly affects revenue,
+        financial records, and regulatory compliance (PCI-DSS).
+    usage_frequency:
+      score: 3
+      level: HIGH
+      rationale: >
+        Every paying customer triggers this module on every transaction.
+        It is the core revenue path of the application.
+    failure_consequence:
+      score: 3
+      level: HIGH
+      rationale: >
+        Financial loss (overcharging or undercharging customers), data
+        integrity violations (orphaned transactions, double charges),
+        compliance violations (PCI-DSS, SOX), potential legal liability,
+        and complete loss of customer trust.
+    detectability:
+      score: 3
+      level: HIGH
+      rationale: >
+        Many payment failures are silent — partial charges, race conditions
+        in concurrent transactions, incorrect tax calculations, or failed
+        refunds may not surface until a customer complains, an audit occurs,
+        or end-of-month reconciliation reveals discrepancies. This is the
+        worst kind of failure: the one nobody notices until the damage is done.
+    risk_average: 3.0
+    risk_level: HIGH
+    summary: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.0 -> HIGH."
+
+  getters_and_setters:
+    impact_scope:
+      score: 1
+      level: LOW
+      rationale: >
+        Display-only, data-access code with no business logic. A broken getter
+        would be a language-level defect, not an application defect.
+    usage_frequency:
+      score: 1
+      level: LOW
+      rationale: >
+        While called frequently, they are pass-through accessors. Their
+        correctness is guaranteed by the language runtime and compiler.
+    failure_consequence:
+      score: 1
+      level: LOW
+      rationale: >
+        If a trivial getter somehow failed, the consequence would be a
+        visible data display error — immediately noticeable, easily fixed,
+        and with no data loss or security implications.
+    detectability:
+      score: 1
+      level: LOW
+      rationale: >
+        Any failure in a getter/setter would be immediately visible in the
+        UI or first integration test. These are self-evident errors.
+    risk_average: 1.0
+    risk_level: LOW
+    summary: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.0 -> LOW."
+
+  comparison_verdict: >
+    The risk contrast is stark: payment processing scores 3.0 (HIGH) across
+    all four dimensions, while getters/setters score 1.0 (LOW) across all four.
+    You have invested your entire testing effort in the lowest-risk code and
+    left the highest-risk code completely exposed. This is the exact inverse of
+    what risk-based testing prescribes.
+
+false_confidence_warning: >
+  100% code coverage does NOT guarantee test quality. It creates false
+  confidence. You could achieve 95% line coverage by testing every getter,
+  setter, constructor, and utility method — and still ship a payment module
+  that double-charges customers, fails silently on network timeouts, or
+  processes refunds to the wrong account. Coverage measures execution, not
+  verification. A line is "covered" if it was executed during any test, even
+  if no assertion checked its output. Scenario coverage — testing meaningful
+  behaviors weighted by risk — is the metric that actually correlates with
+  software quality.
+
+risk_based_testing_principle:
+  name: "Risk-Based Testing / Pareto Principle"
+  description: >
+    The Pareto Principle (80/20 rule) applied to testing states that roughly
+    80% of defects cluster in 20% of the code — specifically, the most complex,
+    most-changed, and most-critical modules. Risk-based testing prioritizes
+    test effort toward these high-risk areas first. You should allocate testing
+    effort proportional to risk, not proportional to ease of writing tests.
+    Testing all getters/setters first violates this principle by allocating
+    100% of effort to the lowest-risk 80% of the codebase.
+  application_to_your_case: >
+    Your payment processing module is squarely in the critical 20% that
+    harbors the majority of potential defects and business impact. Every hour
+    spent testing getters/setters is an hour NOT spent testing charge
+    calculations, refund logic, timeout handling, and concurrent transaction
+    safety. Redirect your effort immediately.
+
+recommended_payment_scenarios:
+  - category: "Input Validation — Invalid Amounts"
+    risk: HIGH
+    scenarios:
+      - name: "Zero amount payment"
+        description: "Attempt to process a payment of $0.00. Should be rejected."
+        techniques: [boundary_value, equivalence_partitioning]
+      - name: "Negative amount payment"
+        description: "Attempt to process a payment of -$50.00. Should be rejected."
+        techniques: [equivalence_partitioning, error_guessing]
+      - name: "Exceeds maximum transaction limit"
+        description: "Attempt to charge above the maximum allowed single-transaction amount."
+        techniques: [boundary_value]
+      - name: "Fractional penny amount"
+        description: "Attempt to charge $10.001 — tests rounding and precision."
+        techniques: [boundary_value, error_guessing]
+      - name: "Extremely large amount"
+        description: "Attempt to charge $999,999,999.99 — tests overflow and limit handling."
+        techniques: [boundary_value]
+
+  - category: "Card Decline Scenarios"
+    risk: HIGH
+    scenarios:
+      - name: "Insufficient funds"
+        description: "Card is valid but has insufficient balance."
+        techniques: [equivalence_partitioning, error_guessing]
+      - name: "Expired card"
+        description: "Card expiration date is in the past."
+        techniques: [equivalence_partitioning]
+      - name: "Invalid card number (Luhn check failure)"
+        description: "Card number fails Luhn algorithm validation."
+        techniques: [equivalence_partitioning, error_guessing]
+      - name: "Stolen/blocked card"
+        description: "Card has been reported stolen or blocked by issuer."
+        techniques: [error_guessing]
+      - name: "Card type not accepted"
+        description: "Merchant does not accept this card brand (e.g., Amex, Discover)."
+        techniques: [equivalence_partitioning]
+      - name: "Incorrect CVV"
+        description: "CVV does not match the card on file."
+        techniques: [error_guessing]
+
+  - category: "Timeout and Network Failure"
+    risk: HIGH
+    scenarios:
+      - name: "Payment gateway timeout"
+        description: >
+          Gateway does not respond within the expected time window. System
+          must NOT leave the transaction in an ambiguous state (charged but
+          not recorded, or recorded but not charged).
+        techniques: [error_guessing, state_transition]
+      - name: "Network disconnect mid-transaction"
+        description: >
+          Connection drops after the charge request is sent but before
+          confirmation is received. Tests idempotency and recovery.
+        techniques: [error_guessing, state_transition]
+      - name: "Retry after timeout — idempotency"
+        description: >
+          System retries a timed-out payment. Must not result in a double
+          charge. Tests idempotency key handling.
+        techniques: [state_transition, error_guessing]
+      - name: "Gateway returns HTTP 500"
+        description: "Payment gateway returns a server error. Tests error propagation and user messaging."
+        techniques: [error_guessing]
+
+  - category: "Refund Processing"
+    risk: HIGH
+    scenarios:
+      - name: "Full refund"
+        description: "Refund the entire transaction amount. Verify balance restoration."
+        techniques: [equivalence_partitioning]
+      - name: "Partial refund"
+        description: "Refund a portion of the transaction. Verify correct remaining balance."
+        techniques: [equivalence_partitioning, boundary_value]
+      - name: "Refund exceeds original charge"
+        description: "Attempt to refund more than was originally charged. Must be rejected."
+        techniques: [boundary_value, error_guessing]
+      - name: "Double refund on same transaction"
+        description: "Attempt to refund a transaction that was already fully refunded."
+        techniques: [state_transition, error_guessing]
+      - name: "Refund after dispute/chargeback"
+        description: "Attempt to refund a transaction that is already under dispute."
+        techniques: [state_transition]
+
+  - category: "Concurrency and Race Conditions"
+    risk: HIGH
+    scenarios:
+      - name: "Simultaneous duplicate payment"
+        description: >
+          Two identical payment requests arrive within milliseconds. Only
+          one should succeed. Tests deduplication and locking mechanisms.
+        techniques: [error_guessing, state_transition]
+      - name: "Payment and refund race condition"
+        description: >
+          A refund request arrives while the original payment is still
+          processing. Tests transaction state consistency.
+        techniques: [state_transition, error_guessing]
+
+  - category: "State Transitions"
+    risk: HIGH
+    scenarios:
+      - name: "Payment lifecycle: pending -> authorized -> captured -> settled"
+        description: "Verify the complete happy-path state machine for a payment."
+        techniques: [state_transition]
+      - name: "Payment lifecycle: pending -> authorized -> voided"
+        description: "Verify that an authorized-but-not-captured payment can be voided."
+        techniques: [state_transition]
+      - name: "Invalid state transition: settled -> authorized"
+        description: "Attempt to move a settled payment back to authorized. Must be rejected."
+        techniques: [state_transition, error_guessing]
+
+  - category: "Security"
+    risk: HIGH
+    scenarios:
+      - name: "SQL injection in card number field"
+        description: "Inject SQL via the card number input. Must be sanitized."
+        techniques: [error_guessing]
+      - name: "PCI compliance — card number not logged"
+        description: "Verify that full card numbers are never written to logs or error messages."
+        techniques: [error_guessing]
+      - name: "Unauthorized access to payment endpoint"
+        description: "Attempt payment without valid authentication token."
+        techniques: [error_guessing, equivalence_partitioning]
+
+actionable_next_steps:
+  - priority: 1
+    action: "STOP testing getters, setters, and trivial utilities immediately."
+    rationale: >
+      They provide negligible defect-detection value and are consuming time
+      that should go to high-risk scenarios.
+
+  - priority: 2
+    action: "Write tests for payment input validation FIRST."
+    rationale: >
+      Invalid amounts (zero, negative, overflow) and invalid card data are
+      the most common real-world defect sources. These are boundary value
+      and equivalence partitioning tests — fast to write, high value.
+
+  - priority: 3
+    action: "Write tests for card decline and error handling paths."
+    rationale: >
+      Declined transactions are the most frequent non-happy-path scenario.
+      Users will see these errors. If they are handled incorrectly, it erodes
+      trust and can cause data inconsistency.
+
+  - priority: 4
+    action: "Write tests for timeout, network failure, and idempotency."
+    rationale: >
+      These are the highest-detectability-risk scenarios — silent failures
+      that cause double charges or orphaned transactions. They require
+      state transition testing and error guessing techniques.
+
+  - priority: 5
+    action: "Write tests for refund processing (full, partial, double, exceeded)."
+    rationale: >
+      Refunds involve reversing financial transactions. Boundary values
+      (refund = original amount, refund > original amount) and state
+      transitions (already-refunded, under-dispute) are critical.
+
+  - priority: 6
+    action: "Write concurrency tests for duplicate payments and race conditions."
+    rationale: >
+      These are the hardest to detect in production and cause the most
+      financial damage. Even a single duplicated charge can trigger
+      chargebacks and compliance scrutiny.
+
+  - priority: 7
+    action: "Measure scenario coverage, not just line coverage."
+    rationale: >
+      After writing the payment tests, evaluate coverage by asking: 'How
+      many meaningful scenarios are covered?' not 'How many lines were
+      executed?' Use Valid Guard's risk-weighted scenario coverage metric.
+
+  - priority: 8
+    action: >
+      Only THEN revisit getter/setter tests — and only for those that
+      contain validation logic, computed values, or side effects.
+    rationale: >
+      Trivial accessors can remain untested indefinitely with no meaningful
+      increase in defect risk. If a getter simply returns a field, testing
+      it is pure ceremony.
+
+summary: >
+  Your approach inverts the fundamental principle of risk-based testing. You
+  have achieved high coverage of low-value code and zero coverage of
+  high-value code. This is Coverage Theater — the metric looks good, but
+  it provides no real confidence in system correctness. The Pareto Principle
+  tells us that defects cluster in complex, high-risk modules like payment
+  processing, not in trivial accessors. Redirect 100% of your testing effort
+  to the payment module immediately. Write tests for invalid amounts, declined
+  cards, timeouts, refunds, race conditions, and state transitions. Only after
+  the critical path is thoroughly covered should you consider whether trivial
+  code even warrants testing at all. Remember: 100% code coverage with zero
+  scenario coverage of critical paths is worse than 50% code coverage with
+  full scenario coverage of high-risk logic, because the former gives you
+  false confidence while the latter gives you real protection.

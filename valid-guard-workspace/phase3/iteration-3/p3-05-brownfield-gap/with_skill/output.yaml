@@ -1,0 +1,1227 @@
+# Valid Guard Test Plan — Order Processor (Brownfield Gap Analysis)
+# Generated: 2026-03-14T12:00:00Z
+# Source: code_analysis (order_processor.py + test_order_processor_existing.py)
+# Existing tests: 7 | Gaps identified: 24 scenarios uncovered
+
+feature: "Order Processor"
+
+feature_description: >
+  A Python order processing module that manages order creation with tax and
+  shipping calculations, order status lifecycle transitions (7 states),
+  refund processing with time-window enforcement, and discount application.
+  Uses Decimal precision for all monetary values.
+
+risk_level: high
+
+entry_point: brownfield
+
+source:
+  type: code_analysis
+  path: "order_processor.py"
+
+scenarios:
+  # ==========================================================================
+  # create_order — COVERED scenarios (existing tests)
+  # ==========================================================================
+
+  - name: "Create a simple single-item order"
+    description: >
+      Verifies that create_order with a single valid item produces correct
+      subtotal and sets status to PENDING.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Single valid-class representative confirms the core order creation path."
+    preconditions:
+      - "Inventory has sufficient stock for the item"
+      - "Item exists in pricing dictionary"
+    examples:
+      - input:
+          order_id: "ORD-1"
+          items: {"widget": 2}
+        expected:
+          subtotal: "20.00"
+          status: "PENDING"
+        description: "Two widgets at $10 each, subtotal verified."
+    test_ref: "test_order_processor_existing.py::TestCreateOrder::test_create_simple_order"
+    status: covered
+    priority: 1
+    tags:
+      - create-order
+      - happy-path
+      - smoke
+
+  - name: "Create order with multiple item types"
+    description: >
+      Verifies that create_order with multiple distinct items computes the
+      correct combined subtotal.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Multi-item cart is a distinct equivalence class from single-item."
+    preconditions:
+      - "All items in stock and in pricing"
+    examples:
+      - input:
+          order_id: "ORD-2"
+          items: {"widget": 1, "gadget": 1}
+        expected:
+          subtotal: "35.00"
+        description: "Widget ($10) + gadget ($25) = $35 subtotal."
+    test_ref: "test_order_processor_existing.py::TestCreateOrder::test_create_order_with_multiple_items"
+    status: covered
+    priority: 1
+    tags:
+      - create-order
+      - happy-path
+
+  - name: "Create order with empty items raises ValueError"
+    description: "Passing an empty dict for items must raise ValueError."
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.0 -> medium."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Empty input is the invalid equivalence class for the items parameter."
+    preconditions: []
+    examples:
+      - input:
+          order_id: "ORD-3"
+          items: {}
+        expected:
+          raises: "ValueError"
+          message_contains: "at least one item"
+        description: "Empty items dict triggers validation error."
+    test_ref: "test_order_processor_existing.py::TestCreateOrder::test_create_order_empty_items_raises"
+    status: covered
+    priority: 3
+    tags:
+      - create-order
+      - validation
+
+  - name: "Create order with insufficient stock raises InsufficientStockError"
+    description: "Requesting more units than available in inventory must raise InsufficientStockError."
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Quantity exceeding stock is the primary invalid class for inventory checks."
+    preconditions:
+      - "Inventory for widget is 10"
+    examples:
+      - input:
+          order_id: "ORD-4"
+          items: {"widget": 999}
+        expected:
+          raises: "InsufficientStockError"
+        description: "Requesting 999 widgets when only 10 in stock."
+    test_ref: "test_order_processor_existing.py::TestCreateOrder::test_insufficient_stock_raises"
+    status: covered
+    priority: 1
+    tags:
+      - create-order
+      - inventory
+      - error-handling
+
+  # ==========================================================================
+  # transition_status — COVERED scenarios
+  # ==========================================================================
+
+  - name: "Transition from PENDING to CONFIRMED"
+    description: "Verifies the valid transition from PENDING to CONFIRMED and status update."
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high."
+    techniques:
+      - state_transition
+    technique_rationale: "Direct state transition verification for the order lifecycle."
+    preconditions:
+      - "Order exists in PENDING status"
+    examples:
+      - input:
+          order_id: "ORD-1"
+          new_status: "CONFIRMED"
+        expected:
+          status: "CONFIRMED"
+        description: "PENDING -> CONFIRMED is a valid transition."
+    test_ref: "test_order_processor_existing.py::TestTransitionStatus::test_pending_to_confirmed"
+    status: covered
+    priority: 1
+    tags:
+      - transition
+      - state-machine
+
+  - name: "Invalid transition from CONFIRMED to SHIPPED raises error"
+    description: >
+      CONFIRMED can only go to PROCESSING or CANCELLED. Attempting SHIPPED
+      must raise InvalidTransitionError.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - state_transition
+    technique_rationale: "Negative state transition test verifying guard against illegal jumps."
+    preconditions:
+      - "Order exists in CONFIRMED status"
+    examples:
+      - input:
+          order_id: "ORD-1"
+          new_status: "SHIPPED"
+        expected:
+          raises: "InvalidTransitionError"
+        description: "CONFIRMED -> SHIPPED is not a valid transition (must go through PROCESSING)."
+    test_ref: "test_order_processor_existing.py::TestTransitionStatus::test_confirmed_to_shipped_raises"
+    status: covered
+    priority: 1
+    tags:
+      - transition
+      - negative-test
+
+  # ==========================================================================
+  # apply_discount — COVERED scenarios
+  # ==========================================================================
+
+  - name: "Apply 10% discount to a pending order"
+    description: "Verifies discount amount calculation for a straightforward percentage."
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Valid discount percentage is the primary equivalence class."
+    preconditions:
+      - "Order exists in PENDING status"
+    examples:
+      - input:
+          order_id: "ORD-1"
+          discount_percent: "10"
+        expected:
+          discount: "7.500"
+        description: "10% of $75 subtotal (3 gadgets) = $7.50 discount."
+    test_ref: "test_order_processor_existing.py::TestDiscount::test_apply_10_percent_discount"
+    status: covered
+    priority: 1
+    tags:
+      - discount
+      - happy-path
+
+  # ==========================================================================
+  # create_order — UNCOVERED gap scenarios
+  # ==========================================================================
+
+  - name: "Tax calculation verification"
+    description: >
+      Existing tests never assert the tax field. Tax is computed as
+      subtotal * 0.08. This must be verified for correctness and Decimal
+      precision.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high."
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+    technique_rationale: >
+      EP verifies tax is correctly computed for representative orders.
+      BVA tests precision at boundary amounts where rounding matters.
+    preconditions:
+      - "Order is created successfully"
+    examples:
+      - input:
+          items: {"widget": 2}
+        expected:
+          subtotal: "20.00"
+          tax: "1.60"
+          description_note: "20.00 * 0.08 = 1.60"
+        description: "Tax on $20 subtotal at 8% rate."
+      - input:
+          items: {"gizmo": 3}
+        expected:
+          subtotal: "10.50"
+          tax: "0.84"
+          description_note: "10.50 * 0.08 = 0.84"
+        description: "Tax on $10.50 subtotal verifies Decimal precision."
+    status: uncovered
+    priority: 1
+    tags:
+      - create-order
+      - tax
+      - financial
+
+  - name: "Shipping fee applied when subtotal is below threshold"
+    description: >
+      Orders with subtotal < $50 must include a $5.99 shipping fee. Orders
+      at or above $50 get free shipping. No existing test verifies the
+      shipping field.
+    type: boundary
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high."
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      The $50 threshold is a classic boundary. Tests at $49.99, $50.00,
+      and $50.01 are essential.
+    preconditions:
+      - "Inventory and pricing configured"
+    examples:
+      - input:
+          items: {"widget": 4}
+        expected:
+          subtotal: "40.00"
+          shipping: "5.99"
+        description: "Subtotal $40 is below $50 threshold, shipping fee applied."
+      - input:
+          items: {"widget": 5}
+        expected:
+          subtotal: "50.00"
+          shipping: "0"
+        description: "Subtotal exactly $50, free shipping threshold met."
+      - input:
+          items: {"gadget": 2, "widget": 1}
+        expected:
+          subtotal: "60.00"
+          shipping: "0"
+        description: "Subtotal $60 is above threshold, free shipping."
+    status: uncovered
+    priority: 1
+    tags:
+      - create-order
+      - shipping
+      - boundary
+      - financial
+
+  - name: "Total calculation combines subtotal, tax, and shipping"
+    description: >
+      No existing test asserts the total field. Total must equal
+      subtotal + tax + shipping. Must be verified with and without
+      free shipping.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Two equivalence classes: orders with shipping fee and orders with free shipping."
+    preconditions:
+      - "Order is created successfully"
+    examples:
+      - input:
+          items: {"widget": 2}
+        expected:
+          subtotal: "20.00"
+          tax: "1.60"
+          shipping: "5.99"
+          total: "27.59"
+        description: "Below free-shipping threshold: 20.00 + 1.60 + 5.99 = 27.59."
+      - input:
+          items: {"gadget": 3}
+        expected:
+          subtotal: "75.00"
+          tax: "6.00"
+          shipping: "0"
+          total: "81.00"
+        description: "Above free-shipping threshold: 75.00 + 6.00 + 0 = 81.00."
+    status: uncovered
+    priority: 1
+    tags:
+      - create-order
+      - financial
+      - total
+
+  - name: "MAX_ITEMS_PER_ORDER boundary (100 items)"
+    description: >
+      Total item quantity must not exceed 100. Boundary at exactly 100
+      (accepted) and 101 (rejected) must be tested.
+    type: boundary
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.0 -> medium."
+    techniques:
+      - boundary_value
+    technique_rationale: "Classic boundary at the MAX_ITEMS_PER_ORDER limit of 100."
+    preconditions:
+      - "Sufficient inventory for the quantity"
+    examples:
+      - input:
+          items: {"gizmo": 20, "widget": 5, "gadget": 5}
+          total_qty_note: "30 items, well under 100"
+        expected:
+          succeeds: true
+        description: "30 items total, under the 100 limit."
+      - input:
+          items: {"gizmo": 20}
+          total_qty_note: "exactly 20, under 100"
+        expected:
+          succeeds: true
+        description: "20 items, valid."
+      - input:
+          items_constructed: "items totaling exactly 101"
+        expected:
+          raises: "ValueError"
+          message_contains: "Cannot order more than 100"
+        description: "101 total items exceeds limit."
+    status: uncovered
+    priority: 2
+    tags:
+      - create-order
+      - boundary
+      - validation
+
+  - name: "Zero or negative quantity raises ValueError"
+    description: >
+      Each item quantity must be positive (> 0). Quantities of 0 or
+      negative values must raise ValueError.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.0 -> medium."
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+    technique_rationale: >
+      EP partitions quantity into valid (>0) and invalid (<=0). BVA tests
+      the boundary at 0 and 1.
+    preconditions:
+      - "Item exists in pricing and inventory"
+    examples:
+      - input:
+          items: {"widget": 0}
+        expected:
+          raises: "ValueError"
+          message_contains: "Quantity must be positive"
+        description: "Zero quantity is invalid."
+      - input:
+          items: {"widget": -1}
+        expected:
+          raises: "ValueError"
+          message_contains: "Quantity must be positive"
+        description: "Negative quantity is invalid."
+    status: uncovered
+    priority: 2
+    tags:
+      - create-order
+      - validation
+      - boundary
+
+  - name: "Unknown item raises ValueError"
+    description: >
+      Ordering an item not present in the pricing dictionary must raise
+      ValueError with the item name.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.0 -> medium."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "Unknown item is an invalid equivalence class for the items parameter."
+    preconditions: []
+    examples:
+      - input:
+          items: {"nonexistent_item": 1}
+        expected:
+          raises: "ValueError"
+          message_contains: "Unknown item"
+        description: "Item not in pricing catalog."
+    status: uncovered
+    priority: 2
+    tags:
+      - create-order
+      - validation
+
+  - name: "Inventory deduction after successful order creation"
+    description: >
+      After create_order succeeds, the inventory for each ordered item
+      must be decremented by the ordered quantity. No existing test
+      verifies inventory side effects.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP confirms deduction for valid orders. Error guessing checks that
+      inventory is not decremented when order creation fails.
+    preconditions:
+      - "Known initial inventory levels"
+    examples:
+      - input:
+          initial_inventory: {"widget": 10}
+          items: {"widget": 3}
+        expected:
+          remaining_inventory: {"widget": 7}
+        description: "Ordering 3 widgets reduces inventory from 10 to 7."
+      - input:
+          initial_inventory: {"widget": 10, "gadget": 5}
+          items: {"widget": 2, "gadget": 1}
+        expected:
+          remaining_inventory: {"widget": 8, "gadget": 4}
+        description: "Multi-item order deducts all items correctly."
+    status: uncovered
+    priority: 1
+    tags:
+      - create-order
+      - inventory
+      - side-effect
+
+  # ==========================================================================
+  # transition_status — UNCOVERED gap scenarios
+  # ==========================================================================
+
+  - name: "Full valid state transition chain: PENDING through DELIVERED"
+    description: >
+      Walk the entire happy path: PENDING -> CONFIRMED -> PROCESSING ->
+      SHIPPED -> DELIVERED. Only PENDING->CONFIRMED is currently tested.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.5 -> high."
+    techniques:
+      - state_transition
+    technique_rationale: "Full path traversal of the order lifecycle state machine."
+    preconditions:
+      - "Order exists in PENDING status"
+    state_transition:
+      states:
+        - "PENDING"
+        - "CONFIRMED"
+        - "PROCESSING"
+        - "SHIPPED"
+        - "DELIVERED"
+        - "CANCELLED"
+        - "REFUNDED"
+      transitions:
+        - from: "PENDING"
+          to: "CONFIRMED"
+          trigger: "transition_status(CONFIRMED)"
+        - from: "CONFIRMED"
+          to: "PROCESSING"
+          trigger: "transition_status(PROCESSING)"
+        - from: "PROCESSING"
+          to: "SHIPPED"
+          trigger: "transition_status(SHIPPED)"
+        - from: "SHIPPED"
+          to: "DELIVERED"
+          trigger: "transition_status(DELIVERED)"
+        - from: "DELIVERED"
+          to: "REFUNDED"
+          trigger: "transition_status(REFUNDED)"
+        - from: "PENDING"
+          to: "CANCELLED"
+          trigger: "transition_status(CANCELLED)"
+        - from: "CONFIRMED"
+          to: "CANCELLED"
+          trigger: "transition_status(CANCELLED)"
+        - from: "PROCESSING"
+          to: "CANCELLED"
+          trigger: "transition_status(CANCELLED)"
+    examples:
+      - input:
+          transitions: ["CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED"]
+        expected:
+          final_status: "DELIVERED"
+        description: "Walk the full happy path from PENDING to DELIVERED."
+      - input:
+          transitions: ["CONFIRMED", "PROCESSING"]
+        expected:
+          final_status: "PROCESSING"
+        description: "Partial chain stops at PROCESSING."
+    status: uncovered
+    priority: 1
+    tags:
+      - transition
+      - state-machine
+      - critical-path
+
+  - name: "Cancellation from each allowed state restores inventory"
+    description: >
+      PENDING, CONFIRMED, and PROCESSING can all transition to CANCELLED.
+      In each case, inventory must be restored. No test verifies inventory
+      restoration on cancellation.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition covers the cancellation paths. Error guessing targets
+      the inventory restoration side effect which is a common source of bugs.
+    preconditions:
+      - "Order exists, inventory was deducted on creation"
+    examples:
+      - input:
+          cancel_from: "PENDING"
+          initial_inventory: {"widget": 10}
+          ordered: {"widget": 3}
+        expected:
+          status: "CANCELLED"
+          inventory_after: {"widget": 10}
+        description: "Cancel from PENDING restores 3 widgets."
+      - input:
+          cancel_from: "CONFIRMED"
+          initial_inventory: {"widget": 10}
+          ordered: {"widget": 3}
+        expected:
+          status: "CANCELLED"
+          inventory_after: {"widget": 10}
+        description: "Cancel from CONFIRMED restores inventory."
+      - input:
+          cancel_from: "PROCESSING"
+        expected:
+          status: "CANCELLED"
+          inventory_restored: true
+        description: "Cancel from PROCESSING restores inventory."
+    status: uncovered
+    priority: 1
+    tags:
+      - transition
+      - cancellation
+      - inventory
+
+  - name: "Terminal states reject all transitions"
+    description: >
+      CANCELLED and REFUNDED are terminal states with no valid outgoing
+      transitions. Any transition attempt must raise InvalidTransitionError.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.0 -> medium."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition verifies terminal state enforcement. Error guessing
+      targets attempts to re-activate cancelled/refunded orders.
+    preconditions:
+      - "Order is in CANCELLED or REFUNDED state"
+    examples:
+      - input:
+          current_status: "CANCELLED"
+          attempt: "PENDING"
+        expected:
+          raises: "InvalidTransitionError"
+        description: "Cannot transition from CANCELLED to PENDING."
+      - input:
+          current_status: "CANCELLED"
+          attempt: "CONFIRMED"
+        expected:
+          raises: "InvalidTransitionError"
+        description: "Cannot transition from CANCELLED to CONFIRMED."
+      - input:
+          current_status: "REFUNDED"
+          attempt: "DELIVERED"
+        expected:
+          raises: "InvalidTransitionError"
+        description: "Cannot transition from REFUNDED to any state."
+    status: uncovered
+    priority: 2
+    tags:
+      - transition
+      - terminal-state
+      - negative-test
+
+  - name: "Transition for nonexistent order raises KeyError"
+    description: >
+      Calling transition_status with an order_id not in self.orders must
+      raise KeyError.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.0 -> medium."
+    techniques:
+      - error_guessing
+    technique_rationale: "Error guessing for common lookup-miss scenario."
+    preconditions: []
+    examples:
+      - input:
+          order_id: "NONEXISTENT"
+          new_status: "CONFIRMED"
+        expected:
+          raises: "KeyError"
+        description: "Order ID not in system raises KeyError."
+    status: uncovered
+    priority: 3
+    tags:
+      - transition
+      - error-handling
+
+  - name: "updated_at timestamp changes on transition"
+    description: >
+      Each successful transition must update the updated_at field to the
+      current time. No test verifies timestamp mutation.
+    type: happy_path
+    risk: low
+    risk_rationale: "Impact: 1, Frequency: 3, Consequence: 1, Detectability: 2. Average: 1.75 -> medium."
+    techniques:
+      - error_guessing
+    technique_rationale: "Timestamp side effects are commonly overlooked — error guessing targets this."
+    preconditions:
+      - "Order exists"
+    examples:
+      - input:
+          transition: "PENDING -> CONFIRMED"
+        expected:
+          updated_at_changed: true
+        description: "updated_at is newer after transition."
+    status: uncovered
+    priority: 4
+    tags:
+      - transition
+      - timestamp
+
+  # ==========================================================================
+  # request_refund — ENTIRELY UNCOVERED
+  # ==========================================================================
+
+  - name: "Successful refund of a delivered order within window"
+    description: >
+      request_refund is completely untested. A delivered order within 30
+      days must transition to REFUNDED, set refund_amount to total, and
+      restore inventory.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      EP confirms the happy path for refund. State transition verifies
+      DELIVERED -> REFUNDED.
+    preconditions:
+      - "Order is in DELIVERED status"
+      - "Order was created within last 30 days"
+    examples:
+      - input:
+          order_status: "DELIVERED"
+          days_since_creation: 5
+        expected:
+          status: "REFUNDED"
+          refund_amount_equals_total: true
+          inventory_restored: true
+        description: "Refund at day 5 succeeds, amount equals total, stock restored."
+    status: uncovered
+    priority: 1
+    tags:
+      - refund
+      - critical-path
+      - financial
+
+  - name: "Refund window boundary at exactly 30 days"
+    description: >
+      The refund window is 30 days. Must test at day 30 (last valid day)
+      and day 31 (expired). This is a classic boundary value test.
+    type: boundary
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - boundary_value
+    technique_rationale: "30-day window is a numeric boundary requiring BVA at 29, 30, and 31 days."
+    preconditions:
+      - "Order is in DELIVERED status"
+    examples:
+      - input:
+          days_since_creation: 29
+        expected:
+          succeeds: true
+          status: "REFUNDED"
+        description: "Day 29 is within window."
+      - input:
+          days_since_creation: 30
+        expected:
+          succeeds: true
+          status: "REFUNDED"
+        description: "Day 30 is the boundary — still within window (uses > not >=)."
+      - input:
+          days_since_creation: 31
+        expected:
+          raises: "ValueError"
+          message_contains: "Refund window expired"
+        description: "Day 31 exceeds window."
+    status: uncovered
+    priority: 1
+    tags:
+      - refund
+      - boundary
+      - financial
+
+  - name: "Refund on non-DELIVERED order raises InvalidTransitionError"
+    description: >
+      request_refund requires status == DELIVERED. Attempting from any
+      other state must raise InvalidTransitionError.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.0 -> medium."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP groups all non-DELIVERED statuses as one invalid class. Error
+      guessing targets PENDING and SHIPPED as likely confusion points.
+    preconditions:
+      - "Order exists in a non-DELIVERED status"
+    examples:
+      - input:
+          order_status: "PENDING"
+        expected:
+          raises: "InvalidTransitionError"
+          message_contains: "Can only refund delivered orders"
+        description: "Refund on PENDING order rejected."
+      - input:
+          order_status: "SHIPPED"
+        expected:
+          raises: "InvalidTransitionError"
+        description: "Refund on SHIPPED order rejected."
+      - input:
+          order_status: "CANCELLED"
+        expected:
+          raises: "InvalidTransitionError"
+        description: "Refund on CANCELLED order rejected."
+    status: uncovered
+    priority: 1
+    tags:
+      - refund
+      - error-handling
+      - negative-test
+
+  - name: "Refund for nonexistent order raises KeyError"
+    description: "request_refund with unknown order_id must raise KeyError."
+    type: error_handling
+    risk: low
+    risk_rationale: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 3. Average: 1.5 -> medium."
+    techniques:
+      - error_guessing
+    technique_rationale: "Lookup-miss is a standard error guessing target."
+    preconditions: []
+    examples:
+      - input:
+          order_id: "NONEXISTENT"
+        expected:
+          raises: "KeyError"
+        description: "Nonexistent order_id triggers KeyError."
+    status: uncovered
+    priority: 3
+    tags:
+      - refund
+      - error-handling
+
+  - name: "Refund restores inventory for all items"
+    description: >
+      After a successful refund, inventory for each item in the order must
+      be restored by the ordered quantity.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP covers the standard multi-item refund. Error guessing checks
+      that partial inventory state is handled (e.g., item was removed
+      from inventory dict but .get defaults to 0).
+    preconditions:
+      - "Order is DELIVERED and within refund window"
+    examples:
+      - input:
+          order_items: {"widget": 3, "gadget": 1}
+          inventory_before_refund: {"widget": 7, "gadget": 4}
+        expected:
+          inventory_after_refund: {"widget": 10, "gadget": 5}
+        description: "All items restored to pre-order levels."
+    status: uncovered
+    priority: 1
+    tags:
+      - refund
+      - inventory
+      - side-effect
+
+  # ==========================================================================
+  # apply_discount — UNCOVERED gap scenarios
+  # ==========================================================================
+
+  - name: "Discount boundary at 0% (exclusive) raises ValueError"
+    description: >
+      Discount must be between 0 (exclusive) and 100 (inclusive). 0% must
+      be rejected. The existing test only checks 10%.
+    type: boundary
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.0 -> medium."
+    techniques:
+      - boundary_value
+    technique_rationale: "BVA at the lower boundary of the discount range (0 exclusive)."
+    preconditions:
+      - "Order exists in PENDING status"
+    examples:
+      - input:
+          discount_percent: "0"
+        expected:
+          raises: "ValueError"
+          message_contains: "between 0 (exclusive) and 100"
+        description: "0% discount is not allowed (exclusive lower bound)."
+      - input:
+          discount_percent: "-5"
+        expected:
+          raises: "ValueError"
+        description: "Negative discount rejected."
+      - input:
+          discount_percent: "0.01"
+        expected:
+          succeeds: true
+        description: "Smallest valid discount just above 0."
+    status: uncovered
+    priority: 2
+    tags:
+      - discount
+      - boundary
+      - validation
+
+  - name: "Discount boundary at 100% (inclusive)"
+    description: >
+      100% discount is the upper boundary and must be accepted. Values
+      above 100% must be rejected.
+    type: boundary
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.0 -> medium."
+    techniques:
+      - boundary_value
+    technique_rationale: "BVA at the upper boundary of the discount range (100 inclusive)."
+    preconditions:
+      - "Order exists in PENDING status"
+    examples:
+      - input:
+          discount_percent: "100"
+        expected:
+          succeeds: true
+          new_subtotal: "0"
+        description: "100% discount is valid, subtotal becomes 0."
+      - input:
+          discount_percent: "100.01"
+        expected:
+          raises: "ValueError"
+        description: "100.01% exceeds maximum."
+      - input:
+          discount_percent: "150"
+        expected:
+          raises: "ValueError"
+        description: "150% is clearly invalid."
+    status: uncovered
+    priority: 2
+    tags:
+      - discount
+      - boundary
+      - validation
+
+  - name: "Discount on non-PENDING order raises InvalidTransitionError"
+    description: >
+      apply_discount only works on PENDING orders. Applying to CONFIRMED,
+      PROCESSING, or other statuses must raise InvalidTransitionError.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.0 -> medium."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "All non-PENDING statuses form one invalid equivalence class."
+    preconditions:
+      - "Order exists in non-PENDING status"
+    examples:
+      - input:
+          order_status: "CONFIRMED"
+          discount_percent: "10"
+        expected:
+          raises: "InvalidTransitionError"
+          message_contains: "only apply discount to pending orders"
+        description: "Discount on CONFIRMED order rejected."
+      - input:
+          order_status: "DELIVERED"
+          discount_percent: "10"
+        expected:
+          raises: "InvalidTransitionError"
+        description: "Discount on DELIVERED order rejected."
+    status: uncovered
+    priority: 2
+    tags:
+      - discount
+      - error-handling
+
+  - name: "Discount recalculates tax, shipping, and total correctly"
+    description: >
+      After applying a discount, the order's tax, shipping, and total must
+      all be recomputed. The existing test only verifies the discount
+      amount, not the cascading effects.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      EP tests typical discount scenarios. Cause-effect captures the chain:
+      discount -> new subtotal -> new tax -> new shipping -> new total.
+    preconditions:
+      - "Order exists in PENDING status"
+    examples:
+      - input:
+          original_subtotal: "75.00"
+          discount_percent: "10"
+        expected:
+          new_subtotal: "67.50"
+          new_tax: "5.40"
+          new_shipping: "0"
+          new_total: "72.90"
+        description: "10% off $75: new subtotal $67.50, still above $50 so free shipping."
+    status: uncovered
+    priority: 1
+    tags:
+      - discount
+      - financial
+      - cascading-effect
+
+  - name: "Discount causes subtotal to drop below free shipping threshold"
+    description: >
+      If a discount reduces the subtotal from above $50 to below $50, the
+      shipping fee must be added. This is a critical interaction between
+      discount and shipping logic.
+    type: edge_case
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium."
+    techniques:
+      - boundary_value
+      - cause_effect
+    technique_rationale: >
+      BVA targets the $50 threshold crossing. Cause-effect maps the chain:
+      high discount + borderline subtotal -> shipping fee appears.
+    preconditions:
+      - "Order subtotal is near $50 before discount"
+    decision_table:
+      conditions:
+        - "original_subtotal"
+        - "discount_percent"
+      actions:
+        - "new_subtotal"
+        - "shipping_fee"
+      rules:
+        - description: "Subtotal stays above threshold after discount"
+          condition_values:
+            original_subtotal: "60.00"
+            discount_percent: "10"
+          expected_actions:
+            new_subtotal: "54.00"
+            shipping_fee: "0"
+        - description: "Subtotal drops below threshold after discount"
+          condition_values:
+            original_subtotal: "60.00"
+            discount_percent: "20"
+          expected_actions:
+            new_subtotal: "48.00"
+            shipping_fee: "5.99"
+        - description: "Subtotal exactly at threshold after discount"
+          condition_values:
+            original_subtotal: "100.00"
+            discount_percent: "50"
+          expected_actions:
+            new_subtotal: "50.00"
+            shipping_fee: "0"
+    examples:
+      - input:
+          items: {"gadget": 2, "widget": 1}
+          discount_percent: "20"
+        expected:
+          original_subtotal: "60.00"
+          new_subtotal: "48.00"
+          shipping: "5.99"
+        description: "20% off $60 = $48 subtotal, now below $50 threshold, $5.99 shipping added."
+    status: uncovered
+    priority: 1
+    tags:
+      - discount
+      - shipping
+      - boundary
+      - interaction
+
+  - name: "Discount for nonexistent order raises KeyError"
+    description: "apply_discount with unknown order_id must raise KeyError."
+    type: error_handling
+    risk: low
+    risk_rationale: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 3. Average: 1.5 -> medium."
+    techniques:
+      - error_guessing
+    technique_rationale: "Standard lookup-miss scenario."
+    preconditions: []
+    examples:
+      - input:
+          order_id: "NONEXISTENT"
+          discount_percent: "10"
+        expected:
+          raises: "KeyError"
+        description: "Nonexistent order_id triggers KeyError."
+    status: uncovered
+    priority: 4
+    tags:
+      - discount
+      - error-handling
+
+  # ==========================================================================
+  # Cross-cutting concerns — UNCOVERED
+  # ==========================================================================
+
+  - name: "Order stored in processor.orders after creation"
+    description: >
+      After create_order, the order must be retrievable from
+      self.orders[order_id]. No test verifies this state mutation.
+    type: happy_path
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 3, Consequence: 2, Detectability: 2. Average: 2.25 -> medium."
+    techniques:
+      - error_guessing
+    technique_rationale: "Verifying internal state storage is an error-guessing concern."
+    preconditions: []
+    examples:
+      - input:
+          order_id: "ORD-1"
+          items: {"widget": 1}
+        expected:
+          stored: true
+          order_id_in_orders: true
+        description: "Order is stored and accessible by ID."
+    status: uncovered
+    priority: 3
+    tags:
+      - create-order
+      - state
+
+  - name: "Inventory not decremented when create_order fails validation"
+    description: >
+      If create_order raises an error (e.g., empty items, unknown item),
+      inventory must remain unchanged. Tests error path side effects.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1. Average: 2.0 -> medium."
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets the atomicity concern: does a failed order
+      corrupt inventory state?
+    preconditions:
+      - "Known initial inventory"
+    examples:
+      - input:
+          initial_inventory: {"widget": 10}
+          items: {}
+        expected:
+          raises: "ValueError"
+          inventory_unchanged: {"widget": 10}
+        description: "Empty items fails, inventory untouched."
+      - input:
+          initial_inventory: {"widget": 10}
+          items: {"widget": 999}
+        expected:
+          raises: "InsufficientStockError"
+          inventory_unchanged: {"widget": 10}
+        description: "Insufficient stock fails, inventory untouched."
+    status: uncovered
+    priority: 2
+    tags:
+      - create-order
+      - inventory
+      - atomicity
+
+  - name: "Item in inventory but not in pricing (or vice versa)"
+    description: >
+      Edge case where an item exists in inventory but not in pricing, or
+      exists in pricing but has zero inventory. These asymmetric states
+      should be handled correctly.
+    type: edge_case
+    risk: low
+    risk_rationale: "Impact: 1, Frequency: 1, Consequence: 2, Detectability: 3. Average: 1.75 -> medium."
+    techniques:
+      - error_guessing
+    technique_rationale: "Data asymmetry between inventory and pricing dicts is a common config error."
+    preconditions:
+      - "Inventory and pricing have mismatched keys"
+    examples:
+      - input:
+          inventory: {"widget": 10}
+          pricing: {}
+          items: {"widget": 1}
+        expected:
+          raises: "ValueError"
+          message_contains: "Unknown item"
+        description: "Item in inventory but not in pricing raises ValueError."
+      - input:
+          inventory: {}
+          pricing: {"widget": "10.00"}
+          items: {"widget": 1}
+        expected:
+          raises: "InsufficientStockError"
+        description: "Item in pricing but not in inventory raises InsufficientStockError."
+    status: uncovered
+    priority: 4
+    tags:
+      - create-order
+      - edge-case
+      - config
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As an order management system, I process orders with accurate financial
+    calculations, enforce valid state transitions, handle refunds within
+    policy windows, and apply discounts with cascading recalculation.
+  rules:
+    - rule_name: "Order creation validates items, calculates subtotal, tax, shipping, and total"
+      examples:
+        - "Single item order: subtotal = price * qty, tax = subtotal * 0.08"
+        - "Multi-item order: subtotal sums all (price * qty), tax computed on sum"
+        - "Subtotal >= $50: free shipping ($0)"
+        - "Subtotal < $50: shipping = $5.99"
+        - "Total = subtotal + tax + shipping"
+        - "Empty items dict: ValueError"
+        - "Total items > 100: ValueError"
+        - "Quantity <= 0: ValueError"
+        - "Unknown item: ValueError"
+        - "Insufficient stock: InsufficientStockError"
+        - "Inventory decremented on success, unchanged on failure"
+
+    - rule_name: "Order status transitions follow a strict state machine"
+      examples:
+        - "PENDING -> CONFIRMED or CANCELLED"
+        - "CONFIRMED -> PROCESSING or CANCELLED"
+        - "PROCESSING -> SHIPPED or CANCELLED"
+        - "SHIPPED -> DELIVERED only"
+        - "DELIVERED -> REFUNDED only"
+        - "CANCELLED -> no transitions (terminal)"
+        - "REFUNDED -> no transitions (terminal)"
+        - "Invalid transition raises InvalidTransitionError"
+        - "Cancellation from any allowed state restores inventory"
+
+    - rule_name: "Refunds require DELIVERED status and 30-day window"
+      examples:
+        - "DELIVERED order at day 5: refund succeeds, status -> REFUNDED"
+        - "DELIVERED order at day 30: refund still succeeds (> not >=)"
+        - "DELIVERED order at day 31: ValueError (window expired)"
+        - "Non-DELIVERED order: InvalidTransitionError"
+        - "Refund sets refund_amount = total"
+        - "Refund restores inventory for all items"
+
+    - rule_name: "Discounts apply only to PENDING orders with valid percentage"
+      examples:
+        - "10% discount: subtotal reduced, tax/shipping/total recalculated"
+        - "100% discount: subtotal becomes 0, valid"
+        - "0% discount: rejected (exclusive lower bound)"
+        - ">100% discount: rejected"
+        - "Non-PENDING order: InvalidTransitionError"
+        - "Discount crossing $50 threshold causes shipping fee to appear"
+
+    - rule_name: "Financial calculations use Decimal precision"
+      examples:
+        - "Tax on $10.50: 10.50 * 0.08 = 0.84 (exact)"
+        - "No floating-point rounding errors in subtotal, tax, or total"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T12:00:00Z"
+  updated_at: "2026-03-14T12:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

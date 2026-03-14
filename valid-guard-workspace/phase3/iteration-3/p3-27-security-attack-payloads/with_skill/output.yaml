@@ -1,0 +1,1678 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Web Application Input Security"
+
+feature_description: >
+  Comprehensive security testing of web application user input fields (name,
+  email, search, comment) against common attack vectors: Cross-Site Scripting
+  (XSS) including reflected, stored, and DOM-based variants; SQL Injection
+  targeting authentication bypass, data exfiltration, and blind injection;
+  Cross-Site Request Forgery (CSRF) covering token validation, SameSite cookie
+  enforcement, and referrer checking; and Null Byte Injection for file upload
+  path traversal and log injection. Each scenario specifies exact payloads,
+  target input fields, and expected defensive responses.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # XSS — Reflected XSS Payloads
+  # ==========================================================================
+  - name: "XSS-01: Reflected XSS via basic script tag in search field"
+    description: >
+      Tests whether a basic <script>alert(1)</script> payload injected into
+      the search query parameter is reflected back in the response without
+      sanitization. This is the most fundamental reflected XSS test.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.0 -> high. Search fields are used by every user on every session. A reflected XSS can steal session cookies silently, leading to account takeover with no visible indicator to the user."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning classifies input into safe text vs. HTML/script
+      content. Error guessing anticipates the most common developer oversight
+      — failing to escape angle brackets in reflected output.
+    preconditions:
+      - "Web application is accessible and the search endpoint is functional"
+      - "No WAF is blocking requests (test against application-level defenses)"
+    examples:
+      - input:
+          field: "search"
+          payload: "<script>alert('XSS')</script>"
+          method: "GET"
+          parameter: "q"
+        expected:
+          http_status: 200
+          response_body_contains: "&lt;script&gt;alert(&#x27;XSS&#x27;)&lt;/script&gt;"
+          response_body_not_contains: "<script>alert('XSS')</script>"
+          content_type_header: "text/html; charset=utf-8"
+          x_xss_protection_header: "1; mode=block"
+        description: "Basic script tag must be HTML-entity encoded in the reflected output. Raw script tags must never appear."
+      - input:
+          field: "search"
+          payload: "<script>alert('XSS')</script>"
+          method: "GET"
+          parameter: "q"
+        expected:
+          http_status: 400
+          error: "INVALID_INPUT"
+          message: "Search query contains disallowed characters"
+        description: "Alternative defensive response — reject the input entirely with 400 status."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - xss
+      - reflected
+      - search
+      - critical-path
+
+  - name: "XSS-02: Reflected XSS via event handler injection in name field"
+    description: >
+      Tests injection of an onerror event handler within an img tag into the
+      name field. This bypasses simple script-tag-only filters while still
+      executing JavaScript.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Event handler XSS bypasses naive script tag filters. Name fields are displayed on profile pages and in admin panels, amplifying reach."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning separates plain text names from names containing
+      HTML attributes. Error guessing targets the common mistake of only filtering
+      <script> tags while ignoring event handlers.
+    preconditions:
+      - "Name field accepts and displays user input on profile or listing pages"
+    examples:
+      - input:
+          field: "name"
+          payload: '<img src=x onerror=alert("XSS")>'
+          method: "POST"
+          parameter: "name"
+        expected:
+          http_status: 200
+          sanitized_output: "&lt;img src=x onerror=alert(&quot;XSS&quot;)&gt;"
+          script_executed: false
+        description: "Img tag with onerror handler must be fully HTML-encoded. No JavaScript execution on page render."
+      - input:
+          field: "name"
+          payload: '<img src=x onerror=alert("XSS")>'
+          method: "POST"
+          parameter: "name"
+        expected:
+          http_status: 422
+          error: "VALIDATION_ERROR"
+          message: "Name field contains invalid characters"
+        description: "Alternative: reject input containing HTML tags in name field."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - xss
+      - reflected
+      - event-handler
+      - name-field
+
+  # ==========================================================================
+  # XSS — Stored XSS Payloads
+  # ==========================================================================
+  - name: "XSS-03: Stored XSS via SVG onload in comment field"
+    description: >
+      Tests whether an SVG element with an onload event handler is stored in
+      the comments database and rendered without sanitization to other users.
+      Stored XSS is higher severity than reflected because it persists and
+      affects all viewers.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.0 -> high. Stored XSS in comments affects every user who views the page. The payload persists in the database, enabling mass session hijacking silently."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Equivalence partitioning classifies comment content (plain text vs. HTML/SVG).
+      Error guessing targets SVG as a commonly overlooked vector. Cause-effect maps
+      the relationship between stored payload and rendering behavior.
+    preconditions:
+      - "Comment submission endpoint is functional"
+      - "Comments are displayed to other users on the page"
+    examples:
+      - input:
+          field: "comment"
+          payload: '<svg onload=alert("StoredXSS")>'
+          method: "POST"
+          parameter: "comment_body"
+        expected:
+          http_status: 201
+          stored_value_sanitized: true
+          rendered_output: "&lt;svg onload=alert(&quot;StoredXSS&quot;)&gt;"
+          rendered_output_not_contains: '<svg onload=alert("StoredXSS")>'
+          content_security_policy: "script-src 'self'"
+        description: "SVG tag with onload must be sanitized before storage or at render time. CSP header must prevent inline script execution as defense-in-depth."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - xss
+      - stored
+      - svg
+      - comment
+      - critical-path
+
+  - name: "XSS-04: Stored XSS via polyglot payload in comment field"
+    description: >
+      Tests a polyglot XSS payload that works across multiple contexts (HTML,
+      attribute, JavaScript). This payload combines multiple encoding techniques
+      to bypass layered sanitization.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Polyglot payloads bypass context-specific filters. Successful injection in a stored context results in persistent compromise."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing draws on known polyglot patterns that defeat incomplete
+      sanitization. Equivalence partitioning tests whether multi-context payloads
+      are handled differently from single-context ones.
+    preconditions:
+      - "Comment field accepts multi-line text input"
+      - "Application uses context-dependent output encoding"
+    examples:
+      - input:
+          field: "comment"
+          payload: "jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcliCk=alert() )//%0telerik%0telerik/telerik/telerik/telerik/*</stYle/</telerik/</titLe/</telerik/</sVg/</sCripT/--!>\\x3csVg/<sVg/oNloAd=alert()//>\\x3e"
+          method: "POST"
+          parameter: "comment_body"
+        expected:
+          http_status: 400
+          error: "MALICIOUS_INPUT_DETECTED"
+          message: "Input contains potentially malicious content"
+          payload_stored: false
+        description: "Polyglot payload must be rejected outright. This complex payload should trigger input validation before reaching storage."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - xss
+      - stored
+      - polyglot
+      - comment
+
+  # ==========================================================================
+  # XSS — DOM-based XSS Payloads
+  # ==========================================================================
+  - name: "XSS-05: DOM-based XSS via URL fragment in search field"
+    description: >
+      Tests whether the application's client-side JavaScript reads the URL
+      hash/fragment and injects it into the DOM without sanitization. DOM-based
+      XSS occurs entirely on the client side and may not be visible in
+      server-side logs.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. DOM-based XSS is invisible to server-side defenses and WAFs. Exploitation is silent — no server log evidence — making detection extremely difficult."
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the common pattern of using document.location.hash
+      or innerHTML with unsanitized URL data. Cause-effect maps the relationship
+      between URL fragment content and DOM manipulation behavior.
+    preconditions:
+      - "Application uses client-side JavaScript to read URL parameters or hash fragments"
+      - "Client-side code uses innerHTML, document.write, or eval with URL-sourced data"
+    examples:
+      - input:
+          field: "search"
+          payload_url: "https://app.example.com/search#<img src=x onerror=alert('DOM-XSS')>"
+          delivery: "URL fragment"
+          parameter: "location.hash"
+        expected:
+          dom_injection: false
+          sanitization_method: "DOMPurify or textContent assignment"
+          csp_header: "script-src 'self'; object-src 'none'"
+          script_executed: false
+        description: "URL fragment content must be sanitized before DOM insertion. Application must use safe DOM APIs (textContent) instead of innerHTML."
+      - input:
+          field: "search"
+          payload_url: "https://app.example.com/search?q=test#<script>document.cookie</script>"
+          delivery: "URL fragment"
+          parameter: "location.hash"
+        expected:
+          dom_injection: false
+          cookie_exfiltrated: false
+          httponly_cookie_flag: true
+        description: "Even if DOM injection occurs, HttpOnly cookies must not be accessible to JavaScript."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - xss
+      - dom-based
+      - client-side
+      - search
+
+  - name: "XSS-06: DOM-based XSS via javascript: protocol in email field"
+    description: >
+      Tests whether a javascript: protocol URI injected into the email field
+      is rendered as a clickable link or href attribute, enabling script
+      execution on click.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high. JavaScript protocol URIs in href attributes execute on user click. If the email field value is rendered in a mailto: link context, this is exploitable."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the oversight of allowing javascript: URIs where
+      mailto: is expected. Equivalence partitioning separates valid email formats
+      from URI-scheme injections.
+    preconditions:
+      - "Email field value is displayed elsewhere in the application (profile page, admin view)"
+      - "Application renders user-supplied values in link contexts"
+    examples:
+      - input:
+          field: "email"
+          payload: "javascript:alert('XSS')//user@example.com"
+          method: "POST"
+          parameter: "email"
+        expected:
+          http_status: 422
+          error: "INVALID_EMAIL_FORMAT"
+          message: "Please provide a valid email address"
+          value_stored: false
+        description: "Email validation must reject javascript: protocol URIs. Input must match RFC 5322 email format."
+      - input:
+          field: "email"
+          payload: "&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;alert(1)"
+          method: "POST"
+          parameter: "email"
+        expected:
+          http_status: 422
+          error: "INVALID_EMAIL_FORMAT"
+          message: "Please provide a valid email address"
+          html_entity_decoded_before_validation: true
+        description: "HTML-entity-encoded javascript: URI must also be rejected. Validation must decode entities before checking."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - xss
+      - dom-based
+      - javascript-protocol
+      - email
+
+  - name: "XSS-07: XSS via encoded tag bypass in name field"
+    description: >
+      Tests whether URL-encoded and double-encoded XSS payloads bypass
+      input validation in the name field. Many filters only check the raw
+      input without decoding first.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Encoding bypasses defeat blacklist-based filters. If the application decodes after validation, the payload executes in the rendered output."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the common mistake of validating before URL-decoding.
+      Equivalence partitioning classifies payloads by encoding type (raw, single-encoded,
+      double-encoded).
+    preconditions:
+      - "Application performs URL-decoding of input parameters"
+      - "Name field output is rendered in HTML context"
+    examples:
+      - input:
+          field: "name"
+          payload: "%3Cscript%3Ealert('XSS')%3C%2Fscript%3E"
+          encoding: "URL-encoded"
+          method: "POST"
+          parameter: "name"
+        expected:
+          http_status: 422
+          error: "VALIDATION_ERROR"
+          message: "Name field contains invalid characters"
+          decoded_before_validation: true
+        description: "URL-encoded script tag must be decoded and then rejected or sanitized. Validation must happen after all decoding steps."
+      - input:
+          field: "name"
+          payload: "%253Cscript%253Ealert('XSS')%253C%252Fscript%253E"
+          encoding: "double-URL-encoded"
+          method: "POST"
+          parameter: "name"
+        expected:
+          http_status: 422
+          error: "VALIDATION_ERROR"
+          message: "Name field contains invalid characters"
+          multiple_decode_passes: true
+        description: "Double-encoded payload must also be caught. Application must recursively decode or reject multiply-encoded input."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - xss
+      - encoding-bypass
+      - name-field
+
+  # ==========================================================================
+  # SQL Injection — Authentication Bypass
+  # ==========================================================================
+  - name: "SQLi-01: Authentication bypass via tautology in email field"
+    description: >
+      Tests whether a classic SQL tautology payload (OR '1'='1') in the email
+      field can bypass authentication by making the WHERE clause always true.
+      This is the most fundamental SQL injection test.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.0 -> high. Successful authentication bypass grants unauthorized access to any account. This affects the core security boundary and can lead to complete system compromise."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning separates valid emails from SQL-metacharacter-containing
+      strings. Error guessing anticipates the most common SQLi vulnerability — string
+      concatenation in login queries.
+    preconditions:
+      - "Login endpoint accepts email and password parameters"
+      - "Application uses a SQL database for authentication"
+    examples:
+      - input:
+          field: "email"
+          payload: "admin'--"
+          password: "anything"
+          method: "POST"
+          endpoint: "/api/auth/login"
+        expected:
+          http_status: 401
+          error: "INVALID_CREDENTIALS"
+          message: "Email or password is incorrect"
+          authenticated: false
+          sql_error_exposed: false
+        description: "Comment injection (--) must not bypass password check. No SQL error details in response."
+      - input:
+          field: "email"
+          payload: "' OR '1'='1' --"
+          password: "anything"
+          method: "POST"
+          endpoint: "/api/auth/login"
+        expected:
+          http_status: 401
+          error: "INVALID_CREDENTIALS"
+          authenticated: false
+          sql_error_exposed: false
+        description: "Classic tautology must not bypass authentication. Parameterized queries must prevent SQL interpretation."
+      - input:
+          field: "email"
+          payload: "admin' OR 1=1#"
+          password: "anything"
+          method: "POST"
+          endpoint: "/api/auth/login"
+        expected:
+          http_status: 401
+          error: "INVALID_CREDENTIALS"
+          authenticated: false
+        description: "MySQL comment-style injection (#) must also be prevented."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - sqli
+      - authentication-bypass
+      - email
+      - critical-path
+
+  - name: "SQLi-02: Authentication bypass via UNION-based injection in email field"
+    description: >
+      Tests whether a UNION SELECT payload can inject a fabricated result row
+      into the authentication query, returning a controlled password hash that
+      matches the attacker-supplied password.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. UNION injection in auth queries can return attacker-controlled credentials, granting access to any account or fabricated admin accounts."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets UNION injection which is a well-known attack pattern.
+      Equivalence partitioning separates normal email strings from those containing
+      SQL keywords.
+    preconditions:
+      - "Login endpoint queries a SQL database"
+      - "Application does not use parameterized queries (vulnerability condition)"
+    examples:
+      - input:
+          field: "email"
+          payload: "' UNION SELECT 1,'admin','$2b$12$fakehashedpassword',1 --"
+          password: "knownpassword"
+          method: "POST"
+          endpoint: "/api/auth/login"
+        expected:
+          http_status: 401
+          error: "INVALID_CREDENTIALS"
+          authenticated: false
+          sql_error_exposed: false
+          union_result_returned: false
+        description: "UNION injection must not return fabricated credential rows. Parameterized queries prevent SQL keyword interpretation."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - sqli
+      - union-injection
+      - authentication-bypass
+      - email
+
+  # ==========================================================================
+  # SQL Injection — Data Exfiltration
+  # ==========================================================================
+  - name: "SQLi-03: Data exfiltration via UNION SELECT in search field"
+    description: >
+      Tests whether a UNION SELECT payload in the search field can extract
+      database metadata (table names, column names) or sensitive data from
+      other tables (e.g., users, credentials).
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.0 -> high. Data exfiltration via search exposes all database contents including user credentials, personal data, and business secrets. Search is used frequently, maximizing exposure window."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the common search-to-SQL-query pipeline where user input
+      is interpolated into LIKE clauses. Equivalence partitioning classifies search
+      input as safe text vs. SQL metacharacter content.
+    preconditions:
+      - "Search endpoint queries a SQL database"
+      - "Search results are displayed in the response"
+    examples:
+      - input:
+          field: "search"
+          payload: "' UNION SELECT username, password FROM users --"
+          method: "GET"
+          parameter: "q"
+          endpoint: "/api/search"
+        expected:
+          http_status: 200
+          results_contain_user_data: false
+          results_contain_only_search_entities: true
+          sql_error_exposed: false
+        description: "UNION SELECT must not extract data from other tables. Only legitimate search results should be returned."
+      - input:
+          field: "search"
+          payload: "' UNION SELECT table_name, NULL FROM information_schema.tables --"
+          method: "GET"
+          parameter: "q"
+          endpoint: "/api/search"
+        expected:
+          http_status: 200
+          results_contain_schema_info: false
+          sql_error_exposed: false
+        description: "information_schema extraction attempt must be blocked. No database metadata in response."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - sqli
+      - data-exfiltration
+      - union-injection
+      - search
+
+  - name: "SQLi-04: Data exfiltration via error-based injection in name field"
+    description: >
+      Tests whether SQL error messages containing database structure information
+      are leaked to the client when malformed SQL is injected into the name field
+      during profile update or registration.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.5 -> high. Error-based SQLi reveals database engine, table structure, and column names. This information enables targeted follow-up attacks."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets verbose error handling that leaks SQL details.
+      Equivalence partitioning separates inputs that cause SQL syntax errors
+      from valid inputs.
+    preconditions:
+      - "Name field value is stored in a SQL database"
+      - "Application has error handling for database operations"
+    examples:
+      - input:
+          field: "name"
+          payload: "Robert'); DROP TABLE users; --"
+          method: "POST"
+          parameter: "name"
+          endpoint: "/api/users/profile"
+        expected:
+          http_status: 422
+          error: "VALIDATION_ERROR"
+          message: "Name contains invalid characters"
+          sql_error_exposed: false
+          error_contains_table_name: false
+          error_contains_sql_syntax: false
+        description: "Bobby Tables attack must not execute DROP TABLE. Error response must not contain SQL syntax or database object names."
+      - input:
+          field: "name"
+          payload: "' AND 1=CONVERT(int, (SELECT TOP 1 table_name FROM information_schema.tables)) --"
+          method: "POST"
+          parameter: "name"
+          endpoint: "/api/users/profile"
+        expected:
+          http_status: 422
+          error: "VALIDATION_ERROR"
+          sql_error_exposed: false
+          database_engine_revealed: false
+        description: "CONVERT-based error injection must not leak table names via error messages. Generic error message only."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - sqli
+      - error-based
+      - data-exfiltration
+      - name-field
+
+  # ==========================================================================
+  # SQL Injection — Blind Injection
+  # ==========================================================================
+  - name: "SQLi-05: Boolean-based blind SQL injection in search field"
+    description: >
+      Tests whether different boolean conditions injected into the search field
+      produce observably different responses (different result counts or page
+      content), enabling data extraction one bit at a time.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.0 -> high. Blind SQLi is harder to detect than error-based but equally dangerous. Attackers can extract entire databases given enough requests, and the attack leaves minimal evidence."
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the subtle behavioral differences that enable blind
+      injection. Cause-effect maps the relationship between injected boolean
+      conditions and observable response differences.
+    preconditions:
+      - "Search endpoint returns different result sets based on query"
+      - "Application uses SQL backend for search"
+    examples:
+      - input:
+          field: "search"
+          payload_true: "test' AND 1=1 --"
+          payload_false: "test' AND 1=2 --"
+          method: "GET"
+          parameter: "q"
+        expected:
+          response_identical: true
+          result_count_true: "same as uninjected 'test' query"
+          result_count_false: "same as uninjected 'test' query"
+          no_behavioral_difference: true
+        description: "True and false conditions must produce identical responses. No observable difference means parameterized queries are in use."
+      - input:
+          field: "search"
+          payload: "test' AND SUBSTRING((SELECT password FROM users LIMIT 1),1,1)='a' --"
+          method: "GET"
+          parameter: "q"
+        expected:
+          response_identical_to_normal_search: true
+          data_leaked: false
+          sql_error_exposed: false
+        description: "Character-by-character extraction attempt must not produce distinguishable responses."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - sqli
+      - blind-injection
+      - boolean-based
+      - search
+
+  - name: "SQLi-06: Time-based blind SQL injection in comment field"
+    description: >
+      Tests whether a SLEEP/WAITFOR DELAY payload injected into the comment
+      field causes measurably delayed responses, confirming SQL injection
+      even when no data is returned directly.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Time-based blind injection is the last-resort SQLi technique and works even when error messages and boolean differences are suppressed. If this succeeds, the entire database is extractable."
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing anticipates time-based injection as a stealth technique.
+      Cause-effect maps the relationship between injected delay functions
+      and response timing.
+    preconditions:
+      - "Comment submission processes the input through SQL operations"
+      - "Response time can be measured accurately"
+    examples:
+      - input:
+          field: "comment"
+          payload: "test'; WAITFOR DELAY '0:0:5' --"
+          method: "POST"
+          parameter: "comment_body"
+          database_engine: "MSSQL"
+        expected:
+          response_time_ms: "<1000"
+          no_artificial_delay: true
+          http_status: 201
+          sql_error_exposed: false
+        description: "MSSQL WAITFOR DELAY must not cause response delay. Response within normal latency range confirms parameterized queries."
+      - input:
+          field: "comment"
+          payload: "test' AND SLEEP(5) --"
+          method: "POST"
+          parameter: "comment_body"
+          database_engine: "MySQL"
+        expected:
+          response_time_ms: "<1000"
+          no_artificial_delay: true
+          http_status: 201
+        description: "MySQL SLEEP function must not cause delay. Normal response time confirms injection is not interpreted."
+      - input:
+          field: "comment"
+          payload: "test'; SELECT pg_sleep(5); --"
+          method: "POST"
+          parameter: "comment_body"
+          database_engine: "PostgreSQL"
+        expected:
+          response_time_ms: "<1000"
+          no_artificial_delay: true
+          http_status: 201
+        description: "PostgreSQL pg_sleep must not execute. Response time must remain within normal bounds."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - sqli
+      - blind-injection
+      - time-based
+      - comment
+
+  - name: "SQLi-07: Second-order SQL injection via name field"
+    description: >
+      Tests whether a SQL payload stored in the name field during registration
+      is later executed when the name is retrieved and used in a different SQL
+      query (e.g., admin search, reporting, or export).
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 -> high. Second-order injection is extremely difficult to detect because the payload is harmless at insertion time and only triggers during a later operation, often in a privileged context like admin panels."
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the assumption that stored data is safe for use
+      in subsequent queries. Cause-effect maps the two-stage relationship between
+      initial storage and later execution contexts.
+    preconditions:
+      - "Name field value is stored in database during registration"
+      - "Stored name is later used in another SQL query (admin panel, search, export)"
+    examples:
+      - input:
+          field: "name"
+          payload: "Robert' UNION SELECT credit_card FROM payments --"
+          method: "POST"
+          parameter: "name"
+          endpoint: "/api/users/register"
+          stage: "storage"
+        expected:
+          http_status: 201
+          name_stored: true
+          storage_is_safe: true
+        description: "Stage 1: Payload is stored as a literal string value via parameterized query."
+      - input:
+          field: "name"
+          trigger: "Admin searches for user by name"
+          endpoint: "/api/admin/users?search=Robert"
+          stage: "retrieval"
+        expected:
+          results_contain_only_user_data: true
+          credit_card_data_leaked: false
+          sql_error_exposed: false
+          retrieval_query_parameterized: true
+        description: "Stage 2: When stored name is used in admin search query, it must be treated as a literal value, not SQL code."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - sqli
+      - second-order
+      - name-field
+      - admin-panel
+
+  # ==========================================================================
+  # CSRF — Token Validation
+  # ==========================================================================
+  - name: "CSRF-01: Request without CSRF token is rejected"
+    description: >
+      Tests that state-changing requests (POST, PUT, DELETE) submitted without
+      a CSRF token are rejected by the server. This is the fundamental CSRF
+      defense test.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. Missing CSRF protection allows attackers to perform any action on behalf of authenticated users by tricking them into visiting a malicious page. This affects all authenticated users."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - decision_table
+    technique_rationale: >
+      Equivalence partitioning classifies requests by CSRF token presence (present/valid,
+      present/invalid, absent). Decision table maps token presence x HTTP method x
+      authentication state to access decisions.
+    preconditions:
+      - "User is authenticated with a valid session"
+      - "Target endpoint performs a state-changing operation"
+    examples:
+      - input:
+          field: "comment"
+          payload: "Legitimate comment text"
+          method: "POST"
+          endpoint: "/api/comments"
+          csrf_token: null
+          session_cookie: "valid-session"
+        expected:
+          http_status: 403
+          error: "CSRF_TOKEN_MISSING"
+          message: "CSRF token is required for this request"
+          comment_created: false
+        description: "POST request without CSRF token must be rejected with 403. No state change must occur."
+      - input:
+          field: "comment"
+          payload: "Legitimate comment text"
+          method: "POST"
+          endpoint: "/api/comments"
+          csrf_token: "invalid-or-expired-token"
+          session_cookie: "valid-session"
+        expected:
+          http_status: 403
+          error: "CSRF_TOKEN_INVALID"
+          message: "Invalid or expired CSRF token"
+          comment_created: false
+        description: "POST request with invalid CSRF token must also be rejected."
+      - input:
+          field: "comment"
+          payload: "Legitimate comment text"
+          method: "POST"
+          endpoint: "/api/comments"
+          csrf_token: "valid-csrf-token"
+          session_cookie: "valid-session"
+        expected:
+          http_status: 201
+          comment_created: true
+        description: "POST request with valid CSRF token must succeed."
+    decision_table:
+      conditions:
+        - "CSRF token present"
+        - "CSRF token valid"
+        - "Session authenticated"
+        - "HTTP method is state-changing (POST/PUT/DELETE)"
+      actions:
+        - "Request accepted"
+        - "Error response code"
+      rules:
+        - description: "No token, authenticated, state-changing -> reject"
+          condition_values:
+            CSRF token present: false
+            CSRF token valid: "N/A"
+            Session authenticated: true
+            HTTP method is state-changing (POST/PUT/DELETE): true
+          expected_actions:
+            Request accepted: false
+            Error response code: 403
+        - description: "Invalid token, authenticated, state-changing -> reject"
+          condition_values:
+            CSRF token present: true
+            CSRF token valid: false
+            Session authenticated: true
+            HTTP method is state-changing (POST/PUT/DELETE): true
+          expected_actions:
+            Request accepted: false
+            Error response code: 403
+        - description: "Valid token, authenticated, state-changing -> accept"
+          condition_values:
+            CSRF token present: true
+            CSRF token valid: true
+            Session authenticated: true
+            HTTP method is state-changing (POST/PUT/DELETE): true
+          expected_actions:
+            Request accepted: true
+            Error response code: "N/A"
+        - description: "GET request (safe method) -> accept without token"
+          condition_values:
+            CSRF token present: false
+            CSRF token valid: "N/A"
+            Session authenticated: true
+            HTTP method is state-changing (POST/PUT/DELETE): false
+          expected_actions:
+            Request accepted: true
+            Error response code: "N/A"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - csrf
+      - token-validation
+      - critical-path
+
+  - name: "CSRF-02: CSRF token bound to user session"
+    description: >
+      Tests that CSRF tokens are bound to the specific user session and cannot
+      be reused across different sessions. An attacker should not be able to
+      use their own valid CSRF token to forge requests for another user.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. If CSRF tokens are not session-bound, an attacker can obtain a valid token from their own session and use it in a cross-site attack targeting another user's session."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the common implementation flaw of using global or
+      non-session-bound CSRF tokens. Equivalence partitioning separates same-session
+      tokens from cross-session tokens.
+    preconditions:
+      - "Two distinct user sessions exist (user A and user B)"
+      - "Both sessions have valid CSRF tokens"
+    examples:
+      - input:
+          field: "comment"
+          payload: "Cross-session comment"
+          method: "POST"
+          endpoint: "/api/comments"
+          csrf_token: "user-A-valid-csrf-token"
+          session_cookie: "user-B-session"
+        expected:
+          http_status: 403
+          error: "CSRF_TOKEN_INVALID"
+          message: "CSRF token does not match current session"
+          comment_created: false
+        description: "User A's CSRF token must not work with User B's session. Token-session binding prevents cross-session token reuse."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - csrf
+      - token-binding
+      - session-security
+
+  - name: "CSRF-03: CSRF token single-use or time-limited"
+    description: >
+      Tests that CSRF tokens expire after use or after a reasonable time window,
+      preventing replay attacks with captured tokens.
+    type: security
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.0 -> medium. Token replay is a secondary attack that requires prior token capture. Time-limited tokens reduce but do not eliminate this risk window."
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value analysis tests the token expiry threshold. Error guessing
+      targets the possibility of token replay within the validity window.
+    preconditions:
+      - "CSRF token has been issued to the user"
+      - "Token has a defined expiry time or single-use policy"
+    examples:
+      - input:
+          field: "comment"
+          payload: "Replay comment"
+          method: "POST"
+          endpoint: "/api/comments"
+          csrf_token: "previously-used-csrf-token"
+          token_already_consumed: true
+        expected:
+          http_status: 403
+          error: "CSRF_TOKEN_ALREADY_USED"
+          comment_created: false
+        description: "Already-consumed CSRF token must be rejected on second use (if single-use policy)."
+      - input:
+          field: "comment"
+          payload: "Expired token comment"
+          method: "POST"
+          endpoint: "/api/comments"
+          csrf_token: "expired-csrf-token"
+          token_age_minutes: 61
+          token_max_age_minutes: 60
+        expected:
+          http_status: 403
+          error: "CSRF_TOKEN_EXPIRED"
+          comment_created: false
+        description: "CSRF token submitted after expiry window (e.g., 60 minutes) must be rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - csrf
+      - token-expiry
+      - replay-prevention
+
+  # ==========================================================================
+  # CSRF — SameSite Cookie Enforcement
+  # ==========================================================================
+  - name: "CSRF-04: SameSite cookie attribute enforcement"
+    description: >
+      Tests that session cookies are set with the SameSite attribute (Strict or
+      Lax) to prevent browsers from sending them in cross-origin requests,
+      providing defense-in-depth against CSRF.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. SameSite cookies are a browser-enforced CSRF defense. Without this attribute, older browsers or misconfigured clients may send cookies with cross-origin requests."
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+    technique_rationale: >
+      Equivalence partitioning classifies cookie configurations (SameSite=Strict,
+      Lax, None, absent). Decision table maps SameSite value x request origin x
+      HTTP method to cookie-sending behavior.
+    preconditions:
+      - "Application sets session cookies on authentication"
+      - "SameSite attribute is configured on cookies"
+    examples:
+      - input:
+          action: "login"
+          method: "POST"
+          endpoint: "/api/auth/login"
+          credentials: "valid"
+        expected:
+          set_cookie_header_contains: "SameSite=Lax"
+          set_cookie_header_contains_secure: true
+          set_cookie_header_contains_httponly: true
+        description: "Session cookie must include SameSite=Lax (or Strict), Secure, and HttpOnly flags."
+      - input:
+          action: "cross-origin-post"
+          origin: "https://evil.example.com"
+          method: "POST"
+          endpoint: "/api/comments"
+          target_origin: "https://app.example.com"
+          samesite_policy: "Lax"
+        expected:
+          session_cookie_sent: false
+          http_status: 401
+          authenticated: false
+        description: "Cross-origin POST with SameSite=Lax must not include session cookie. Server sees unauthenticated request."
+    decision_table:
+      conditions:
+        - "SameSite attribute value"
+        - "Request type"
+        - "Request origin"
+      actions:
+        - "Cookie sent by browser"
+        - "CSRF protection level"
+      rules:
+        - description: "SameSite=Strict, any cross-site request"
+          condition_values:
+            SameSite attribute value: "Strict"
+            Request type: "any"
+            Request origin: "cross-site"
+          expected_actions:
+            Cookie sent by browser: false
+            CSRF protection level: "full"
+        - description: "SameSite=Lax, cross-site POST"
+          condition_values:
+            SameSite attribute value: "Lax"
+            Request type: "POST"
+            Request origin: "cross-site"
+          expected_actions:
+            Cookie sent by browser: false
+            CSRF protection level: "state-changing protected"
+        - description: "SameSite=Lax, cross-site GET (top-level navigation)"
+          condition_values:
+            SameSite attribute value: "Lax"
+            Request type: "GET (top-level)"
+            Request origin: "cross-site"
+          expected_actions:
+            Cookie sent by browser: true
+            CSRF protection level: "GET only — safe if GET has no side effects"
+        - description: "SameSite=None, any cross-site request"
+          condition_values:
+            SameSite attribute value: "None"
+            Request type: "any"
+            Request origin: "cross-site"
+          expected_actions:
+            Cookie sent by browser: true
+            CSRF protection level: "none — requires CSRF token defense"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - csrf
+      - samesite
+      - cookie-security
+
+  # ==========================================================================
+  # CSRF — Referrer / Origin Checking
+  # ==========================================================================
+  - name: "CSRF-05: Origin and Referer header validation"
+    description: >
+      Tests that the server validates the Origin and/or Referer headers on
+      state-changing requests to reject cross-origin submissions as a
+      secondary CSRF defense layer.
+    type: security
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.25 -> medium. Origin/Referer checking is defense-in-depth. These headers can be stripped by privacy proxies, so it is not the primary defense, but it catches attacks when tokens fail."
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning classifies requests by origin header value (same-origin,
+      cross-origin, missing, null). Decision table maps origin/referer combinations
+      to acceptance decisions. Error guessing targets the "null" origin bypass.
+    preconditions:
+      - "Server is configured to check Origin/Referer headers"
+      - "Application has a defined list of allowed origins"
+    examples:
+      - input:
+          field: "comment"
+          payload: "Cross-origin comment"
+          method: "POST"
+          endpoint: "/api/comments"
+          origin_header: "https://evil.example.com"
+          referer_header: "https://evil.example.com/attack-page"
+          csrf_token: "valid-token"
+        expected:
+          http_status: 403
+          error: "ORIGIN_NOT_ALLOWED"
+          message: "Request origin is not in the allowed list"
+          comment_created: false
+        description: "Request from unauthorized origin must be rejected even if CSRF token is valid."
+      - input:
+          field: "comment"
+          payload: "No origin comment"
+          method: "POST"
+          endpoint: "/api/comments"
+          origin_header: null
+          referer_header: null
+          csrf_token: "valid-token"
+        expected:
+          http_status: 403
+          error: "ORIGIN_HEADER_MISSING"
+          comment_created: false
+        description: "Request with missing Origin and Referer headers must be rejected for state-changing operations."
+      - input:
+          field: "comment"
+          payload: "Null origin comment"
+          method: "POST"
+          endpoint: "/api/comments"
+          origin_header: "null"
+          referer_header: null
+          csrf_token: "valid-token"
+        expected:
+          http_status: 403
+          error: "ORIGIN_NOT_ALLOWED"
+          comment_created: false
+        description: "Origin: null (from sandboxed iframes, data: URIs) must not be treated as same-origin. Must be explicitly rejected."
+    decision_table:
+      conditions:
+        - "Origin header value"
+        - "Referer header value"
+        - "CSRF token valid"
+      actions:
+        - "Request accepted"
+        - "Error code"
+      rules:
+        - description: "Same origin + valid token -> accept"
+          condition_values:
+            Origin header value: "same-origin"
+            Referer header value: "same-origin"
+            CSRF token valid: true
+          expected_actions:
+            Request accepted: true
+            Error code: "N/A"
+        - description: "Cross origin + valid token -> reject"
+          condition_values:
+            Origin header value: "cross-origin"
+            Referer header value: "cross-origin"
+            CSRF token valid: true
+          expected_actions:
+            Request accepted: false
+            Error code: 403
+        - description: "Missing origin + valid token -> reject"
+          condition_values:
+            Origin header value: "missing"
+            Referer header value: "missing"
+            CSRF token valid: true
+          expected_actions:
+            Request accepted: false
+            Error code: 403
+        - description: "Null origin + valid token -> reject"
+          condition_values:
+            Origin header value: "null"
+            Referer header value: "missing"
+            CSRF token valid: true
+          expected_actions:
+            Request accepted: false
+            Error code: 403
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - csrf
+      - origin-check
+      - referer-check
+
+  # ==========================================================================
+  # Null Byte Injection — File Upload Path Traversal
+  # ==========================================================================
+  - name: "NullByte-01: Null byte in file upload name for extension bypass"
+    description: >
+      Tests whether a null byte (%00) in the uploaded filename can truncate
+      the filename at the filesystem level, bypassing file extension validation.
+      For example, uploading "malware.php%00.jpg" may pass a .jpg extension
+      check but be saved as "malware.php" on the filesystem.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 -> high. Null byte extension bypass can lead to arbitrary code execution on the server if a web shell is uploaded. While the attack surface is limited to file upload, the consequence is complete server compromise."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the null byte truncation vulnerability in languages
+      that use C-style strings. Equivalence partitioning classifies filenames by
+      the presence and position of null bytes.
+    preconditions:
+      - "Application has a file upload endpoint"
+      - "Server-side extension validation is in place"
+      - "Uploaded files are stored on a filesystem"
+    examples:
+      - input:
+          field: "file_upload"
+          filename: "shell.php%00.jpg"
+          content_type: "image/jpeg"
+          method: "POST"
+          endpoint: "/api/upload"
+        expected:
+          http_status: 400
+          error: "INVALID_FILENAME"
+          message: "Filename contains illegal characters"
+          file_saved: false
+          null_byte_stripped: true
+        description: "Null byte in filename must be detected and rejected. File must not be saved with the truncated name."
+      - input:
+          field: "file_upload"
+          filename: "../../etc/passwd%00.png"
+          content_type: "image/png"
+          method: "POST"
+          endpoint: "/api/upload"
+        expected:
+          http_status: 400
+          error: "INVALID_FILENAME"
+          message: "Filename contains illegal path characters"
+          file_saved: false
+          path_traversal_blocked: true
+        description: "Combined path traversal and null byte injection. Both the ../ traversal and null byte must be rejected."
+      - input:
+          field: "file_upload"
+          filename: "report.pdf\x00.exe"
+          content_type: "application/pdf"
+          method: "POST"
+          endpoint: "/api/upload"
+        expected:
+          http_status: 400
+          error: "INVALID_FILENAME"
+          file_saved: false
+        description: "Raw null byte (not URL-encoded) in filename must also be caught."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - null-byte
+      - file-upload
+      - path-traversal
+      - critical-path
+
+  - name: "NullByte-02: Null byte in file upload path for directory traversal"
+    description: >
+      Tests whether null bytes injected into file path parameters can bypass
+      directory restriction checks and write files to arbitrary locations
+      on the server filesystem.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 -> high. Directory traversal via null byte can overwrite critical system files or place web shells in executable directories. The server could be fully compromised."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the combination of path traversal sequences with null
+      bytes. Equivalence partitioning classifies upload paths as safe (within upload
+      directory) vs. malicious (traversing outside).
+    preconditions:
+      - "Application accepts a directory/path parameter for file storage"
+      - "Server-side path validation restricts upload directory"
+    examples:
+      - input:
+          field: "file_upload"
+          filename: "avatar.jpg"
+          upload_path: "../../../var/www/html/uploads%00/safe_dir/"
+          method: "POST"
+          endpoint: "/api/upload"
+        expected:
+          http_status: 400
+          error: "INVALID_PATH"
+          message: "Upload path contains illegal characters or traversal sequences"
+          file_saved: false
+          actual_save_directory: "restricted to configured upload root"
+        description: "Path traversal with null byte termination must not write to arbitrary directories. Upload path must be canonicalized and verified."
+      - input:
+          field: "file_upload"
+          filename: "config.yml"
+          upload_path: "%00../../app/config/"
+          method: "POST"
+          endpoint: "/api/upload"
+        expected:
+          http_status: 400
+          error: "INVALID_PATH"
+          file_saved: false
+          config_overwritten: false
+        description: "Leading null byte with path traversal must not overwrite application configuration files."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - null-byte
+      - path-traversal
+      - directory-traversal
+      - file-upload
+
+  # ==========================================================================
+  # Null Byte Injection — Log Injection
+  # ==========================================================================
+  - name: "NullByte-03: Null byte injection in user input for log poisoning"
+    description: >
+      Tests whether null bytes in user input fields (name, email, comment, search)
+      can truncate or manipulate log entries, enabling log injection, log
+      forgery, or log analysis evasion.
+    type: security
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3. Average: 2.25 -> medium. Log injection can hide attack evidence, forge audit trails, or inject false entries that mislead incident responders. While not directly exploitable for code execution, it undermines security monitoring."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the use of null bytes to truncate log entries and
+      inject fake log lines. Equivalence partitioning classifies input by null
+      byte position (beginning, middle, end) and its effect on logging.
+    preconditions:
+      - "Application logs user input in server-side log files"
+      - "Logs are used for security monitoring and audit trails"
+    examples:
+      - input:
+          field: "name"
+          payload: "legitimate_user%00\n2026-03-14 INFO Login successful admin@example.com"
+          method: "POST"
+          parameter: "name"
+        expected:
+          http_status: 422
+          error: "VALIDATION_ERROR"
+          message: "Name contains invalid control characters"
+          log_entry_injected: false
+          null_byte_sanitized: true
+          newline_sanitized: true
+        description: "Null byte followed by newline and fake log entry must be rejected. Both null bytes and newlines must be stripped from log-destined input."
+      - input:
+          field: "email"
+          payload: "user@example.com%00\n2026-03-14 ERROR SQL syntax error near 'DROP TABLE'"
+          method: "POST"
+          parameter: "email"
+        expected:
+          http_status: 422
+          error: "INVALID_EMAIL_FORMAT"
+          log_entry_injected: false
+          fake_error_logged: false
+        description: "Null byte in email field must not create fake error log entries that could trigger false alarms or mask real attacks."
+      - input:
+          field: "search"
+          payload: "normal search%00%0AAdmin action: DELETE USER id=1"
+          method: "GET"
+          parameter: "q"
+        expected:
+          http_status: 200
+          log_entry_sanitized: true
+          fake_admin_action_logged: false
+          search_query_logged_as_single_line: true
+        description: "Null byte + newline in search query must not inject fake admin action entries into the log. Log output must be single-line sanitized."
+      - input:
+          field: "comment"
+          payload: "Nice post!\x00\nDEBUG: Database password = hunter2"
+          method: "POST"
+          parameter: "comment_body"
+        expected:
+          http_status: 201
+          log_sanitized: true
+          fake_debug_line_logged: false
+          comment_stored_safely: true
+        description: "Null byte in comment body must not inject fake debug output into logs that could mislead developers or expose false sensitive data."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - null-byte
+      - log-injection
+      - log-poisoning
+      - audit-trail
+
+  - name: "NullByte-04: Null byte in URL parameter for filter bypass"
+    description: >
+      Tests whether null bytes in URL query parameters can bypass security
+      filters, WAF rules, or input validation by exploiting differences in
+      how the web server, application framework, and backend interpret null
+      bytes.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 -> high. Null byte filter bypasses can enable subsequent attacks (XSS, SQLi, path traversal) that would otherwise be blocked. This is a meta-vulnerability that amplifies other attack vectors."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      Error guessing anticipates framework-specific null byte handling differences.
+      Equivalence partitioning classifies inputs by null byte encoding variants.
+      Cause-effect maps how null bytes at different positions affect filter behavior.
+    preconditions:
+      - "Application has input validation or WAF rules"
+      - "Backend processes URL parameters"
+    examples:
+      - input:
+          field: "search"
+          payload: "%00<script>alert('XSS')</script>"
+          method: "GET"
+          parameter: "q"
+        expected:
+          http_status: 400
+          error: "INVALID_INPUT"
+          xss_payload_filtered: true
+          null_byte_did_not_bypass_filter: true
+        description: "Leading null byte must not cause the XSS filter to skip the rest of the input. Both null byte and XSS payload must be caught."
+      - input:
+          field: "search"
+          payload: "SELECT%00*%00FROM%00users"
+          method: "GET"
+          parameter: "q"
+        expected:
+          http_status: 400
+          error: "INVALID_INPUT"
+          sql_keywords_detected: true
+          null_bytes_between_tokens_did_not_bypass: true
+        description: "Null bytes between SQL keywords must not evade SQL injection detection. Filter must normalize null bytes before keyword matching."
+      - input:
+          field: "email"
+          payload: "admin%00@evil.com"
+          method: "POST"
+          parameter: "email"
+        expected:
+          http_status: 422
+          error: "INVALID_EMAIL_FORMAT"
+          null_byte_truncation_prevented: true
+        description: "Null byte in email must not truncate to 'admin' and bypass domain validation."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - null-byte
+      - filter-bypass
+      - defense-evasion
+
+  # ==========================================================================
+  # Cross-cutting: Input validation state machine
+  # ==========================================================================
+  - name: "INPUT-01: Input validation pipeline state transitions"
+    description: >
+      Tests the complete input validation pipeline as a state machine: raw input
+      arrives, passes through decoding, normalization, validation, sanitization,
+      and finally storage or rendering. Verifies that attack payloads are caught
+      at the appropriate stage.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. The validation pipeline is the primary defense boundary. If any stage is skipped, misordered, or implemented incorrectly, all attack vectors become exploitable."
+    techniques:
+      - state_transition
+      - cause_effect
+    technique_rationale: >
+      State transition models the validation pipeline stages. Cause-effect maps
+      how different payload types interact with each pipeline stage.
+    preconditions:
+      - "Application has a multi-stage input processing pipeline"
+    state_transition:
+      states:
+        - "raw_input"
+        - "decoded"
+        - "normalized"
+        - "validated"
+        - "sanitized"
+        - "rejected"
+        - "stored"
+        - "rendered"
+      transitions:
+        - from: "raw_input"
+          to: "decoded"
+          trigger: "URL decode, HTML entity decode, Unicode normalization"
+          guard: "Input received by the server"
+        - from: "decoded"
+          to: "normalized"
+          trigger: "Whitespace trimming, case normalization, Unicode NFKC"
+          guard: "Decoding completed without error"
+        - from: "normalized"
+          to: "validated"
+          trigger: "Schema validation, type checking, length limits, format checks"
+          guard: "Input passes all validation rules"
+        - from: "normalized"
+          to: "rejected"
+          trigger: "Validation failure"
+          guard: "Input violates any validation rule"
+        - from: "validated"
+          to: "sanitized"
+          trigger: "HTML encoding, SQL parameterization, null byte stripping"
+          guard: "Input passed validation but may contain special characters"
+        - from: "sanitized"
+          to: "stored"
+          trigger: "Parameterized query execution"
+          guard: "Database write succeeds"
+        - from: "sanitized"
+          to: "rendered"
+          trigger: "Output encoding applied, CSP headers set"
+          guard: "Response is being generated"
+    examples:
+      - input:
+          field: "comment"
+          payload: "<script>alert('xss')</script>"
+          pipeline_stages_traversed:
+            - "raw_input -> decoded (HTML entities resolved)"
+            - "decoded -> normalized (whitespace trimmed)"
+            - "normalized -> rejected (HTML tags in comment not allowed)"
+        expected:
+          final_state: "rejected"
+          http_status: 422
+          pipeline_completed: false
+          rejected_at_stage: "validation"
+        description: "XSS payload caught at validation stage. Pipeline correctly rejects before sanitization or storage."
+      - input:
+          field: "name"
+          payload: "John O'Brien"
+          pipeline_stages_traversed:
+            - "raw_input -> decoded"
+            - "decoded -> normalized"
+            - "normalized -> validated (apostrophe allowed in names)"
+            - "validated -> sanitized (SQL parameterization)"
+            - "sanitized -> stored"
+        expected:
+          final_state: "stored"
+          stored_value: "John O'Brien"
+          sql_injection_prevented: true
+          apostrophe_preserved: true
+        description: "Legitimate input with special characters (apostrophe in name) passes through the full pipeline. Parameterization prevents SQL injection while preserving the value."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - input-validation
+      - pipeline
+      - state-machine
+      - defense-in-depth
+
+  # ==========================================================================
+  # Cross-cutting: Security header validation
+  # ==========================================================================
+  - name: "HEADERS-01: Security response headers present on all responses"
+    description: >
+      Tests that all HTTP responses include the required security headers that
+      provide defense-in-depth against XSS, CSRF, clickjacking, and content
+      type sniffing attacks.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 2, Detectability: 1. Average: 2.25 -> medium. Security headers are passive defenses that reduce attack surface. Missing headers do not directly cause vulnerabilities but remove important defense layers. However, upgrading to high because they affect every response."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning classifies responses by endpoint type (HTML page,
+      API JSON, file download) to verify headers are set appropriately. Error
+      guessing targets commonly missing headers.
+    preconditions:
+      - "Application is deployed and serving HTTP responses"
+    examples:
+      - input:
+          request: "GET /api/search?q=test"
+          method: "GET"
+        expected:
+          headers_present:
+            Content-Security-Policy: "script-src 'self'; object-src 'none'; base-uri 'self'"
+            X-Content-Type-Options: "nosniff"
+            X-Frame-Options: "DENY"
+            Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+            Referrer-Policy: "strict-origin-when-cross-origin"
+            Permissions-Policy: "camera=(), microphone=(), geolocation=()"
+          headers_absent:
+            - "X-Powered-By"
+            - "Server (or generic value)"
+        description: "All security headers must be present. Server identification headers must be removed or genericized."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security-headers
+      - csp
+      - defense-in-depth
+
+  # ==========================================================================
+  # Combinatorial: Multi-vector combined attacks
+  # ==========================================================================
+  - name: "COMBO-01: Combined XSS and SQL injection in same request"
+    description: >
+      Tests defense against a request that combines multiple attack vectors
+      simultaneously — XSS in one field and SQL injection in another — to
+      test whether validation is applied independently per field.
+    type: combinatorial
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.5 -> high. Combined attacks test whether per-field validation is truly independent. If one field's processing affects another's, a combined attack could bypass defenses."
+    techniques:
+      - pairwise
+      - error_guessing
+    technique_rationale: >
+      Pairwise testing covers combinations of attack vectors across multiple input
+      fields. Error guessing targets the possibility that processing one malicious
+      field may affect validation of another.
+    preconditions:
+      - "Endpoint accepts multiple input fields simultaneously"
+    examples:
+      - input:
+          name: "<script>alert('XSS')</script>"
+          email: "' OR 1=1 --"
+          comment: "Normal comment text"
+          method: "POST"
+          endpoint: "/api/comments"
+        expected:
+          http_status: 422
+          errors:
+            - field: "name"
+              error: "VALIDATION_ERROR"
+              message: "Name contains invalid characters"
+            - field: "email"
+              error: "INVALID_EMAIL_FORMAT"
+              message: "Please provide a valid email address"
+          comment_created: false
+          all_fields_validated: true
+          validation_short_circuit: false
+        description: "Both XSS in name and SQLi in email must be caught. Validation must not short-circuit after the first invalid field — all fields must be validated and all errors reported."
+      - input:
+          name: "Test User"
+          email: "test@example.com"
+          search: "' UNION SELECT * FROM users --"
+          comment: "<svg onload=alert(document.cookie)>"
+          method: "POST"
+          endpoint: "/api/comments"
+        expected:
+          http_status: 422
+          errors_count: 2
+          all_malicious_fields_rejected: true
+          legitimate_fields_preserved: true
+        description: "In a request with mixed legitimate and malicious fields, all malicious fields must be identified. Legitimate fields must not be falsely rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - combined-attack
+      - multi-vector
+      - pairwise
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As a security engineer, I want all user input fields (name, email, search,
+    comment) to be protected against XSS, SQL injection, CSRF, and null byte
+    injection attacks so that the web application maintains confidentiality,
+    integrity, and availability for all users.
+  rules:
+    - rule_name: "All user input must be sanitized or rejected before processing"
+      examples:
+        - "XSS script tag in search field -> HTML-entity encoded output or 400 rejection"
+        - "XSS event handler in name field -> sanitized output or 422 rejection"
+        - "XSS SVG onload in comment -> sanitized before storage and rendering"
+        - "XSS polyglot payload in comment -> rejected with 400 as malicious input"
+        - "XSS DOM-based via URL fragment -> client-side sanitization via DOMPurify/textContent"
+        - "XSS javascript: protocol in email -> rejected as invalid email format"
+        - "XSS encoded tag bypass in name -> decoded then rejected/sanitized"
+    - rule_name: "SQL queries must use parameterized statements for all user input"
+      examples:
+        - "SQLi tautology in email -> 401 generic credential error, no auth bypass"
+        - "SQLi UNION SELECT in email -> no fabricated credential rows returned"
+        - "SQLi UNION SELECT in search -> only legitimate search results returned"
+        - "SQLi error-based in name -> generic error, no SQL details leaked"
+        - "SQLi boolean-blind in search -> true/false conditions produce identical responses"
+        - "SQLi time-based blind in comment -> no measurable response delay"
+        - "SQLi second-order via stored name -> parameterized on retrieval too"
+    - rule_name: "CSRF defenses must prevent cross-origin state changes"
+      examples:
+        - "POST without CSRF token -> 403 rejection"
+        - "POST with invalid CSRF token -> 403 rejection"
+        - "CSRF token from different user session -> 403 rejection"
+        - "Expired or already-used CSRF token -> 403 rejection"
+        - "Session cookie without SameSite attribute -> must have SameSite=Lax or Strict"
+        - "Cross-origin request with wrong Origin header -> 403 rejection"
+        - "Request with null or missing Origin header -> 403 rejection"
+    - rule_name: "Null bytes must be stripped or rejected in all input contexts"
+      examples:
+        - "Null byte in filename (extension bypass) -> 400 rejection, file not saved"
+        - "Null byte in upload path (directory traversal) -> 400 rejection"
+        - "Null byte in user input (log injection) -> sanitized, no fake log entries"
+        - "Null byte between SQL keywords (filter bypass) -> detected and blocked"
+        - "Null byte before XSS payload (filter bypass) -> both null byte and XSS caught"
+    - rule_name: "Error responses must not leak implementation details"
+      examples:
+        - "SQL error -> generic 'validation error' message, no SQL syntax exposed"
+        - "Database table names -> never present in any error response"
+        - "Server technology stack -> X-Powered-By and Server headers removed"
+        - "File system paths -> never exposed in error messages"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

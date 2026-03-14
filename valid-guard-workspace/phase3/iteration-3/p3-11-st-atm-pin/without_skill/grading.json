@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-11-st-atm-pin",
+  "eval_name": "ATM PIN entry state machine",
+  "category": "state_transition",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "States: idle, waiting_for_pin, account_access, card_retained",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: idle"
+    },
+    {
+      "text": "Transition: incorrect PIN → retry (up to 3)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('3', 'attempt')"
+    },
+    {
+      "text": "Transition: 3rd failure → card retained/locked",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "Guard condition on PIN attempts counter",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: guard"
+    },
+    {
+      "text": "Uses state_transition technique",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: State Transition"
+    },
+    {
+      "text": "Tests timeout/card ejection",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: timeout"
+    },
+    {
+      "text": "Has state transition diagram/table",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: states:"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 1/2 required patterns"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "total": 17,
+    "pass_rate": 0.353,
+    "weighted_score": 0.364,
+    "content_score": 0.8,
+    "structural_score": 0.0
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-28-domain-payment-recovery",
+  "eval_name": "Payment failure recovery flow",
+  "category": "domain_specific",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Insufficient funds scenario",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Fund"
+    },
+    {
+      "text": "Declined card scenario",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Decline"
+    },
+    {
+      "text": "Gateway error/timeout scenario",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('network', 'timeout')"
+    },
+    {
+      "text": "User guidance to resolve",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "Retry/alternative payment method",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('different', 'method')"
+    },
+    {
+      "text": "Transaction rollback/compensation",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: rollback"
+    },
+    {
+      "text": "Notification of failure",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('message', 'decline')"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 1/2 required patterns"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "total": 17,
+    "pass_rate": 0.353,
+    "weighted_score": 0.391,
+    "content_score": 0.818,
+    "structural_score": 0.0
+  }
+}

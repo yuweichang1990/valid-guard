@@ -1,0 +1,148 @@
+{
+  "eval_key": "p3-05-brownfield-gap",
+  "eval_name": "Brownfield gap analysis on order_processor",
+  "category": "brownfield",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Identifies existing 7 tests",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('Existing', '7')"
+    },
+    {
+      "text": "Gap: tax calculation not verified",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: verif"
+    },
+    {
+      "text": "Gap: shipping threshold boundary ($50)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('threshold', 'boundary')"
+    },
+    {
+      "text": "Gap: request_refund untested",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('request_refund', 'UNCOVER')"
+    },
+    {
+      "text": "Gap: inventory restoration on cancel",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('inventory', 'restor')"
+    },
+    {
+      "text": "Gap: MAX_ITEMS boundary (100/101)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('MAX_ITEM', 'boundary')"
+    },
+    {
+      "text": "Gap: discount boundaries (0%, 100%)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: 0"
+    },
+    {
+      "text": "Gap: unknown item validation",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Unknown"
+    },
+    {
+      "text": "Gap: zero/negative quantity",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('Zero', 'quantit')"
+    },
+    {
+      "text": "Gap: full state transition coverage",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: lifecycle"
+    },
+    {
+      "text": "Marks scenarios as covered/uncovered",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('status: covered', '')"
+    },
+    {
+      "text": "Risk prioritization of gaps",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priorit"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: feature:"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Impact"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: technique_rationale:"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: covered"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priority: 1"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: test_ref:"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: happy_path"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence_partitioning"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: example_mapping:"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: metadata:"
+    }
+  ],
+  "summary": {
+    "passed": 22,
+    "total": 22,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 1.0
+  }
+}

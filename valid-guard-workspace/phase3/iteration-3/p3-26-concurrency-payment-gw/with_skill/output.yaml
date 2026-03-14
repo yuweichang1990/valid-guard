@@ -1,0 +1,1792 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T00:00:00Z
+# Source: natural language
+
+feature: "Payment Gateway Concurrency and Resilience"
+
+feature_description: >
+  A payment gateway handling hundreds of concurrent transactions must maintain
+  data consistency, prevent double-charges, and meet SLA requirements (p99 < 500ms).
+  Testing covers 500 concurrent payment submissions, transaction isolation under load,
+  response time degradation patterns, connection pool exhaustion, deadlock detection
+  and recovery, partial failure handling (gateway up, bank down), and graceful
+  degradation when approaching capacity. The system must remain correct under all
+  load profiles and degrade predictably rather than catastrophically.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ===========================================================================
+  # SCENARIO 1: 500 Concurrent Payment Submissions
+  # ===========================================================================
+  - name: "500 concurrent payment submissions - all unique transactions"
+    description: >
+      Submit 500 unique, valid payment requests simultaneously. Every transaction
+      must be processed exactly once, with no duplicates, no lost transactions,
+      and all results returned within SLA. Verifies the system's ability to handle
+      peak concurrent load without data loss or corruption.
+    type: performance
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Core payment processing, direct financial operations.
+      Frequency: 3 - Peak load scenario expected during sales events.
+      Consequence: 3 - Financial loss if transactions are lost or duplicated.
+      Detectability: 3 - Silent data loss may go unnoticed until reconciliation.
+      Average: 3.0 -> high.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      BVA applied to the concurrency threshold (500 is the specified peak).
+      EG applied because concurrent payment processing is a known area for
+      race conditions, lost updates, and silent failures.
+    preconditions:
+      - "Payment gateway is running and healthy"
+      - "Database connection pool is configured for at least 500 connections"
+      - "Bank simulator/mock is configured to accept all valid payments"
+      - "Each payment has a unique idempotency key"
+    examples:
+      - input:
+          concurrent_requests: 500
+          payment_amount_range: [1.00, 9999.99]
+          all_unique_idempotency_keys: true
+        expected:
+          successful_transactions: 500
+          duplicate_charges: 0
+          lost_transactions: 0
+          p99_latency_ms: "<500"
+        description: "All 500 concurrent unique payments processed exactly once within SLA"
+      - input:
+          concurrent_requests: 500
+          payment_amount_range: [1.00, 9999.99]
+          include_duplicate_idempotency_keys: 50
+        expected:
+          successful_transactions: 450
+          deduplicated_responses: 50
+          duplicate_charges: 0
+        description: "500 requests with 50 duplicate idempotency keys - duplicates rejected gracefully"
+      - input:
+          concurrent_requests: 500
+          payment_amount_range: [0.01, 0.01]
+          all_unique_idempotency_keys: true
+        expected:
+          successful_transactions: 500
+          total_charged: 5.00
+        description: "500 concurrent minimum-amount payments to verify small transaction handling under load"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - load-test
+      - peak-capacity
+      - data-consistency
+
+  - name: "Concurrent submissions at boundary thresholds"
+    description: >
+      Test concurrency at boundary levels around the 500 target: below capacity,
+      at capacity, and above capacity. Verifies the system behavior at each
+      threshold and identifies the exact point where degradation begins.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Core payment path under stress.
+      Frequency: 2 - Boundary conditions occur during scaling events.
+      Consequence: 3 - Missed boundary handling causes cascading failures.
+      Detectability: 2 - Degradation may be gradual and hard to pinpoint.
+      Average: 2.5 -> high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA tests the exact concurrency limits (499, 500, 501, and beyond).
+      EP partitions the concurrency space into under-capacity, at-capacity,
+      and over-capacity classes.
+    preconditions:
+      - "Payment gateway is running and healthy"
+      - "Monitoring and metrics collection is active"
+    examples:
+      - input:
+          concurrent_requests: 1
+          scenario: "single request baseline"
+        expected:
+          success_rate: 100
+          p99_latency_ms: "<100"
+        description: "Single request baseline for latency comparison"
+      - input:
+          concurrent_requests: 100
+          scenario: "well below capacity"
+        expected:
+          success_rate: 100
+          p99_latency_ms: "<200"
+        description: "100 concurrent requests - well within capacity"
+      - input:
+          concurrent_requests: 499
+          scenario: "just below stated capacity"
+        expected:
+          success_rate: 100
+          p99_latency_ms: "<500"
+        description: "499 concurrent requests - one below stated capacity"
+      - input:
+          concurrent_requests: 500
+          scenario: "at stated capacity"
+        expected:
+          success_rate: 100
+          p99_latency_ms: "<500"
+        description: "500 concurrent requests - at stated capacity, must meet SLA"
+      - input:
+          concurrent_requests: 501
+          scenario: "one above stated capacity"
+        expected:
+          success_rate: ">=99"
+          graceful_rejection: true
+          p99_latency_ms: "<750"
+        description: "501 concurrent requests - one above capacity, graceful handling expected"
+      - input:
+          concurrent_requests: 750
+          scenario: "50% over capacity"
+        expected:
+          accepted_requests_handled_correctly: true
+          rejected_requests_get_429_or_503: true
+          no_data_corruption: true
+        description: "750 concurrent requests - significantly over capacity, verify graceful degradation"
+      - input:
+          concurrent_requests: 1000
+          scenario: "double capacity"
+        expected:
+          system_remains_stable: true
+          no_crash: true
+          recovery_within_seconds: "<30"
+        description: "1000 concurrent requests - double capacity, verify system does not crash"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - boundary
+      - capacity-planning
+
+  # ===========================================================================
+  # SCENARIO 2: Transaction Isolation Under Load
+  # ===========================================================================
+  - name: "Transaction isolation - no cross-contamination under concurrent load"
+    description: >
+      Verify that concurrent transactions maintain strict isolation. Each
+      transaction's amount, customer ID, merchant ID, and payment method
+      must not leak into or corrupt another concurrent transaction. This tests
+      database isolation levels and application-level data handling.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Data integrity of financial transactions.
+      Frequency: 3 - Every concurrent operation tests isolation.
+      Consequence: 3 - Cross-contamination means charging wrong customer or wrong amount.
+      Detectability: 3 - Silent corruption may go undetected until audit.
+      Average: 3.0 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions transactions into different customer/merchant combinations
+      to detect cross-contamination. EG anticipates common isolation failures
+      like shared mutable state, incorrect thread-local storage, and connection reuse bugs.
+    preconditions:
+      - "Payment gateway is running with production-equivalent isolation settings"
+      - "Database transaction isolation level is READ COMMITTED or higher"
+      - "Each transaction uses distinct customer and merchant identifiers"
+    examples:
+      - input:
+          concurrent_requests: 200
+          distinct_customers: 200
+          distinct_amounts: true
+        expected:
+          each_transaction_charged_to_correct_customer: true
+          each_transaction_has_correct_amount: true
+          no_cross_customer_data_leakage: true
+        description: "200 concurrent transactions for 200 different customers - verify no cross-contamination"
+      - input:
+          concurrent_requests: 100
+          same_customer: true
+          distinct_idempotency_keys: true
+          distinct_amounts: true
+        expected:
+          all_transactions_recorded_individually: true
+          customer_balance_equals_sum_of_amounts: true
+        description: "100 concurrent transactions for same customer - verify all recorded correctly"
+      - input:
+          concurrent_requests: 300
+          mix_of_currencies: ["USD", "EUR", "GBP", "JPY"]
+          distinct_amounts: true
+        expected:
+          each_transaction_uses_correct_currency: true
+          no_currency_mixing: true
+        description: "300 concurrent multi-currency transactions - verify currency isolation"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - data-integrity
+      - isolation
+      - financial-correctness
+
+  - name: "Read-write conflict during concurrent balance updates"
+    description: >
+      When multiple transactions update the same account balance simultaneously,
+      verify that the final balance reflects all successful transactions without
+      lost updates or phantom reads. Tests optimistic/pessimistic locking behavior.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Direct financial impact on account balances.
+      Frequency: 3 - Common in shared-account or merchant settlement scenarios.
+      Consequence: 3 - Lost updates mean money disappears silently.
+      Detectability: 3 - Balance discrepancies may only surface during reconciliation.
+      Average: 3.0 -> high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST models the account balance state through concurrent modification attempts.
+      EG anticipates lost-update anomalies, phantom reads, and dirty reads
+      that are common under concurrent write load.
+    preconditions:
+      - "Shared test account with known initial balance"
+      - "Concurrent transactions targeting the same account"
+    examples:
+      - input:
+          initial_balance: 10000.00
+          concurrent_debits: 10
+          debit_amount_each: 100.00
+        expected:
+          final_balance: 9000.00
+          successful_debits: 10
+          lost_updates: 0
+        description: "10 concurrent $100 debits from $10000 account - verify no lost updates"
+      - input:
+          initial_balance: 500.00
+          concurrent_debits: 10
+          debit_amount_each: 100.00
+        expected:
+          successful_debits: 5
+          rejected_debits_insufficient_funds: 5
+          final_balance: 0.00
+          no_negative_balance: true
+        description: "10 concurrent $100 debits from $500 account - verify correct rejection and no overdraft"
+    state_transition:
+      states:
+        - "sufficient_balance"
+        - "partial_balance"
+        - "zero_balance"
+        - "overdraft_attempted"
+      transitions:
+        - from: "sufficient_balance"
+          to: "sufficient_balance"
+          trigger: "debit processed"
+          guard: "remaining balance >= debit amount"
+        - from: "sufficient_balance"
+          to: "partial_balance"
+          trigger: "debit processed"
+          guard: "remaining balance < next debit amount but > 0"
+        - from: "partial_balance"
+          to: "zero_balance"
+          trigger: "final debit clears remaining balance"
+          guard: "remaining balance == debit amount"
+        - from: "partial_balance"
+          to: "overdraft_attempted"
+          trigger: "debit request exceeds balance"
+          guard: "remaining balance < debit amount"
+        - from: "overdraft_attempted"
+          to: "partial_balance"
+          trigger: "debit rejected"
+          guard: "balance unchanged after rejection"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - isolation
+      - lost-update
+      - balance-integrity
+
+  # ===========================================================================
+  # SCENARIO 3: Response Time Degradation Patterns
+  # ===========================================================================
+  - name: "Response time degradation under increasing load"
+    description: >
+      Gradually increase concurrent load from 10% to 150% of capacity and
+      measure p50, p95, and p99 response times at each step. Identify the
+      inflection point where latency begins to degrade, and verify that
+      degradation is linear (not exponential) up to capacity.
+    type: performance
+    risk: high
+    risk_rationale: >
+      Impact: 3 - SLA compliance directly affects business contracts.
+      Frequency: 3 - Load varies continuously in production.
+      Consequence: 3 - SLA breach triggers financial penalties and customer churn.
+      Detectability: 2 - Latency degradation is measurable but requires monitoring.
+      Average: 2.75 -> high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA tests at specific load thresholds where degradation is expected.
+      EP partitions load levels into under-capacity, near-capacity, at-capacity,
+      and over-capacity equivalence classes with distinct expected behaviors.
+    preconditions:
+      - "Load generation tool configured (e.g., k6, Locust, Gatling)"
+      - "Metrics collection active for p50, p95, p99 latencies"
+      - "Warm-up period completed before measurement begins"
+      - "Stable baseline latency established"
+    examples:
+      - input:
+          load_profile: "step_increase"
+          steps: [50, 100, 200, 300, 400, 450, 500]
+          duration_per_step_seconds: 60
+          ramp_up_seconds: 10
+        expected:
+          p99_at_50_concurrent: "<150ms"
+          p99_at_200_concurrent: "<250ms"
+          p99_at_400_concurrent: "<400ms"
+          p99_at_500_concurrent: "<500ms"
+          degradation_pattern: "linear_or_sublinear"
+        description: "Step-increase load test measuring latency degradation curve"
+      - input:
+          load_profile: "sustained_peak"
+          concurrent_requests: 500
+          duration_seconds: 300
+        expected:
+          p99_remains_below: "500ms"
+          no_latency_spikes_above: "1000ms"
+          latency_variance_coefficient: "<0.3"
+        description: "5-minute sustained peak load - verify latency stability over time"
+      - input:
+          load_profile: "spike"
+          baseline_concurrent: 100
+          spike_concurrent: 500
+          spike_duration_seconds: 30
+          return_to_baseline: true
+        expected:
+          spike_p99: "<500ms"
+          recovery_p99_within: "10s"
+          post_spike_p99: "<150ms"
+        description: "Traffic spike from 100 to 500 and back - verify recovery time"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - performance
+      - latency
+      - sla
+      - degradation-pattern
+
+  - name: "SLA breach detection at p99 threshold"
+    description: >
+      Verify that the system accurately detects when p99 latency exceeds
+      the 500ms SLA threshold and triggers appropriate alerts. Test that
+      the monitoring system correctly calculates p99 under various load
+      distributions and does not produce false positives or false negatives.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 - SLA breach detection is critical for contractual compliance.
+      Frequency: 2 - Monitoring runs continuously but breaches are occasional.
+      Consequence: 3 - Undetected SLA breach means contract violations.
+      Detectability: 2 - The monitoring system itself must be validated.
+      Average: 2.5 -> high.
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      BVA tests the exact 500ms boundary (499ms, 500ms, 501ms).
+      DT covers the combination of load level, latency percentile, and alert action.
+    preconditions:
+      - "Alerting system is configured with 500ms p99 threshold"
+      - "Metrics pipeline has sub-second granularity"
+    examples:
+      - input:
+          p99_latency_ms: 499
+          load_concurrent: 500
+        expected:
+          sla_breach_alert: false
+          status: "healthy"
+        description: "p99 at 499ms - just below SLA threshold, no alert"
+      - input:
+          p99_latency_ms: 500
+          load_concurrent: 500
+        expected:
+          sla_breach_alert: false
+          status: "healthy"
+        description: "p99 at exactly 500ms - at SLA boundary, no breach"
+      - input:
+          p99_latency_ms: 501
+          load_concurrent: 500
+        expected:
+          sla_breach_alert: true
+          status: "warning"
+        description: "p99 at 501ms - just above SLA threshold, alert triggered"
+    decision_table:
+      conditions:
+        - "p99_latency_vs_sla"
+        - "load_level_vs_capacity"
+        - "sustained_duration"
+      actions:
+        - "alert_level"
+        - "auto_scale_trigger"
+        - "traffic_shed"
+      rules:
+        - description: "Under SLA, under capacity - all clear"
+          condition_values:
+            p99_latency_vs_sla: "below"
+            load_level_vs_capacity: "under"
+            sustained_duration: "any"
+          expected_actions:
+            alert_level: "none"
+            auto_scale_trigger: false
+            traffic_shed: false
+        - description: "Over SLA, under capacity - investigate latency"
+          condition_values:
+            p99_latency_vs_sla: "above"
+            load_level_vs_capacity: "under"
+            sustained_duration: ">60s"
+          expected_actions:
+            alert_level: "warning"
+            auto_scale_trigger: false
+            traffic_shed: false
+        - description: "Over SLA, at capacity - scale up"
+          condition_values:
+            p99_latency_vs_sla: "above"
+            load_level_vs_capacity: "at"
+            sustained_duration: ">30s"
+          expected_actions:
+            alert_level: "critical"
+            auto_scale_trigger: true
+            traffic_shed: false
+        - description: "Over SLA, over capacity - scale and shed"
+          condition_values:
+            p99_latency_vs_sla: "above"
+            load_level_vs_capacity: "over"
+            sustained_duration: ">10s"
+          expected_actions:
+            alert_level: "critical"
+            auto_scale_trigger: true
+            traffic_shed: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - sla
+      - monitoring
+      - alerting
+      - boundary
+
+  # ===========================================================================
+  # SCENARIO 4: Connection Pool Exhaustion
+  # ===========================================================================
+  - name: "Connection pool exhaustion under sustained high load"
+    description: >
+      Verify system behavior when the database connection pool is fully
+      exhausted. Transactions should queue with bounded wait times,
+      return appropriate errors after timeout, and the pool should recover
+      once load decreases. No connection leaks should occur.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Connection pool exhaustion halts all payment processing.
+      Frequency: 2 - Occurs during sustained peak load or connection leaks.
+      Consequence: 3 - Complete service outage for payment processing.
+      Detectability: 2 - Pool exhaustion is detectable via metrics but impact is immediate.
+      Average: 2.5 -> high.
+    techniques:
+      - boundary_value
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      BVA tests at pool size boundaries (pool_size-1, pool_size, pool_size+1 requests).
+      ST models pool states (available, partial, exhausted, recovering).
+      EG anticipates connection leaks, zombie connections, and failure to return connections.
+    preconditions:
+      - "Database connection pool configured with known max size (e.g., 50)"
+      - "Connection pool metrics are exposed (active, idle, waiting counts)"
+      - "Connection acquisition timeout is configured (e.g., 5 seconds)"
+    examples:
+      - input:
+          pool_max_size: 50
+          concurrent_long_running_transactions: 50
+          additional_requests: 10
+          transaction_duration_ms: 2000
+        expected:
+          first_50_transactions: "processed"
+          additional_10: "queued then processed after pool frees"
+          error_rate: 0
+        description: "Pool fully utilized with 10 queued requests - verify queuing works"
+      - input:
+          pool_max_size: 50
+          concurrent_long_running_transactions: 50
+          additional_requests: 100
+          transaction_duration_ms: 10000
+          acquisition_timeout_ms: 5000
+        expected:
+          first_50_transactions: "processed"
+          timed_out_requests: ">0"
+          error_code: 503
+          error_message_contains: "service temporarily unavailable"
+          connection_leak_count: 0
+        description: "Pool exhausted with long transactions - verify timeout and error response"
+      - input:
+          pool_max_size: 50
+          concurrent_requests: 100
+          transaction_duration_ms: 1000
+          test_duration_seconds: 60
+        expected:
+          pool_recovers_after_burst: true
+          no_connection_leaks: true
+          idle_connections_at_end: 50
+        description: "Sustained load above pool capacity - verify pool recovers without leaks"
+    state_transition:
+      states:
+        - "pool_available"
+        - "pool_partial"
+        - "pool_exhausted"
+        - "pool_recovering"
+      transitions:
+        - from: "pool_available"
+          to: "pool_partial"
+          trigger: "connections acquired"
+          guard: "active connections > 0 AND active connections < max_size"
+        - from: "pool_partial"
+          to: "pool_exhausted"
+          trigger: "all connections acquired"
+          guard: "active connections == max_size"
+        - from: "pool_exhausted"
+          to: "pool_partial"
+          trigger: "connections released"
+          guard: "active connections < max_size"
+        - from: "pool_partial"
+          to: "pool_available"
+          trigger: "all connections released"
+          guard: "active connections == 0"
+        - from: "pool_exhausted"
+          to: "pool_recovering"
+          trigger: "stale connections detected and evicted"
+          guard: "eviction policy triggered"
+        - from: "pool_recovering"
+          to: "pool_partial"
+          trigger: "new connections established"
+          guard: "healthy connections available > 0"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - connection-pool
+      - resource-exhaustion
+      - resilience
+      - error-handling
+
+  - name: "Connection leak detection under error conditions"
+    description: >
+      Verify that connections are properly returned to the pool even when
+      transactions fail with exceptions. Simulate various failure modes
+      (timeout, constraint violation, network error) and confirm that
+      the connection is always released back to the pool.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Connection leaks cause progressive pool exhaustion.
+      Frequency: 2 - Error conditions are common in production.
+      Consequence: 3 - Leaked connections eventually halt all processing.
+      Detectability: 3 - Leaks accumulate silently until pool is exhausted.
+      Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions error types (timeout, constraint, network, application)
+      to test connection return across all failure classes.
+      EG anticipates specific leak scenarios like unreleased connections
+      in exception handlers and half-closed connections.
+    preconditions:
+      - "Connection pool monitoring enabled"
+      - "Error injection capability available"
+      - "Pool size is known and observable"
+    examples:
+      - input:
+          pool_max_size: 20
+          error_type: "query_timeout"
+          error_count: 50
+          sequential: true
+        expected:
+          pool_active_connections_after: 0
+          pool_idle_connections_after: 20
+          connection_leak_count: 0
+        description: "50 sequential query timeouts - verify all connections returned to pool"
+      - input:
+          pool_max_size: 20
+          error_type: "constraint_violation"
+          error_count: 50
+          sequential: true
+        expected:
+          pool_active_connections_after: 0
+          connection_leak_count: 0
+        description: "50 constraint violations - verify connections are not leaked"
+      - input:
+          pool_max_size: 20
+          error_type: "network_disconnect_mid_transaction"
+          error_count: 10
+        expected:
+          stale_connections_evicted: true
+          new_connections_created: true
+          pool_healthy_after_recovery: true
+        description: "Network disconnects mid-transaction - verify pool heals stale connections"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - connection-pool
+      - connection-leak
+      - error-handling
+      - resource-management
+
+  # ===========================================================================
+  # SCENARIO 5: Deadlock Detection and Recovery
+  # ===========================================================================
+  - name: "Deadlock detection under concurrent opposing transactions"
+    description: >
+      Create scenarios where two or more transactions acquire locks in
+      opposing order (A locks row 1 then row 2, B locks row 2 then row 1).
+      Verify that the database or application detects the deadlock, aborts
+      one transaction, and allows the other to complete. The aborted
+      transaction should be retried automatically.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Deadlocks halt payment processing for affected transactions.
+      Frequency: 2 - Deadlocks occur under specific concurrent access patterns.
+      Consequence: 3 - Unresolved deadlocks can cascade and freeze the system.
+      Detectability: 2 - Deadlocks are detectable but require specific monitoring.
+      Average: 2.5 -> high.
+    techniques:
+      - state_transition
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      ST models the lock acquisition and deadlock lifecycle states.
+      EG anticipates specific deadlock patterns from payment processing experience.
+      CE maps the cause (opposing lock order) to effect (deadlock detection and resolution).
+    preconditions:
+      - "Database deadlock detection is enabled (innodb_deadlock_detect or equivalent)"
+      - "Application has retry logic for deadlock errors"
+      - "Deadlock monitoring and logging is active"
+      - "At least two accounts/rows that can be locked in opposing order"
+    examples:
+      - input:
+          transaction_a: {lock_order: ["account_1", "account_2"], operation: "transfer"}
+          transaction_b: {lock_order: ["account_2", "account_1"], operation: "transfer"}
+          concurrent: true
+        expected:
+          deadlock_detected: true
+          one_transaction_aborted: true
+          other_transaction_completed: true
+          aborted_transaction_retried: true
+          both_eventually_succeed: true
+        description: "Classic AB-BA deadlock between two transfer transactions"
+      - input:
+          concurrent_transfers: 10
+          account_pairs: "random from pool of 5 accounts"
+          transfer_amount: 10.00
+        expected:
+          deadlock_count: ">0"
+          all_transfers_eventually_complete: true
+          account_balances_consistent: true
+          retry_count_logged: true
+        description: "10 random transfers across 5 accounts - verify deadlocks are resolved"
+      - input:
+          concurrent_transfers: 50
+          account_pairs: "random from pool of 10 accounts"
+          max_retries: 3
+        expected:
+          all_transfers_complete_or_fail_gracefully: true
+          no_infinite_retry_loops: true
+          max_retry_count_per_transaction: "<=3"
+        description: "50 transfers with retry limit - verify no infinite retry loops"
+    state_transition:
+      states:
+        - "lock_acquired_partial"
+        - "lock_acquired_full"
+        - "deadlock_detected"
+        - "transaction_aborted"
+        - "retry_scheduled"
+        - "transaction_completed"
+      transitions:
+        - from: "lock_acquired_partial"
+          to: "lock_acquired_full"
+          trigger: "second lock acquired"
+          guard: "no conflicting lock held by another transaction"
+        - from: "lock_acquired_partial"
+          to: "deadlock_detected"
+          trigger: "lock wait timeout or cycle detection"
+          guard: "circular dependency exists in lock graph"
+        - from: "deadlock_detected"
+          to: "transaction_aborted"
+          trigger: "victim transaction selected"
+          guard: "deadlock resolution policy applied (youngest, lowest cost)"
+        - from: "transaction_aborted"
+          to: "retry_scheduled"
+          trigger: "retry policy triggered"
+          guard: "retry count < max retries"
+        - from: "retry_scheduled"
+          to: "lock_acquired_partial"
+          trigger: "retry attempt begins"
+          guard: "backoff period elapsed"
+        - from: "lock_acquired_full"
+          to: "transaction_completed"
+          trigger: "commit"
+          guard: "all operations successful"
+        - from: "transaction_aborted"
+          to: "transaction_completed"
+          trigger: "max retries exceeded"
+          guard: "retry count >= max retries, return error to caller"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - deadlock
+      - concurrency
+      - recovery
+      - data-consistency
+
+  - name: "Deadlock recovery does not cause data inconsistency"
+    description: >
+      After a deadlock is resolved and the victim transaction is retried,
+      verify that the final state of all affected accounts is consistent.
+      No money should be created or destroyed by the retry process.
+      Verify that rollback of the aborted transaction is complete.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Financial data integrity after error recovery.
+      Frequency: 2 - Every deadlock resolution triggers this path.
+      Consequence: 3 - Incomplete rollback means incorrect balances.
+      Detectability: 3 - Partial rollback corruption is silent.
+      Average: 2.75 -> high.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      EG anticipates partial rollback failures and phantom side effects
+      from aborted transactions. EP partitions deadlock types (two-party,
+      multi-party, self-deadlock) to ensure consistency across all.
+    preconditions:
+      - "Accounts with known initial balances"
+      - "Audit log capturing all balance modifications"
+      - "Post-deadlock reconciliation check enabled"
+    examples:
+      - input:
+          account_a_initial: 1000.00
+          account_b_initial: 1000.00
+          transfer_a_to_b: 200.00
+          transfer_b_to_a: 300.00
+          force_deadlock: true
+        expected:
+          account_a_final: 1100.00
+          account_b_final: 900.00
+          total_money_conserved: true
+          audit_trail_complete: true
+        description: "Bidirectional transfer with forced deadlock - verify money conservation"
+      - input:
+          accounts: 5
+          initial_balance_each: 1000.00
+          concurrent_random_transfers: 100
+          force_deadlocks: true
+        expected:
+          total_balance_across_all_accounts: 5000.00
+          all_individual_balances_non_negative: true
+          zero_orphaned_transactions: true
+        description: "100 random transfers across 5 accounts with forced deadlocks - verify total balance conservation"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - deadlock
+      - data-consistency
+      - rollback
+      - money-conservation
+
+  # ===========================================================================
+  # SCENARIO 6: Partial Failure Handling (Gateway Up, Bank Down)
+  # ===========================================================================
+  - name: "Bank downstream timeout - gateway handles gracefully"
+    description: >
+      Simulate the bank/payment processor becoming unresponsive (timeout)
+      while the payment gateway remains operational. Verify that transactions
+      are not left in an indeterminate state, timeouts are respected, and
+      customers receive clear error responses.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Partial failures affect all payment processing.
+      Frequency: 3 - Bank timeouts are a common production event.
+      Consequence: 3 - Indeterminate transaction state risks double charges.
+      Detectability: 2 - Timeout failures are detectable but state may be ambiguous.
+      Average: 2.75 -> high.
+    techniques:
+      - decision_table
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      DT covers combinations of gateway state and bank state to determine
+      the correct outcome. ST models the transaction lifecycle through
+      partial failure states. EG anticipates edge cases like bank responding
+      after gateway timeout.
+    preconditions:
+      - "Bank simulator with configurable failure modes"
+      - "Gateway timeout configured (e.g., 10 seconds)"
+      - "Transaction state store (for pending/retry tracking)"
+      - "Idempotency keys enabled for all transactions"
+    examples:
+      - input:
+          payment_amount: 100.00
+          bank_response_delay_ms: 15000
+          gateway_timeout_ms: 10000
+        expected:
+          customer_response: "payment_pending_or_failed"
+          transaction_state: "pending_verification"
+          no_charge_without_confirmation: true
+          retry_scheduled: true
+        description: "Bank timeout - verify transaction marked as pending, not charged"
+      - input:
+          payment_amount: 100.00
+          bank_state: "connection_refused"
+        expected:
+          customer_response_code: 502
+          customer_message: "payment processor unavailable"
+          transaction_state: "failed"
+          money_not_captured: true
+        description: "Bank connection refused - verify clean failure, no charge"
+      - input:
+          payment_amount: 100.00
+          bank_responds_after_gateway_timeout: true
+          bank_response_delay_ms: 12000
+          gateway_timeout_ms: 10000
+          bank_response: "approved"
+        expected:
+          late_approval_handled: true
+          no_double_charge: true
+          reconciliation_entry_created: true
+        description: "Bank approves AFTER gateway timeout - verify no double charge on retry"
+    state_transition:
+      states:
+        - "payment_initiated"
+        - "bank_request_sent"
+        - "bank_timeout"
+        - "bank_error"
+        - "bank_approved"
+        - "bank_declined"
+        - "pending_verification"
+        - "payment_completed"
+        - "payment_failed"
+        - "payment_refunded"
+      transitions:
+        - from: "payment_initiated"
+          to: "bank_request_sent"
+          trigger: "gateway sends authorization to bank"
+          guard: "request validation passed"
+        - from: "bank_request_sent"
+          to: "bank_timeout"
+          trigger: "bank does not respond within timeout"
+          guard: "elapsed time > gateway_timeout"
+        - from: "bank_request_sent"
+          to: "bank_error"
+          trigger: "bank returns error or connection fails"
+          guard: "HTTP 5xx or connection error"
+        - from: "bank_request_sent"
+          to: "bank_approved"
+          trigger: "bank returns approval"
+          guard: "HTTP 200 with approved status"
+        - from: "bank_request_sent"
+          to: "bank_declined"
+          trigger: "bank declines transaction"
+          guard: "HTTP 200 with declined status"
+        - from: "bank_timeout"
+          to: "pending_verification"
+          trigger: "gateway marks for async verification"
+          guard: "retry policy allows"
+        - from: "bank_error"
+          to: "payment_failed"
+          trigger: "gateway marks as failed"
+          guard: "non-retryable error or max retries exceeded"
+        - from: "bank_approved"
+          to: "payment_completed"
+          trigger: "gateway confirms payment"
+          guard: "idempotency check passes"
+        - from: "bank_declined"
+          to: "payment_failed"
+          trigger: "gateway marks as declined"
+          guard: "decline reason is final"
+        - from: "pending_verification"
+          to: "payment_completed"
+          trigger: "async verification confirms charge"
+          guard: "bank confirms the charge was applied"
+        - from: "pending_verification"
+          to: "payment_refunded"
+          trigger: "async verification finds charge applied but customer was told failure"
+          guard: "charge confirmed after customer received error"
+    decision_table:
+      conditions:
+        - "gateway_status"
+        - "bank_status"
+        - "network_connectivity"
+      actions:
+        - "customer_response"
+        - "transaction_final_state"
+        - "retry_action"
+        - "reconciliation_required"
+      rules:
+        - description: "Gateway up, bank up, network ok - normal processing"
+          condition_values:
+            gateway_status: "healthy"
+            bank_status: "responding"
+            network_connectivity: "stable"
+          expected_actions:
+            customer_response: "success_or_decline"
+            transaction_final_state: "completed_or_declined"
+            retry_action: "none"
+            reconciliation_required: false
+        - description: "Gateway up, bank timeout, network ok"
+          condition_values:
+            gateway_status: "healthy"
+            bank_status: "timeout"
+            network_connectivity: "stable"
+          expected_actions:
+            customer_response: "pending"
+            transaction_final_state: "pending_verification"
+            retry_action: "async_retry"
+            reconciliation_required: true
+        - description: "Gateway up, bank down, network ok"
+          condition_values:
+            gateway_status: "healthy"
+            bank_status: "down"
+            network_connectivity: "stable"
+          expected_actions:
+            customer_response: "service_unavailable"
+            transaction_final_state: "failed"
+            retry_action: "customer_retry_later"
+            reconciliation_required: false
+        - description: "Gateway up, bank up, network degraded"
+          condition_values:
+            gateway_status: "healthy"
+            bank_status: "responding"
+            network_connectivity: "degraded"
+          expected_actions:
+            customer_response: "may_be_delayed"
+            transaction_final_state: "depends_on_timeout"
+            retry_action: "automatic_retry_with_backoff"
+            reconciliation_required: true
+        - description: "Gateway up, bank intermittent, network ok"
+          condition_values:
+            gateway_status: "healthy"
+            bank_status: "intermittent"
+            network_connectivity: "stable"
+          expected_actions:
+            customer_response: "retry_in_progress"
+            transaction_final_state: "completed_after_retry_or_failed"
+            retry_action: "automatic_retry_with_backoff"
+            reconciliation_required: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - partial-failure
+      - bank-down
+      - resilience
+      - timeout
+
+  - name: "Partial failure during concurrent transactions - mixed outcomes"
+    description: >
+      Under concurrent load, simulate the bank becoming intermittently
+      unavailable (e.g., 50% of requests timeout). Verify that successful
+      transactions are committed correctly, failed transactions are rolled
+      back cleanly, and there is no cross-contamination between the two groups.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Mixed success/failure under load is the hardest scenario to handle.
+      Frequency: 3 - Intermittent bank issues are common in production.
+      Consequence: 3 - Partial failures with concurrent load maximize risk of inconsistency.
+      Detectability: 3 - Mixed outcomes in concurrent batch are hardest to audit.
+      Average: 3.0 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - pairwise
+    technique_rationale: >
+      EP partitions outcomes into success and failure groups for independent verification.
+      EG anticipates cross-contamination between concurrent success/failure paths.
+      PW covers combinations of failure rates, concurrency levels, and transaction types.
+    preconditions:
+      - "Bank simulator with configurable failure rate"
+      - "200+ concurrent transactions in flight"
+      - "Each transaction independently tracked"
+    examples:
+      - input:
+          concurrent_requests: 200
+          bank_failure_rate: 0.50
+          failure_mode: "timeout"
+        expected:
+          successful_count: "~100"
+          failed_count: "~100"
+          successful_all_committed: true
+          failed_all_rolled_back: true
+          no_cross_contamination: true
+          total_money_accounted_for: true
+        description: "200 concurrent with 50% bank timeout - verify clean separation of outcomes"
+      - input:
+          concurrent_requests: 500
+          bank_failure_rate: 0.10
+          failure_mode: "mixed (timeout, 500, connection_reset)"
+        expected:
+          successful_count: "~450"
+          failed_count: "~50"
+          each_failure_has_correct_error_type: true
+          no_partial_commits: true
+        description: "500 concurrent with 10% mixed bank failures - verify per-transaction correctness"
+      - input:
+          concurrent_requests: 100
+          bank_failure_rate: 1.0
+          failure_mode: "connection_refused"
+        expected:
+          successful_count: 0
+          failed_count: 100
+          all_rolled_back: true
+          circuit_breaker_opened: true
+          subsequent_requests_fast_fail: true
+        description: "100% bank failure - verify circuit breaker activates"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - partial-failure
+      - concurrency
+      - circuit-breaker
+      - mixed-outcomes
+
+  - name: "Double-charge prevention during bank timeout and retry"
+    description: >
+      The most critical partial failure scenario: bank receives the charge
+      request and processes it, but the response is lost (network issue).
+      Gateway times out and retries. Verify that the idempotency mechanism
+      prevents the bank from charging the customer twice.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Double-charging a customer is the worst financial error.
+      Frequency: 2 - Network-level response loss occurs periodically.
+      Consequence: 3 - Direct financial harm to customer, legal liability.
+      Detectability: 3 - Customer may not notice until bank statement arrives.
+      Average: 2.75 -> high.
+    techniques:
+      - error_guessing
+      - state_transition
+      - cause_effect
+    technique_rationale: >
+      EG targets the specific known failure mode of lost responses causing retries.
+      ST models the transaction through the timeout-retry-verification cycle.
+      CE maps the causal chain from network failure to potential double-charge.
+    preconditions:
+      - "Idempotency key mechanism is implemented"
+      - "Bank supports idempotency keys or gateway tracks sent requests"
+      - "Transaction audit log captures all attempts"
+    examples:
+      - input:
+          payment_amount: 500.00
+          bank_processes_charge: true
+          bank_response_lost: true
+          gateway_retries: true
+          idempotency_key: "txn-abc-123"
+        expected:
+          total_charges_to_customer: 500.00
+          duplicate_charge: false
+          retry_returns_original_result: true
+        description: "Bank charges but response lost - retry must not double-charge"
+      - input:
+          payment_amount: 500.00
+          bank_processes_charge: true
+          bank_response_lost: true
+          gateway_retries: true
+          idempotency_key_missing: true
+        expected:
+          system_detects_potential_duplicate: true
+          transaction_flagged_for_manual_review: true
+          automatic_charge_blocked: true
+        description: "Response lost without idempotency key - verify safety fallback"
+      - input:
+          concurrent_retries_same_idempotency_key: 5
+          payment_amount: 100.00
+        expected:
+          total_charges: 100.00
+          successful_responses: 5
+          all_responses_identical: true
+        description: "5 concurrent retries with same idempotency key - verify exactly-once semantics"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - double-charge
+      - idempotency
+      - critical-safety
+      - financial-integrity
+
+  # ===========================================================================
+  # SCENARIO 7: Graceful Degradation When Approaching Capacity
+  # ===========================================================================
+  - name: "Graceful degradation with load shedding at capacity threshold"
+    description: >
+      As the system approaches its capacity limit, verify that it begins
+      shedding lower-priority traffic while continuing to process high-priority
+      transactions. The system should return appropriate HTTP status codes
+      (429 or 503) for shed requests and never silently drop transactions.
+    type: performance
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Degradation behavior directly affects payment availability.
+      Frequency: 2 - Capacity approach happens during traffic spikes.
+      Consequence: 3 - Ungraceful degradation means complete outage instead of partial.
+      Detectability: 2 - Degradation metrics should be visible in dashboards.
+      Average: 2.5 -> high.
+    techniques:
+      - boundary_value
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA tests at exact capacity thresholds (80%, 90%, 95%, 100%, 110%).
+      DT covers the combination of load level and request priority to determine
+      accept/reject decisions. EP partitions requests into priority classes.
+    preconditions:
+      - "Load shedding thresholds configured (e.g., start shedding at 80% capacity)"
+      - "Request priority classification is implemented"
+      - "Rate limiting and backpressure mechanisms are active"
+    examples:
+      - input:
+          current_load_percent: 79
+          incoming_request_priority: "normal"
+        expected:
+          request_accepted: true
+          processing_normal: true
+        description: "79% capacity with normal priority - all requests accepted"
+      - input:
+          current_load_percent: 85
+          incoming_request_priority: "low"
+        expected:
+          request_rejected: true
+          http_status: 429
+          retry_after_header_present: true
+        description: "85% capacity - low priority requests shed"
+      - input:
+          current_load_percent: 85
+          incoming_request_priority: "high"
+        expected:
+          request_accepted: true
+          processing_normal: true
+        description: "85% capacity - high priority requests still accepted"
+      - input:
+          current_load_percent: 95
+          incoming_request_priority: "normal"
+        expected:
+          request_rejected: true
+          http_status: 429
+          retry_after_header_present: true
+        description: "95% capacity - only critical requests accepted"
+      - input:
+          current_load_percent: 100
+          incoming_request_priority: "critical"
+        expected:
+          request_accepted: true
+          latency_may_be_elevated: true
+        description: "100% capacity - only critical priority accepted"
+      - input:
+          current_load_percent: 110
+          incoming_request_priority: "critical"
+        expected:
+          request_queued_or_rejected: true
+          system_does_not_crash: true
+        description: "110% capacity - even critical requests may be queued"
+    decision_table:
+      conditions:
+        - "load_percentage_bracket"
+        - "request_priority"
+      actions:
+        - "accept_request"
+        - "http_response_code"
+        - "queue_or_process"
+      rules:
+        - description: "Under 80% - accept all"
+          condition_values:
+            load_percentage_bracket: "<80%"
+            request_priority: "any"
+          expected_actions:
+            accept_request: true
+            http_response_code: 200
+            queue_or_process: "process_immediately"
+        - description: "80-90% - shed low priority"
+          condition_values:
+            load_percentage_bracket: "80-90%"
+            request_priority: "low"
+          expected_actions:
+            accept_request: false
+            http_response_code: 429
+            queue_or_process: "rejected"
+        - description: "80-90% - accept normal and above"
+          condition_values:
+            load_percentage_bracket: "80-90%"
+            request_priority: "normal_or_higher"
+          expected_actions:
+            accept_request: true
+            http_response_code: 200
+            queue_or_process: "process_immediately"
+        - description: "90-100% - shed normal and below"
+          condition_values:
+            load_percentage_bracket: "90-100%"
+            request_priority: "normal_or_lower"
+          expected_actions:
+            accept_request: false
+            http_response_code: 429
+            queue_or_process: "rejected"
+        - description: "90-100% - accept high and critical"
+          condition_values:
+            load_percentage_bracket: "90-100%"
+            request_priority: "high_or_critical"
+          expected_actions:
+            accept_request: true
+            http_response_code: 200
+            queue_or_process: "process_with_elevated_timeout"
+        - description: "Over 100% - emergency mode"
+          condition_values:
+            load_percentage_bracket: ">100%"
+            request_priority: "any"
+          expected_actions:
+            accept_request: "critical_only"
+            http_response_code: "503_for_non_critical"
+            queue_or_process: "emergency_queue_for_critical"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - graceful-degradation
+      - load-shedding
+      - capacity
+      - resilience
+
+  - name: "Backpressure propagation to upstream callers"
+    description: >
+      When the payment gateway begins shedding load, verify that upstream
+      services (API gateway, web servers) receive and respect backpressure
+      signals. Clients should receive appropriate retry-after headers and
+      not hammer the gateway with unbounded retries.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 - Backpressure affects upstream system behavior.
+      Frequency: 2 - Triggered during overload events.
+      Consequence: 2 - Missing backpressure causes retry storms that worsen overload.
+      Detectability: 2 - Retry storms are visible in monitoring but damage is fast.
+      Average: 2.0 -> medium.
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      EG anticipates retry storms and thundering herd problems.
+      CE maps the causal chain from initial overload through missing backpressure
+      to cascading failure.
+    preconditions:
+      - "Gateway returns Retry-After headers on 429/503"
+      - "Upstream services have retry budgets configured"
+      - "Circuit breaker patterns implemented at upstream"
+    examples:
+      - input:
+          gateway_load: "100%"
+          upstream_receives_429: true
+          retry_after_seconds: 5
+        expected:
+          upstream_respects_retry_after: true
+          no_retry_storm: true
+          request_rate_decreases: true
+        description: "Gateway sends 429 with Retry-After - verify upstream backs off"
+      - input:
+          gateway_load: "100%"
+          upstream_ignores_backpressure: true
+          retry_interval_seconds: 0.1
+        expected:
+          gateway_rate_limits_upstream: true
+          no_cascading_failure: true
+          gateway_remains_stable: true
+        description: "Aggressive upstream retries - verify gateway rate limits protect system"
+      - input:
+          gateway_recovers_from_overload: true
+          recovery_time_seconds: 30
+        expected:
+          traffic_gradually_readmitted: true
+          no_thundering_herd_on_recovery: true
+          load_ramps_up_controlled: true
+        description: "Recovery from overload - verify traffic readmission is gradual"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - backpressure
+      - retry-storm
+      - cascading-failure
+      - upstream-integration
+
+  - name: "Queue depth and memory exhaustion prevention"
+    description: >
+      When requests queue during overload, verify that queue depth is bounded,
+      memory consumption remains within limits, and the oldest queued requests
+      are timed out rather than allowing unbounded queue growth.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Unbounded queues cause OOM crashes, total service loss.
+      Frequency: 2 - Queuing occurs during every overload event.
+      Consequence: 3 - OOM crash causes abrupt loss of all in-flight transactions.
+      Detectability: 2 - Memory pressure is detectable but OOM is sudden.
+      Average: 2.5 -> high.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      BVA tests at queue depth boundaries and memory thresholds.
+      EG anticipates OOM conditions, slow memory leaks from queued objects,
+      and timeout handling for queued requests.
+    preconditions:
+      - "Maximum queue depth is configured"
+      - "Memory monitoring is active"
+      - "Queue entry timeout is configured"
+    examples:
+      - input:
+          max_queue_depth: 1000
+          incoming_request_rate: "2000/s"
+          processing_rate: "500/s"
+          duration_seconds: 10
+        expected:
+          queue_depth_never_exceeds: 1000
+          excess_requests_rejected_immediately: true
+          memory_within_limits: true
+        description: "Sustained overload - verify queue depth stays bounded"
+      - input:
+          queue_entry_timeout_ms: 5000
+          requests_queued: 500
+          processing_rate: "10/s"
+        expected:
+          timed_out_requests_receive_504: true
+          timed_out_requests_removed_from_queue: true
+          memory_freed_on_timeout: true
+        description: "Queued requests exceeding timeout - verify cleanup and response"
+      - input:
+          sustained_overload_minutes: 5
+          monitoring_enabled: true
+        expected:
+          memory_usage_stable: true
+          no_memory_leak: true
+          gc_pressure_within_bounds: true
+        description: "5-minute sustained overload - verify no memory leak in queue management"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - queue-management
+      - memory-safety
+      - bounded-resources
+      - oom-prevention
+
+  # ===========================================================================
+  # ADDITIONAL CRITICAL SCENARIOS
+  # ===========================================================================
+  - name: "Idempotency key validation and uniqueness enforcement"
+    description: >
+      Verify that the idempotency mechanism correctly identifies duplicate
+      requests, returns cached results for duplicates, and handles edge
+      cases like expired idempotency keys, collisions, and concurrent
+      requests with the same key.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Idempotency is the primary defense against double charges.
+      Frequency: 3 - Every transaction uses idempotency keys.
+      Consequence: 3 - Failed idempotency means double charges.
+      Detectability: 3 - Silent duplicate processing goes unnoticed.
+      Average: 3.0 -> high.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      EP partitions key states (new, seen-and-pending, seen-and-completed, expired).
+      BVA tests key length and TTL boundaries.
+      EG anticipates race conditions between concurrent requests with the same key.
+    preconditions:
+      - "Idempotency key store is operational (Redis, database, etc.)"
+      - "Key TTL is configured (e.g., 24 hours)"
+    examples:
+      - input:
+          idempotency_key: "new-unique-key"
+          payment_amount: 100.00
+          first_request: true
+        expected:
+          transaction_processed: true
+          key_stored: true
+          response_cached: true
+        description: "First request with new key - normal processing"
+      - input:
+          idempotency_key: "already-used-key"
+          payment_amount: 100.00
+          original_result: "success"
+        expected:
+          transaction_not_reprocessed: true
+          cached_result_returned: true
+          response_matches_original: true
+        description: "Duplicate request with used key - cached result returned"
+      - input:
+          idempotency_key: "concurrent-key"
+          concurrent_requests_same_key: 5
+          payment_amount: 100.00
+        expected:
+          exactly_one_processed: true
+          other_four_get_cached_result: true
+          total_charges: 100.00
+        description: "5 concurrent requests with same key - exactly one processed"
+      - input:
+          idempotency_key: "expired-key"
+          key_age_hours: 25
+          key_ttl_hours: 24
+          payment_amount: 100.00
+        expected:
+          treated_as_new_request: true
+          transaction_processed: true
+        description: "Expired idempotency key - treated as new request"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - idempotency
+      - double-charge-prevention
+      - data-consistency
+
+  - name: "Transaction timeout and cleanup under load"
+    description: >
+      Verify that transactions which exceed their processing timeout are
+      properly cleaned up: locks released, partial state rolled back,
+      connections returned, and appropriate error returned to the caller.
+      Under concurrent load, timed-out transactions should not block others.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Stuck transactions block resources and other payments.
+      Frequency: 2 - Timeouts occur during load spikes and dependency issues.
+      Consequence: 3 - Unreleased resources cascade into broader outage.
+      Detectability: 2 - Stuck transactions are visible in monitoring.
+      Average: 2.5 -> high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST models the transaction lifecycle including timeout paths.
+      EG anticipates resource leaks from interrupted transactions
+      (orphaned locks, unclosed connections, uncommitted changes).
+    preconditions:
+      - "Transaction timeout configured (e.g., 30 seconds)"
+      - "Resource monitoring for locks, connections, memory"
+    examples:
+      - input:
+          transaction_duration_exceeds_timeout: true
+          timeout_ms: 30000
+          cause: "slow_bank_response"
+        expected:
+          transaction_rolled_back: true
+          locks_released: true
+          connection_returned_to_pool: true
+          customer_receives_timeout_error: true
+        description: "Transaction exceeds timeout - verify complete cleanup"
+      - input:
+          concurrent_transactions: 100
+          timeout_percentage: 20
+          healthy_transactions: 80
+        expected:
+          healthy_transactions_unaffected: true
+          timed_out_transactions_cleaned_up: true
+          no_resource_starvation: true
+        description: "20% of concurrent transactions timeout - verify no impact on healthy ones"
+    state_transition:
+      states:
+        - "transaction_started"
+        - "processing"
+        - "timeout_triggered"
+        - "cleanup_in_progress"
+        - "cleanup_complete"
+        - "error_returned"
+      transitions:
+        - from: "transaction_started"
+          to: "processing"
+          trigger: "begin processing"
+          guard: "resources acquired"
+        - from: "processing"
+          to: "timeout_triggered"
+          trigger: "timeout elapsed"
+          guard: "processing duration > configured timeout"
+        - from: "timeout_triggered"
+          to: "cleanup_in_progress"
+          trigger: "interrupt processing"
+          guard: "timeout handler activated"
+        - from: "cleanup_in_progress"
+          to: "cleanup_complete"
+          trigger: "rollback, release locks, return connection"
+          guard: "all resources accounted for"
+        - from: "cleanup_complete"
+          to: "error_returned"
+          trigger: "send error response to caller"
+          guard: "cleanup verified"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - timeout
+      - resource-cleanup
+      - concurrency
+      - resilience
+
+  - name: "Circuit breaker activation and recovery"
+    description: >
+      Verify that the circuit breaker opens after a configured number of
+      consecutive failures to the bank, fast-fails subsequent requests during
+      the open period, transitions to half-open to test recovery, and fully
+      closes when the bank is healthy again. Verify correct behavior under
+      concurrent load during each circuit breaker state.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Circuit breaker controls access to the bank integration.
+      Frequency: 2 - Activates during bank outages, a known production event.
+      Consequence: 3 - Stuck-open circuit breaker blocks all payments; stuck-closed hammers a failing bank.
+      Detectability: 2 - Circuit breaker state is observable in metrics.
+      Average: 2.5 -> high.
+    techniques:
+      - state_transition
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      ST models the circuit breaker states (closed, open, half-open) and transitions.
+      BVA tests at the failure count threshold that triggers opening.
+      EG anticipates edge cases like concurrent requests during state transitions.
+    preconditions:
+      - "Circuit breaker configured (failure_threshold=5, timeout=30s, half_open_max=3)"
+      - "Bank failure injection available"
+      - "Circuit breaker state observable via metrics/API"
+    examples:
+      - input:
+          consecutive_bank_failures: 4
+          circuit_breaker_threshold: 5
+        expected:
+          circuit_state: "closed"
+          requests_forwarded_to_bank: true
+        description: "4 failures (below threshold of 5) - circuit stays closed"
+      - input:
+          consecutive_bank_failures: 5
+          circuit_breaker_threshold: 5
+        expected:
+          circuit_state: "open"
+          subsequent_requests_fast_fail: true
+          fast_fail_response_time_ms: "<10"
+        description: "5th failure triggers circuit open"
+      - input:
+          circuit_state: "open"
+          time_elapsed_seconds: 30
+          bank_now_healthy: true
+        expected:
+          circuit_state: "half_open"
+          probe_request_sent_to_bank: true
+          probe_succeeds: true
+          circuit_transitions_to: "closed"
+        description: "Circuit open timeout elapsed, bank recovered - verify transition to closed via half-open"
+      - input:
+          circuit_state: "half_open"
+          probe_request_fails: true
+        expected:
+          circuit_transitions_to: "open"
+          timer_reset: true
+        description: "Half-open probe fails - circuit returns to open"
+    state_transition:
+      states:
+        - "closed"
+        - "open"
+        - "half_open"
+      transitions:
+        - from: "closed"
+          to: "open"
+          trigger: "failure count reaches threshold"
+          guard: "consecutive_failures >= failure_threshold"
+        - from: "open"
+          to: "half_open"
+          trigger: "timeout period elapsed"
+          guard: "time since open > circuit_breaker_timeout"
+        - from: "half_open"
+          to: "closed"
+          trigger: "probe request succeeds"
+          guard: "successful_probes >= half_open_success_threshold"
+        - from: "half_open"
+          to: "open"
+          trigger: "probe request fails"
+          guard: "any probe failure during half-open"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - circuit-breaker
+      - resilience
+      - bank-integration
+      - state-machine
+
+  - name: "Data consistency verification via reconciliation"
+    description: >
+      After a test run with concurrent transactions, mixed failures, and
+      recovery scenarios, perform end-to-end reconciliation: verify that
+      the sum of all successful charges matches the sum of all balance
+      changes, all failed transactions are fully rolled back, and the
+      audit log is complete and consistent.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 - Reconciliation is the ultimate consistency check.
+      Frequency: 3 - Must run after every batch of transactions.
+      Consequence: 3 - Undetected inconsistencies lead to financial discrepancies.
+      Detectability: 1 - Reconciliation explicitly detects problems (that is its purpose).
+      Average: 2.5 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions transactions into success/failure/pending groups for
+      independent reconciliation. EG anticipates orphaned records, phantom
+      entries, and mismatched timestamps.
+    preconditions:
+      - "All test transactions completed or timed out"
+      - "Audit log is complete"
+      - "Bank settlement records available (from simulator)"
+    examples:
+      - input:
+          total_transactions_attempted: 1000
+          expected_successful: 800
+          expected_failed: 200
+        expected:
+          gateway_successful_count_matches: 800
+          bank_charge_count_matches: 800
+          sum_of_charges_matches_sum_of_balance_changes: true
+          failed_transactions_have_no_bank_charge: true
+          audit_log_entries: 1000
+          orphaned_records: 0
+        description: "Post-test reconciliation of 1000 transactions with mixed outcomes"
+      - input:
+          include_deadlock_scenarios: true
+          include_timeout_scenarios: true
+          include_partial_failures: true
+        expected:
+          money_in_equals_money_out: true
+          no_phantom_transactions: true
+          all_pending_resolved: true
+        description: "Full reconciliation after complex failure scenario mix"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - reconciliation
+      - data-consistency
+      - audit
+      - financial-correctness
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As a payment platform operator, I need the payment gateway to handle
+    hundreds of concurrent transactions while maintaining data consistency,
+    preventing double-charges, and meeting SLA requirements (p99 < 500ms),
+    so that customers are charged correctly, merchants receive accurate
+    settlements, and the platform meets its contractual obligations.
+  rules:
+    - rule_name: "Concurrent transaction processing"
+      examples:
+        - "500 unique concurrent payments all processed exactly once within p99 < 500ms"
+        - "500 concurrent payments with 50 duplicate idempotency keys - duplicates rejected"
+        - "Load at boundary thresholds (499, 500, 501, 750, 1000) shows predictable behavior"
+        - "Single request baseline establishes latency floor for comparison"
+    - rule_name: "Transaction isolation"
+      examples:
+        - "200 concurrent transactions for 200 different customers - no cross-contamination"
+        - "100 concurrent transactions for same customer - all recorded individually"
+        - "300 concurrent multi-currency transactions - no currency mixing"
+        - "10 concurrent debits from shared account - no lost updates, correct final balance"
+        - "10 concurrent $100 debits from $500 account - exactly 5 succeed, no overdraft"
+    - rule_name: "SLA compliance"
+      examples:
+        - "Step-increase load (50-500) shows linear or sublinear latency degradation"
+        - "5-minute sustained 500 concurrent: p99 stays below 500ms throughout"
+        - "Spike from 100 to 500 and back: recovery within 10 seconds"
+        - "p99 at 499ms: no SLA alert; p99 at 501ms: SLA alert triggered"
+    - rule_name: "Connection pool management"
+      examples:
+        - "Pool fully utilized with 10 queued requests: all eventually processed"
+        - "Pool exhausted with long transactions: timed-out requests get 503"
+        - "50 sequential query timeouts: all connections returned, no leaks"
+        - "Network disconnects mid-transaction: pool heals stale connections"
+    - rule_name: "Deadlock handling"
+      examples:
+        - "Classic AB-BA deadlock: detected, one victim retried, both eventually succeed"
+        - "50 random transfers with retry limit: no infinite retry loops"
+        - "Bidirectional transfers with forced deadlock: total money conserved"
+        - "100 random transfers across 5 accounts with deadlocks: total balance unchanged"
+    - rule_name: "Partial failure resilience"
+      examples:
+        - "Bank timeout: transaction marked pending, no charge without confirmation"
+        - "Bank connection refused: clean failure, 502 response, no charge"
+        - "Bank approves after gateway timeout: no double charge, reconciliation entry created"
+        - "200 concurrent with 50% bank timeout: clean separation of success/failure"
+        - "100% bank failure: circuit breaker opens, fast-fail for subsequent requests"
+    - rule_name: "Double-charge prevention"
+      examples:
+        - "Bank charges but response lost: retry returns cached result, no duplicate charge"
+        - "5 concurrent retries with same idempotency key: exactly one charge"
+        - "Missing idempotency key on retry: flagged for manual review, auto-charge blocked"
+        - "Expired idempotency key: treated as new request"
+    - rule_name: "Graceful degradation"
+      examples:
+        - "79% capacity: all requests accepted regardless of priority"
+        - "85% capacity: low priority shed (429), high priority accepted"
+        - "95% capacity: only critical requests accepted"
+        - "110% capacity: even critical may be queued, system does not crash"
+        - "Sustained overload 5 minutes: no memory leak, queue depth bounded"
+        - "Recovery from overload: traffic readmission is gradual, no thundering herd"
+    - rule_name: "Circuit breaker behavior"
+      examples:
+        - "4 consecutive bank failures: circuit stays closed"
+        - "5th failure: circuit opens, subsequent requests fast-fail in < 10ms"
+        - "Open circuit timeout + healthy bank: transitions closed via half-open"
+        - "Half-open probe fails: circuit returns to open"
+    - rule_name: "Post-transaction reconciliation"
+      examples:
+        - "1000 mixed-outcome transactions: gateway count matches bank count, zero orphans"
+        - "Complex failure mix (deadlocks + timeouts + partial failures): money in equals money out"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T00:00:00Z"
+  updated_at: "2026-03-14T00:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

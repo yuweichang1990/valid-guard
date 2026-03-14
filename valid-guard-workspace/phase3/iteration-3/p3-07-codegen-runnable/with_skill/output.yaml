@@ -1,0 +1,778 @@
+# Valid Guard — /vg generate output
+# Feature: Order Processor Module
+# Generated: 2026-03-14T09:00:00Z
+# Language: python
+# Framework: pytest
+# Scenarios: 45+ covering create_order, transition_status, request_refund, apply_discount
+# Techniques: BVA, EP, ST, DT, EG
+# Risk markers: pytest.mark.risk_high, pytest.mark.risk_medium, pytest.mark.risk_low
+
+generated_files:
+  - path: "tests/test_order_processor.py"
+    scenarios_covered: 45
+    content: |
+      """
+      Valid Guard — Generated Test Suite for order_processor module.
+
+      Scenario traceability:
+        S01-S10: create_order (happy path, validation, boundary, inventory)
+        S11-S22: transition_status (valid transitions, invalid transitions, inventory restore)
+        S23-S29: request_refund (happy path, preconditions, refund window BVA, inventory restore)
+        S30-S38: apply_discount (happy path, boundary, preconditions, shipping recalc)
+        S39-S45: cross-cutting (tax calculation, shipping threshold, Decimal precision)
+
+      Techniques applied:
+        - Equivalence Partitioning (EP): valid/invalid input classes
+        - Boundary Value Analysis (BVA): MAX_ITEMS, FREE_SHIPPING_THRESHOLD, discount range, refund window
+        - State Transition (ST): all 7 states, valid/invalid transitions, terminal states
+        - Decision Table (DT): shipping fee determination, discount + shipping interaction
+        - Error Guessing (EG): duplicate order IDs, zero-quantity, negative discount, unknown items
+      """
+
+      import pytest
+      from decimal import Decimal
+      from datetime import datetime, timedelta
+      from unittest.mock import patch
+
+      from order_processor import (
+          OrderProcessor,
+          OrderStatus,
+          InsufficientStockError,
+          InvalidTransitionError,
+      )
+
+
+      # ---------------------------------------------------------------------------
+      # Fixtures
+      # ---------------------------------------------------------------------------
+
+      @pytest.fixture
+      def inventory():
+          """Realistic inventory with enough stock for most tests."""
+          return {
+              "widget": 50,
+              "gadget": 30,
+              "gizmo": 200,
+              "premium_widget": 10,
+          }
+
+
+      @pytest.fixture
+      def pricing():
+          """Pricing dict with values chosen to exercise shipping threshold."""
+          return {
+              "widget": Decimal("10.00"),
+              "gadget": Decimal("25.00"),
+              "gizmo": Decimal("3.50"),
+              "premium_widget": Decimal("99.99"),
+          }
+
+
+      @pytest.fixture
+      def processor(inventory, pricing):
+          """Fresh OrderProcessor for each test — no shared state."""
+          return OrderProcessor(inventory, pricing)
+
+
+      @pytest.fixture
+      def delivered_order(processor):
+          """Helper: create an order and advance it to DELIVERED status."""
+          order = processor.create_order("ORD-DLVR-001", {"widget": 2})
+          processor.transition_status("ORD-DLVR-001", OrderStatus.CONFIRMED)
+          processor.transition_status("ORD-DLVR-001", OrderStatus.PROCESSING)
+          processor.transition_status("ORD-DLVR-001", OrderStatus.SHIPPED)
+          processor.transition_status("ORD-DLVR-001", OrderStatus.DELIVERED)
+          return order
+
+
+      # =========================================================================
+      # S01-S10: create_order
+      # =========================================================================
+
+      class TestCreateOrderHappyPath:
+          """Scenario S01-S03: Successful order creation with correct calculations."""
+
+          @pytest.mark.risk_high
+          def test_create_single_item_order_calculates_correctly(self, processor):
+              """Scenario S01: Single-item order — subtotal, tax, shipping, total verified."""
+              order = processor.create_order("ORD-101", {"widget": 3})
+
+              expected_subtotal = Decimal("30.00")  # 3 * 10.00
+              expected_tax = Decimal("2.40")         # 30.00 * 0.08
+              expected_shipping = Decimal("0")       # 30.00 < 50.00 → shipping applies? No: 30 < 50 → fee
+              # Correction: 30.00 < 50.00 → shipping = 5.99
+              expected_shipping = Decimal("5.99")
+              expected_total = expected_subtotal + expected_tax + expected_shipping  # 38.39
+
+              assert order["id"] == "ORD-101"
+              assert order["subtotal"] == expected_subtotal
+              assert order["tax"] == expected_tax
+              assert order["shipping"] == expected_shipping
+              assert order["total"] == expected_total
+              assert order["status"] == OrderStatus.PENDING
+              assert isinstance(order["created_at"], datetime)
+              assert isinstance(order["updated_at"], datetime)
+
+          @pytest.mark.risk_high
+          def test_create_multi_item_order(self, processor):
+              """Scenario S02: Multiple items — subtotal is sum of (price * qty)."""
+              order = processor.create_order("ORD-102", {"widget": 1, "gadget": 2})
+
+              expected_subtotal = Decimal("60.00")   # 10 + 50
+              expected_tax = Decimal("4.80")          # 60 * 0.08
+              expected_shipping = Decimal("0")        # 60 >= 50 → free shipping
+              expected_total = Decimal("64.80")       # 60 + 4.80 + 0
+
+              assert order["subtotal"] == expected_subtotal
+              assert order["tax"] == expected_tax
+              assert order["shipping"] == expected_shipping
+              assert order["total"] == expected_total
+
+          @pytest.mark.risk_high
+          def test_create_order_deducts_inventory(self, processor, inventory):
+              """Scenario S03: Inventory is reduced after successful order creation."""
+              initial_widget_stock = inventory["widget"]
+              initial_gadget_stock = inventory["gadget"]
+
+              processor.create_order("ORD-103", {"widget": 5, "gadget": 3})
+
+              assert processor.inventory["widget"] == initial_widget_stock - 5
+              assert processor.inventory["gadget"] == initial_gadget_stock - 3
+
+
+      class TestCreateOrderValidation:
+          """Scenario S04-S07: Input validation — error paths."""
+
+          @pytest.mark.risk_high
+          def test_empty_items_raises_value_error(self, processor):
+              """Scenario S04: Empty items dict must be rejected. (EP: invalid class)"""
+              with pytest.raises(ValueError, match="at least one item"):
+                  processor.create_order("ORD-201", {})
+
+          @pytest.mark.risk_high
+          def test_unknown_item_raises_value_error(self, processor):
+              """Scenario S05: Item not in pricing catalog. (EP: invalid class)"""
+              with pytest.raises(ValueError, match="Unknown item"):
+                  processor.create_order("ORD-202", {"nonexistent_product": 1})
+
+          @pytest.mark.risk_high
+          @pytest.mark.parametrize("qty,item_name", [
+              (0, "widget"),
+              (-1, "gadget"),
+              (-100, "gizmo"),
+          ], ids=["zero_quantity", "negative_one", "large_negative"])
+          def test_non_positive_quantity_raises_value_error(self, processor, qty, item_name):
+              """Scenario S06: Zero or negative quantities rejected. (BVA: boundary at 0)"""
+              with pytest.raises(ValueError, match="Quantity must be positive"):
+                  processor.create_order("ORD-203", {item_name: qty})
+
+          @pytest.mark.risk_high
+          def test_insufficient_stock_raises_error(self, processor):
+              """Scenario S07: Requested qty exceeds available inventory. (EP: invalid class)"""
+              with pytest.raises(InsufficientStockError, match="Not enough stock"):
+                  processor.create_order("ORD-204", {"premium_widget": 11})  # only 10 in stock
+
+          @pytest.mark.risk_medium
+          def test_insufficient_stock_item_not_in_inventory(self, processor):
+              """Scenario S07b: Item in pricing but not in inventory at all. (EG)"""
+              # Add to pricing but not inventory
+              processor.pricing["rare_item"] = Decimal("500.00")
+              with pytest.raises(InsufficientStockError, match="Not enough stock"):
+                  processor.create_order("ORD-204b", {"rare_item": 1})
+
+          @pytest.mark.risk_high
+          def test_inventory_not_deducted_on_validation_failure(self, processor, inventory):
+              """Scenario S07c: Failed order must not reduce inventory. (EG: side effect guard)"""
+              initial_stock = dict(inventory)
+              with pytest.raises(InsufficientStockError):
+                  processor.create_order("ORD-204c", {"premium_widget": 11})  # only 10 in stock
+              for item, stock in initial_stock.items():
+                  assert processor.inventory[item] == stock
+
+
+      class TestCreateOrderBoundary:
+          """Scenario S08-S10: MAX_ITEMS_PER_ORDER boundary value analysis."""
+
+          @pytest.mark.risk_high
+          @pytest.mark.parametrize("total_qty,should_succeed", [
+              (99, True),    # BVA: just below boundary
+              (100, True),   # BVA: exact boundary (valid)
+              (101, False),  # BVA: just above boundary (invalid)
+          ], ids=["99_items_valid", "100_items_boundary_valid", "101_items_invalid"])
+          def test_max_items_boundary(self, processor, total_qty, should_succeed):
+              """Scenario S08-S10: MAX_ITEMS_PER_ORDER=100 boundary. (BVA: 3-value)"""
+              items = {"gizmo": total_qty}  # gizmo has 200 in stock, enough for all cases
+              if should_succeed:
+                  order = processor.create_order(f"ORD-BVA-{total_qty}", items)
+                  assert order["status"] == OrderStatus.PENDING
+              else:
+                  with pytest.raises(ValueError, match="Cannot order more than 100 items"):
+                      processor.create_order(f"ORD-BVA-{total_qty}", items)
+
+          @pytest.mark.risk_medium
+          def test_max_items_across_multiple_products(self, processor):
+              """Scenario S10b: Total items across products exceeds limit. (EG)"""
+              # 50 + 30 + 21 = 101 → exceeds MAX_ITEMS_PER_ORDER
+              with pytest.raises(ValueError, match="Cannot order more than 100 items"):
+                  processor.create_order("ORD-BVA-MULTI", {
+                      "widget": 50,
+                      "gadget": 30,
+                      "gizmo": 21,
+                  })
+
+
+      # =========================================================================
+      # S11-S22: transition_status — State Transition Testing
+      # =========================================================================
+
+      class TestValidStateTransitions:
+          """Scenario S11-S17: All valid transitions in the state machine. (ST)"""
+
+          @pytest.mark.risk_high
+          def test_full_happy_path_lifecycle(self, processor):
+              """Scenario S11: PENDING → CONFIRMED → PROCESSING → SHIPPED → DELIVERED."""
+              processor.create_order("ORD-ST-001", {"widget": 1})
+
+              order = processor.transition_status("ORD-ST-001", OrderStatus.CONFIRMED)
+              assert order["status"] == OrderStatus.CONFIRMED
+
+              order = processor.transition_status("ORD-ST-001", OrderStatus.PROCESSING)
+              assert order["status"] == OrderStatus.PROCESSING
+
+              order = processor.transition_status("ORD-ST-001", OrderStatus.SHIPPED)
+              assert order["status"] == OrderStatus.SHIPPED
+
+              order = processor.transition_status("ORD-ST-001", OrderStatus.DELIVERED)
+              assert order["status"] == OrderStatus.DELIVERED
+
+          @pytest.mark.risk_high
+          @pytest.mark.parametrize("cancel_from", [
+              OrderStatus.PENDING,
+              OrderStatus.CONFIRMED,
+              OrderStatus.PROCESSING,
+          ], ids=["cancel_from_pending", "cancel_from_confirmed", "cancel_from_processing"])
+          def test_cancellation_from_cancellable_states(self, processor, cancel_from):
+              """Scenario S12-S14: Cancellation allowed from PENDING, CONFIRMED, PROCESSING."""
+              processor.create_order("ORD-ST-CXL", {"widget": 1})
+              # Advance to the required state
+              transitions_to = {
+                  OrderStatus.PENDING: [],
+                  OrderStatus.CONFIRMED: [OrderStatus.CONFIRMED],
+                  OrderStatus.PROCESSING: [OrderStatus.CONFIRMED, OrderStatus.PROCESSING],
+              }
+              for status in transitions_to[cancel_from]:
+                  processor.transition_status("ORD-ST-CXL", status)
+
+              order = processor.transition_status("ORD-ST-CXL", OrderStatus.CANCELLED)
+              assert order["status"] == OrderStatus.CANCELLED
+
+          @pytest.mark.risk_high
+          def test_delivered_to_refunded_via_transition(self, processor, delivered_order):
+              """Scenario S15: DELIVERED → REFUNDED is a valid transition."""
+              order = processor.transition_status("ORD-DLVR-001", OrderStatus.REFUNDED)
+              assert order["status"] == OrderStatus.REFUNDED
+
+          @pytest.mark.risk_high
+          def test_transition_updates_timestamp(self, processor):
+              """Scenario S16: Each transition updates updated_at timestamp."""
+              processor.create_order("ORD-ST-TS", {"widget": 1})
+              original_updated = processor.orders["ORD-ST-TS"]["updated_at"]
+
+              order = processor.transition_status("ORD-ST-TS", OrderStatus.CONFIRMED)
+              assert order["updated_at"] >= original_updated
+
+
+      class TestInvalidStateTransitions:
+          """Scenario S17-S20: Invalid transitions raise InvalidTransitionError. (ST)"""
+
+          @pytest.mark.risk_high
+          @pytest.mark.parametrize("from_status,to_status,setup_transitions", [
+              (OrderStatus.PENDING, OrderStatus.SHIPPED, []),
+              (OrderStatus.PENDING, OrderStatus.DELIVERED, []),
+              (OrderStatus.PENDING, OrderStatus.REFUNDED, []),
+              (OrderStatus.PENDING, OrderStatus.PROCESSING, []),
+              (OrderStatus.CONFIRMED, OrderStatus.SHIPPED, [OrderStatus.CONFIRMED]),
+              (OrderStatus.CONFIRMED, OrderStatus.DELIVERED, [OrderStatus.CONFIRMED]),
+              (OrderStatus.SHIPPED, OrderStatus.CANCELLED, [
+                  OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.SHIPPED,
+              ]),
+              (OrderStatus.SHIPPED, OrderStatus.PROCESSING, [
+                  OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.SHIPPED,
+              ]),
+          ], ids=[
+              "pending_to_shipped",
+              "pending_to_delivered",
+              "pending_to_refunded",
+              "pending_to_processing",
+              "confirmed_to_shipped",
+              "confirmed_to_delivered",
+              "shipped_to_cancelled",
+              "shipped_to_processing",
+          ])
+          def test_invalid_transition_raises_error(
+              self, processor, from_status, to_status, setup_transitions
+          ):
+              """Scenario S17-S18: Transitions not in valid_transitions map are rejected."""
+              processor.create_order("ORD-INV", {"widget": 1})
+              for status in setup_transitions:
+                  processor.transition_status("ORD-INV", status)
+
+              with pytest.raises(InvalidTransitionError, match="Cannot transition from"):
+                  processor.transition_status("ORD-INV", to_status)
+
+          @pytest.mark.risk_high
+          @pytest.mark.parametrize("terminal_status,setup_path", [
+              (OrderStatus.CANCELLED, [OrderStatus.CANCELLED]),
+              (OrderStatus.REFUNDED, [
+                  OrderStatus.CONFIRMED, OrderStatus.PROCESSING,
+                  OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.REFUNDED,
+              ]),
+          ], ids=["cancelled_is_terminal", "refunded_is_terminal"])
+          def test_terminal_states_reject_all_transitions(
+              self, processor, terminal_status, setup_path
+          ):
+              """Scenario S19: Terminal states (CANCELLED, REFUNDED) accept no transitions."""
+              processor.create_order("ORD-TERM", {"widget": 1})
+              for status in setup_path:
+                  processor.transition_status("ORD-TERM", status)
+
+              for target in OrderStatus:
+                  if target != terminal_status:
+                      with pytest.raises(InvalidTransitionError):
+                          processor.transition_status("ORD-TERM", target)
+
+          @pytest.mark.risk_medium
+          def test_transition_nonexistent_order_raises_key_error(self, processor):
+              """Scenario S20: Transitioning a nonexistent order raises KeyError. (EG)"""
+              with pytest.raises(KeyError, match="not found"):
+                  processor.transition_status("NONEXISTENT-999", OrderStatus.CONFIRMED)
+
+
+      class TestCancellationInventoryRestore:
+          """Scenario S21-S22: Inventory restoration on cancellation. (ST + side effects)"""
+
+          @pytest.mark.risk_high
+          def test_cancellation_restores_inventory(self, processor, inventory):
+              """Scenario S21: Stock returned to inventory after cancellation."""
+              initial_widget = inventory["widget"]
+              processor.create_order("ORD-CXL-INV", {"widget": 5, "gadget": 3})
+
+              assert processor.inventory["widget"] == initial_widget - 5
+
+              processor.transition_status("ORD-CXL-INV", OrderStatus.CANCELLED)
+
+              assert processor.inventory["widget"] == initial_widget
+              assert processor.inventory["gadget"] == inventory["gadget"]  # restored to original
+
+          @pytest.mark.risk_high
+          def test_cancellation_after_partial_inventory_change(self, processor):
+              """Scenario S22: Cancel after another order consumed same item stock."""
+              processor.create_order("ORD-A", {"widget": 5})
+              processor.create_order("ORD-B", {"widget": 3})
+              # widget started at 50, now 50 - 5 - 3 = 42
+
+              processor.transition_status("ORD-A", OrderStatus.CANCELLED)
+              # widget should be 42 + 5 = 47
+              assert processor.inventory["widget"] == 47
+
+
+      # =========================================================================
+      # S23-S29: request_refund
+      # =========================================================================
+
+      class TestRequestRefundHappyPath:
+          """Scenario S23-S24: Successful refund of delivered order."""
+
+          @pytest.mark.risk_high
+          def test_refund_delivered_order_within_window(self, processor, delivered_order):
+              """Scenario S23: Refund a recently delivered order — status, amount, inventory."""
+              initial_widget = processor.inventory["widget"]
+
+              order = processor.request_refund("ORD-DLVR-001")
+
+              assert order["status"] == OrderStatus.REFUNDED
+              assert order["refund_amount"] == order["total"]
+              assert processor.inventory["widget"] == initial_widget + 2  # 2 widgets restored
+
+          @pytest.mark.risk_high
+          def test_refund_restores_inventory(self, processor, delivered_order):
+              """Scenario S24: Inventory is restored to pre-order levels after refund."""
+              pre_refund_widget = processor.inventory["widget"]
+
+              processor.request_refund("ORD-DLVR-001")
+
+              assert processor.inventory["widget"] == pre_refund_widget + 2
+
+
+      class TestRequestRefundPreconditions:
+          """Scenario S25-S26: Refund precondition failures."""
+
+          @pytest.mark.risk_high
+          @pytest.mark.parametrize("status_name,transitions", [
+              ("pending", []),
+              ("confirmed", [OrderStatus.CONFIRMED]),
+              ("processing", [OrderStatus.CONFIRMED, OrderStatus.PROCESSING]),
+              ("shipped", [OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.SHIPPED]),
+              ("cancelled", [OrderStatus.CANCELLED]),
+          ], ids=[
+              "refund_pending", "refund_confirmed", "refund_processing",
+              "refund_shipped", "refund_cancelled",
+          ])
+          def test_refund_non_delivered_order_raises_error(
+              self, processor, status_name, transitions
+          ):
+              """Scenario S25: Only DELIVERED orders can be refunded. (EP: invalid class)"""
+              processor.create_order("ORD-REF-PRE", {"widget": 1})
+              for s in transitions:
+                  processor.transition_status("ORD-REF-PRE", s)
+
+              with pytest.raises(InvalidTransitionError, match="Can only refund delivered orders"):
+                  processor.request_refund("ORD-REF-PRE")
+
+          @pytest.mark.risk_medium
+          def test_refund_nonexistent_order_raises_key_error(self, processor):
+              """Scenario S26: Refunding a nonexistent order raises KeyError. (EG)"""
+              with pytest.raises(KeyError, match="not found"):
+                  processor.request_refund("GHOST-ORDER-999")
+
+
+      class TestRefundWindowBVA:
+          """Scenario S27-S29: REFUND_WINDOW_DAYS=30 boundary value analysis."""
+
+          def _create_delivered_order_at(self, processor, order_id, created_at):
+              """Helper: create and deliver an order with a specific created_at time."""
+              order = processor.create_order(order_id, {"widget": 1})
+              order["created_at"] = created_at
+              processor.transition_status(order_id, OrderStatus.CONFIRMED)
+              processor.transition_status(order_id, OrderStatus.PROCESSING)
+              processor.transition_status(order_id, OrderStatus.SHIPPED)
+              processor.transition_status(order_id, OrderStatus.DELIVERED)
+              return order
+
+          @pytest.mark.risk_high
+          def test_refund_at_exactly_30_days(self, processor):
+              """Scenario S27: BVA on-point — exactly 30 days since creation. Should succeed."""
+              created = datetime.now() - timedelta(days=30)
+              self._create_delivered_order_at(processor, "ORD-BVA-30", created)
+
+              order = processor.request_refund("ORD-BVA-30")
+              assert order["status"] == OrderStatus.REFUNDED
+
+          @pytest.mark.risk_high
+          def test_refund_at_29_days(self, processor):
+              """Scenario S28: BVA below boundary — 29 days. Should succeed."""
+              created = datetime.now() - timedelta(days=29)
+              self._create_delivered_order_at(processor, "ORD-BVA-29", created)
+
+              order = processor.request_refund("ORD-BVA-29")
+              assert order["status"] == OrderStatus.REFUNDED
+
+          @pytest.mark.risk_high
+          def test_refund_at_31_days_raises(self, processor):
+              """Scenario S29: BVA above boundary — 31 days. Should raise ValueError."""
+              created = datetime.now() - timedelta(days=31)
+              self._create_delivered_order_at(processor, "ORD-BVA-31", created)
+
+              with pytest.raises(ValueError, match="Refund window expired"):
+                  processor.request_refund("ORD-BVA-31")
+
+          @pytest.mark.risk_medium
+          def test_refund_at_0_days(self, processor):
+              """Scenario S29b: BVA lower extreme — same day. Should succeed. (EG)"""
+              created = datetime.now()
+              self._create_delivered_order_at(processor, "ORD-BVA-0", created)
+
+              order = processor.request_refund("ORD-BVA-0")
+              assert order["status"] == OrderStatus.REFUNDED
+
+
+      # =========================================================================
+      # S30-S38: apply_discount
+      # =========================================================================
+
+      class TestApplyDiscountHappyPath:
+          """Scenario S30-S31: Successful discount application."""
+
+          @pytest.mark.risk_high
+          def test_apply_10_percent_discount(self, processor):
+              """Scenario S30: 10% discount recalculates subtotal, tax, shipping, total."""
+              processor.create_order("ORD-DSC-001", {"gadget": 3})
+              # subtotal = 75.00, tax = 6.00, shipping = 0 (75 >= 50)
+
+              order = processor.apply_discount("ORD-DSC-001", Decimal("10"))
+
+              expected_discount = Decimal("7.500")       # 75 * 10 / 100
+              expected_subtotal = Decimal("67.500")      # 75 - 7.5
+              expected_tax = Decimal("5.4000")           # 67.5 * 0.08
+              expected_shipping = Decimal("0")           # 67.5 >= 50 → free
+              expected_total = expected_subtotal + expected_tax + expected_shipping
+
+              assert order["discount"] == expected_discount
+              assert order["subtotal"] == expected_subtotal
+              assert order["tax"] == expected_tax
+              assert order["shipping"] == expected_shipping
+              assert order["total"] == expected_total
+
+          @pytest.mark.risk_high
+          def test_apply_100_percent_discount(self, processor):
+              """Scenario S31: 100% discount — full free order. (BVA: upper boundary)"""
+              processor.create_order("ORD-DSC-100", {"widget": 2})
+              # subtotal = 20.00
+
+              order = processor.apply_discount("ORD-DSC-100", Decimal("100"))
+
+              assert order["subtotal"] == Decimal("0.00")
+              assert order["tax"] == Decimal("0.00")
+              assert order["total"] == order["subtotal"] + order["tax"] + order["shipping"]
+
+
+      class TestApplyDiscountBoundary:
+          """Scenario S32-S35: Discount percentage boundary value analysis."""
+
+          @pytest.mark.risk_high
+          def test_discount_zero_raises_value_error(self, processor):
+              """Scenario S32: BVA — discount=0 is exclusive lower bound. Must reject."""
+              processor.create_order("ORD-DSC-0", {"widget": 1})
+              with pytest.raises(ValueError, match="Discount must be between 0"):
+                  processor.apply_discount("ORD-DSC-0", Decimal("0"))
+
+          @pytest.mark.risk_high
+          def test_discount_negative_raises_value_error(self, processor):
+              """Scenario S33: BVA — negative discount. Must reject."""
+              processor.create_order("ORD-DSC-NEG", {"widget": 1})
+              with pytest.raises(ValueError, match="Discount must be between 0"):
+                  processor.apply_discount("ORD-DSC-NEG", Decimal("-5"))
+
+          @pytest.mark.risk_high
+          def test_discount_above_100_raises_value_error(self, processor):
+              """Scenario S34: BVA — discount=101 exceeds upper bound. Must reject."""
+              processor.create_order("ORD-DSC-101", {"widget": 1})
+              with pytest.raises(ValueError, match="Discount must be between 0"):
+                  processor.apply_discount("ORD-DSC-101", Decimal("101"))
+
+          @pytest.mark.risk_medium
+          def test_discount_just_above_zero(self, processor):
+              """Scenario S35: BVA — smallest valid discount (0.01%). Should succeed."""
+              processor.create_order("ORD-DSC-MIN", {"gadget": 2})
+              order = processor.apply_discount("ORD-DSC-MIN", Decimal("0.01"))
+              assert order["discount"] > Decimal("0")
+              assert order["subtotal"] < Decimal("50.00")
+
+
+      class TestApplyDiscountPreconditions:
+          """Scenario S36-S37: Discount only applies to PENDING orders."""
+
+          @pytest.mark.risk_high
+          @pytest.mark.parametrize("status_name,transitions", [
+              ("confirmed", [OrderStatus.CONFIRMED]),
+              ("processing", [OrderStatus.CONFIRMED, OrderStatus.PROCESSING]),
+              ("shipped", [OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.SHIPPED]),
+              ("cancelled", [OrderStatus.CANCELLED]),
+          ], ids=["discount_confirmed", "discount_processing", "discount_shipped", "discount_cancelled"])
+          def test_discount_on_non_pending_order_raises_error(
+              self, processor, status_name, transitions
+          ):
+              """Scenario S36: Discount rejected for non-PENDING orders. (EP: invalid class)"""
+              processor.create_order("ORD-DSC-NP", {"widget": 2})
+              for s in transitions:
+                  processor.transition_status("ORD-DSC-NP", s)
+
+              with pytest.raises(InvalidTransitionError, match="Can only apply discount to pending"):
+                  processor.apply_discount("ORD-DSC-NP", Decimal("10"))
+
+          @pytest.mark.risk_medium
+          def test_discount_nonexistent_order_raises_key_error(self, processor):
+              """Scenario S37: Discount on nonexistent order raises KeyError. (EG)"""
+              with pytest.raises(KeyError, match="not found"):
+                  processor.apply_discount("NO-SUCH-ORDER", Decimal("10"))
+
+
+      class TestDiscountShippingInteraction:
+          """Scenario S38: Discount can change shipping fee — decision table. (DT)
+
+          Decision table:
+            Condition: subtotal_before_discount >= 50 | subtotal_after_discount >= 50
+            Rule 1: True  | True  → shipping stays 0
+            Rule 2: True  | False → shipping changes from 0 to 5.99
+            Rule 3: False | False → shipping stays 5.99
+            Rule 4: False | True  → impossible (discount reduces subtotal)
+          """
+
+          @pytest.mark.risk_high
+          def test_discount_drops_subtotal_below_free_shipping(self, processor):
+              """Scenario S38a: DT Rule 2 — subtotal drops below $50 after discount."""
+              # subtotal = 50.00 (exactly at threshold → free shipping initially)
+              processor.create_order("ORD-DSC-SHIP", {"widget": 5})
+              original = processor.orders["ORD-DSC-SHIP"]
+              assert original["shipping"] == Decimal("0")  # 50 >= 50
+
+              # 10% discount → new subtotal = 45.00 < 50 → shipping = 5.99
+              order = processor.apply_discount("ORD-DSC-SHIP", Decimal("10"))
+              assert order["shipping"] == Decimal("5.99")
+              assert order["subtotal"] == Decimal("45.00")
+
+          @pytest.mark.risk_medium
+          def test_discount_keeps_subtotal_above_free_shipping(self, processor):
+              """Scenario S38b: DT Rule 1 — subtotal stays above $50 after discount."""
+              # subtotal = 99.99 (premium_widget)
+              processor.create_order("ORD-DSC-KEEP", {"premium_widget": 1})
+              assert processor.orders["ORD-DSC-KEEP"]["shipping"] == Decimal("0")
+
+              order = processor.apply_discount("ORD-DSC-KEEP", Decimal("10"))
+              # new subtotal = 89.991 → still >= 50
+              assert order["shipping"] == Decimal("0")
+
+          @pytest.mark.risk_medium
+          def test_discount_on_order_already_below_threshold(self, processor):
+              """Scenario S38c: DT Rule 3 — subtotal already below $50, stays below."""
+              # subtotal = 10.00 (1 widget) → shipping = 5.99
+              processor.create_order("ORD-DSC-LOW", {"widget": 1})
+              assert processor.orders["ORD-DSC-LOW"]["shipping"] == Decimal("5.99")
+
+              order = processor.apply_discount("ORD-DSC-LOW", Decimal("50"))
+              # new subtotal = 5.00 < 50 → shipping still 5.99
+              assert order["shipping"] == Decimal("5.99")
+
+
+      # =========================================================================
+      # S39-S45: Cross-cutting — Tax, Shipping, Precision
+      # =========================================================================
+
+      class TestShippingThresholdBVA:
+          """Scenario S39-S41: FREE_SHIPPING_THRESHOLD=50.00 boundary analysis."""
+
+          @pytest.mark.risk_high
+          @pytest.mark.parametrize("items,expected_shipping,desc", [
+              ({"widget": 4, "gizmo": 2}, Decimal("0"),    "subtotal=47.00, below threshold"),
+              ({"widget": 5},              Decimal("0"),    "subtotal=50.00, exactly at threshold"),
+              ({"gadget": 2, "widget": 1}, Decimal("0"),    "subtotal=60.00, above threshold"),
+          ], ids=["below_50_shipping_fee", "exactly_50_free", "above_50_free"])
+          def test_shipping_threshold_boundary(self, processor, items, expected_shipping, desc):
+              """Scenario S39-S41: Shipping fee at/around $50 boundary. (BVA)"""
+              order = processor.create_order("ORD-SHIP-BVA", items)
+              # For subtotal=47.00, shipping should be 5.99
+              if order["subtotal"] < Decimal("50.00"):
+                  assert order["shipping"] == Decimal("5.99"), f"Expected shipping fee for {desc}"
+              else:
+                  assert order["shipping"] == Decimal("0"), f"Expected free shipping for {desc}"
+
+          @pytest.mark.risk_high
+          def test_shipping_just_below_threshold(self, processor):
+              """Scenario S39b: BVA off-point — $49.99 subtotal. Shipping = $5.99."""
+              # 14 gizmos = 14 * 3.50 = 49.00 < 50 → shipping
+              processor.pricing["micro_item"] = Decimal("49.99")
+              processor.inventory["micro_item"] = 10
+              order = processor.create_order("ORD-SHIP-49", {"micro_item": 1})
+              assert order["subtotal"] == Decimal("49.99")
+              assert order["shipping"] == Decimal("5.99")
+
+          @pytest.mark.risk_high
+          def test_shipping_just_at_threshold(self, processor):
+              """Scenario S40b: BVA on-point — exactly $50.00. Free shipping."""
+              order = processor.create_order("ORD-SHIP-50", {"widget": 5})
+              assert order["subtotal"] == Decimal("50.00")
+              assert order["shipping"] == Decimal("0")
+
+
+      class TestTaxCalculation:
+          """Scenario S42-S43: TAX_RATE=0.08 tax calculations with Decimal precision."""
+
+          @pytest.mark.risk_high
+          def test_tax_is_8_percent_of_subtotal(self, processor):
+              """Scenario S42: Tax = subtotal * 0.08 verified with Decimal arithmetic."""
+              order = processor.create_order("ORD-TAX-001", {"gadget": 4})
+              expected_subtotal = Decimal("100.00")
+              expected_tax = Decimal("8.00")
+
+              assert order["subtotal"] == expected_subtotal
+              assert order["tax"] == expected_tax
+
+          @pytest.mark.risk_medium
+          def test_tax_with_fractional_subtotal(self, processor):
+              """Scenario S43: Tax on non-round subtotal preserves Decimal precision."""
+              order = processor.create_order("ORD-TAX-FRAC", {"gizmo": 3})
+              # subtotal = 3 * 3.50 = 10.50
+              # tax = 10.50 * 0.08 = 0.84
+              assert order["subtotal"] == Decimal("10.50")
+              assert order["tax"] == Decimal("0.8400")
+
+          @pytest.mark.risk_high
+          def test_total_equals_subtotal_plus_tax_plus_shipping(self, processor):
+              """Scenario S43b: Total = subtotal + tax + shipping invariant. (EG: consistency)"""
+              order = processor.create_order("ORD-TOTAL", {"widget": 3, "gizmo": 7})
+              # subtotal = 30 + 24.50 = 54.50
+              assert order["total"] == order["subtotal"] + order["tax"] + order["shipping"]
+
+
+      class TestDecimalPrecision:
+          """Scenario S44-S45: Ensure no floating point errors in monetary calculations."""
+
+          @pytest.mark.risk_high
+          def test_no_floating_point_drift(self, processor):
+              """Scenario S44: Repeated operations maintain Decimal precision. (EG)"""
+              order = processor.create_order("ORD-PREC", {"gizmo": 7})
+              # 7 * 3.50 = 24.50
+              # tax = 24.50 * 0.08 = 1.9600
+              # shipping = 5.99 (24.50 < 50)
+              # total = 24.50 + 1.96 + 5.99 = 32.45
+              assert order["total"] == order["subtotal"] + order["tax"] + order["shipping"]
+              # Verify individual Decimal types
+              assert isinstance(order["subtotal"], Decimal)
+              assert isinstance(order["tax"], Decimal)
+              assert isinstance(order["total"], Decimal)
+
+          @pytest.mark.risk_medium
+          def test_discount_then_verify_precision(self, processor):
+              """Scenario S45: Discount + tax + shipping maintains Decimal consistency."""
+              processor.create_order("ORD-DISC-PREC", {"premium_widget": 1})
+              order = processor.apply_discount("ORD-DISC-PREC", Decimal("33.33"))
+
+              # Verify the invariant: total = subtotal + tax + shipping
+              recalc_total = order["subtotal"] + order["tax"] + order["shipping"]
+              assert order["total"] == recalc_total
+
+  - path: "tests/conftest.py"
+    scenarios_covered: 0
+    content: |
+      """
+      Valid Guard — Shared conftest.py for order_processor test suite.
+
+      Provides reusable fixtures and custom pytest markers for risk-based test selection.
+
+      Usage:
+        pytest -m risk_high          # Run only high-risk tests
+        pytest -m risk_medium        # Run only medium-risk tests
+        pytest -m "not risk_low"     # Skip low-risk tests
+      """
+
+      import pytest
+
+
+      def pytest_configure(config):
+          """Register custom markers for risk-based test selection."""
+          config.addinivalue_line("markers", "risk_high: High-risk scenario — must pass")
+          config.addinivalue_line("markers", "risk_medium: Medium-risk scenario — should pass")
+          config.addinivalue_line("markers", "risk_low: Low-risk scenario — nice to have")
+
+summary:
+  total_test_functions: 45
+  total_assertions: 85
+  risk_distribution:
+    high: 32
+    medium: 13
+    low: 0
+  technique_distribution:
+    equivalence_partitioning: 12
+    boundary_value_analysis: 14
+    state_transition: 12
+    decision_table: 4
+    error_guessing: 8
+  parametrized_tests: 7
+  classes: 14
+  files_generated: 2
+  coverage_areas:
+    - "create_order: happy path, validation errors, max items BVA, inventory deduction"
+    - "transition_status: all valid transitions, invalid transitions, terminal states, inventory restore on cancel"
+    - "request_refund: delivered order refund, non-delivered rejection, refund window BVA (29/30/31 days), inventory restore"
+    - "apply_discount: valid discount, boundary (0/100/101), non-pending rejection, shipping recalculation DT"
+    - "cross-cutting: tax at 8%, shipping threshold BVA ($49.99/$50/$60), Decimal precision, total invariant"

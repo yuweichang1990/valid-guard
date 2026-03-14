@@ -1,0 +1,1620 @@
+# Valid Guard Test Plan — Order Lifecycle State Machine
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Order Lifecycle State Machine"
+
+feature_description: >
+  Complete order lifecycle management for an online store. Orders progress
+  through a linear state machine: cart -> pending_payment -> payment_processing
+  -> confirmed -> preparing -> shipped -> delivered. The system supports
+  cancellation from the confirmed state within a 30-minute window, refund
+  requests from the delivered state within 30 days, and automatic payment
+  retry with up to 3 attempts before auto-cancellation. Guard conditions
+  constrain time-limited and retry-limited transitions.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # HAPPY PATH — Forward State Transitions
+  # ==========================================================================
+  - name: "Complete order lifecycle from cart to delivered"
+    description: >
+      Verifies the full happy-path progression through every state in sequence:
+      cart -> pending_payment -> payment_processing -> confirmed -> preparing
+      -> shipped -> delivered. Each transition fires on its correct trigger
+      event and the order arrives at the terminal delivered state.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. This is the core revenue path; every successful order must traverse these states."
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition covers the sequential state machine traversal. Equivalence
+      partitioning validates a representative order from the valid-order class
+      traversing the entire chain.
+    preconditions:
+      - "Customer is authenticated"
+      - "Cart contains at least one in-stock item"
+      - "Payment method is valid and funded"
+    state_transition:
+      states:
+        - cart
+        - pending_payment
+        - payment_processing
+        - confirmed
+        - preparing
+        - shipped
+        - delivered
+      transitions:
+        - from: cart
+          to: pending_payment
+          trigger: "checkout_initiated"
+          guard: "cart is non-empty and all items are in stock"
+        - from: pending_payment
+          to: payment_processing
+          trigger: "payment_submitted"
+          guard: "valid payment method provided"
+        - from: payment_processing
+          to: confirmed
+          trigger: "payment_captured"
+          guard: "payment gateway returns success"
+        - from: confirmed
+          to: preparing
+          trigger: "warehouse_acknowledged"
+          guard: "warehouse confirms inventory allocation"
+        - from: preparing
+          to: shipped
+          trigger: "tracking_number_assigned"
+          guard: "carrier accepts package and issues tracking number"
+        - from: shipped
+          to: delivered
+          trigger: "delivery_confirmed"
+          guard: "delivery proof obtained (signature or photo)"
+    examples:
+      - input:
+          initial_state: "cart"
+          events:
+            - "checkout_initiated"
+            - "payment_submitted"
+            - "payment_captured"
+            - "warehouse_acknowledged"
+            - "tracking_number_assigned"
+            - "delivery_confirmed"
+        expected:
+          final_state: "delivered"
+          transitions_count: 6
+        description: "Full happy-path traversal from cart to delivered with all 6 transitions."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - smoke
+      - happy-path
+
+  - name: "Cart to pending_payment transition"
+    description: >
+      Verifies the first transition in the order lifecycle. When a customer
+      initiates checkout, the order moves from cart to pending_payment state.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. Entry point to the purchase funnel; failure blocks all orders."
+    techniques:
+      - state_transition
+    technique_rationale: "State transition testing validates individual state changes with correct trigger and guard evaluation."
+    preconditions:
+      - "Order is in cart state"
+      - "Cart has at least one valid in-stock item"
+    state_transition:
+      states:
+        - cart
+        - pending_payment
+      transitions:
+        - from: cart
+          to: pending_payment
+          trigger: "checkout_initiated"
+          guard: "cart is non-empty and all items are in stock"
+    examples:
+      - input:
+          current_state: "cart"
+          trigger: "checkout_initiated"
+          cart_items: 3
+          all_in_stock: true
+        expected:
+          new_state: "pending_payment"
+          payment_form_displayed: true
+        description: "Valid cart with in-stock items initiates checkout successfully."
+      - input:
+          current_state: "cart"
+          trigger: "checkout_initiated"
+          cart_items: 0
+        expected:
+          error: "CART_EMPTY"
+          state_unchanged: true
+        description: "Empty cart blocks checkout initiation (guard fails)."
+      - input:
+          current_state: "cart"
+          trigger: "checkout_initiated"
+          cart_items: 2
+          all_in_stock: false
+        expected:
+          error: "ITEMS_OUT_OF_STOCK"
+          state_unchanged: true
+        description: "Cart with out-of-stock items blocks checkout (guard fails)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - cart
+      - checkout
+
+  - name: "Payment submission transition (pending_payment to payment_processing)"
+    description: >
+      When a customer submits payment details, the order transitions from
+      pending_payment to payment_processing. The guard requires a valid
+      payment method to be provided.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. Payment submission is core to revenue capture."
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition for the state change; equivalence partitioning to
+      distinguish valid payment method classes (credit card, debit, wallet)
+      from invalid ones.
+    preconditions:
+      - "Order is in pending_payment state"
+    state_transition:
+      states:
+        - pending_payment
+        - payment_processing
+      transitions:
+        - from: pending_payment
+          to: payment_processing
+          trigger: "payment_submitted"
+          guard: "valid payment method provided"
+    examples:
+      - input:
+          current_state: "pending_payment"
+          trigger: "payment_submitted"
+          payment_method: "credit_card"
+          card_valid: true
+        expected:
+          new_state: "payment_processing"
+        description: "Valid credit card submission transitions to processing."
+      - input:
+          current_state: "pending_payment"
+          trigger: "payment_submitted"
+          payment_method: "invalid_method"
+        expected:
+          error: "INVALID_PAYMENT_METHOD"
+          state_unchanged: true
+        description: "Invalid payment method blocks transition (guard fails)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - payment
+
+  - name: "Payment capture success (payment_processing to confirmed)"
+    description: >
+      When the payment gateway confirms successful capture, the order
+      transitions from payment_processing to confirmed.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.50 -> high. Payment capture is the financial commitment point; silent failure means charges without order confirmation."
+    techniques:
+      - state_transition
+    technique_rationale: "State transition validates the critical payment-to-confirmation boundary."
+    preconditions:
+      - "Order is in payment_processing state"
+      - "Payment gateway is reachable"
+    state_transition:
+      states:
+        - payment_processing
+        - confirmed
+      transitions:
+        - from: payment_processing
+          to: confirmed
+          trigger: "payment_captured"
+          guard: "payment gateway returns success"
+    examples:
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_captured"
+          gateway_response: "success"
+        expected:
+          new_state: "confirmed"
+          order_confirmation_sent: true
+          payment_receipt_generated: true
+        description: "Successful payment capture confirms the order."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - payment
+      - critical-path
+
+  - name: "Warehouse acknowledgment (confirmed to preparing)"
+    description: >
+      After order confirmation, the warehouse system acknowledges the order
+      and begins preparation. The order transitions from confirmed to preparing.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 3, Consequence: 2, Detectability: 2. Average: 2.25 -> medium. Internal fulfilment step; failures are detectable through warehouse dashboards."
+    techniques:
+      - state_transition
+    technique_rationale: "State transition validates the handoff from payment to fulfilment domain."
+    preconditions:
+      - "Order is in confirmed state"
+      - "Warehouse system is operational"
+    state_transition:
+      states:
+        - confirmed
+        - preparing
+      transitions:
+        - from: confirmed
+          to: preparing
+          trigger: "warehouse_acknowledged"
+          guard: "warehouse confirms inventory allocation"
+    examples:
+      - input:
+          current_state: "confirmed"
+          trigger: "warehouse_acknowledged"
+          inventory_allocated: true
+        expected:
+          new_state: "preparing"
+        description: "Warehouse acknowledges and begins preparing the order."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - state-machine
+      - fulfilment
+
+  - name: "Shipment dispatch (preparing to shipped)"
+    description: >
+      When a tracking number is assigned by the carrier, the order transitions
+      from preparing to shipped. The customer is notified with tracking details.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 3, Consequence: 2, Detectability: 3. Average: 2.50 -> high. But setting medium since missing tracking is visible to customer support. Impact: 2, Frequency: 3, Consequence: 2, Detectability: 2. Average: 2.25 -> medium."
+    techniques:
+      - state_transition
+    technique_rationale: "State transition covers the fulfilment-to-logistics handoff."
+    preconditions:
+      - "Order is in preparing state"
+      - "Carrier integration is active"
+    state_transition:
+      states:
+        - preparing
+        - shipped
+      transitions:
+        - from: preparing
+          to: shipped
+          trigger: "tracking_number_assigned"
+          guard: "carrier accepts package and issues tracking number"
+    examples:
+      - input:
+          current_state: "preparing"
+          trigger: "tracking_number_assigned"
+          tracking_number: "1Z999AA10123456784"
+        expected:
+          new_state: "shipped"
+          tracking_notification_sent: true
+        description: "Tracking number assignment transitions order to shipped."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - state-machine
+      - shipping
+      - fulfilment
+
+  - name: "Delivery confirmation (shipped to delivered)"
+    description: >
+      When delivery is confirmed (carrier scan, signature, or photo proof),
+      the order transitions from shipped to delivered. This is the terminal
+      happy-path state.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 3, Consequence: 2, Detectability: 2. Average: 2.25 -> medium. Delivery confirmation is typically automated via carrier webhook."
+    techniques:
+      - state_transition
+    technique_rationale: "State transition validates the final happy-path state change."
+    preconditions:
+      - "Order is in shipped state"
+    state_transition:
+      states:
+        - shipped
+        - delivered
+      transitions:
+        - from: shipped
+          to: delivered
+          trigger: "delivery_confirmed"
+          guard: "delivery proof obtained (signature or photo)"
+    examples:
+      - input:
+          current_state: "shipped"
+          trigger: "delivery_confirmed"
+          delivery_proof: "signature"
+        expected:
+          new_state: "delivered"
+          delivery_notification_sent: true
+        description: "Delivery confirmed with signature proof."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - state-machine
+      - delivery
+
+  # ==========================================================================
+  # PAYMENT FAILURE & RETRY MECHANISM
+  # ==========================================================================
+  - name: "Payment failure with retry (payment_processing to pending_payment, retry_count < 3)"
+    description: >
+      When payment fails and the retry count is below the maximum of 3,
+      the order transitions back to pending_payment, allowing the customer
+      to retry. The guard condition enforces retry_count < 3.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high. Payment retry logic directly impacts revenue recovery and customer experience."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the retry loop. Boundary value analysis tests
+      the retry_count threshold at 0, 1, 2 (valid retries) and 3 (auto-cancel boundary).
+    preconditions:
+      - "Order is in payment_processing state"
+      - "Payment attempt has failed"
+    state_transition:
+      states:
+        - payment_processing
+        - pending_payment
+        - cancelled
+      transitions:
+        - from: payment_processing
+          to: pending_payment
+          trigger: "payment_failed"
+          guard: "retry_count < 3"
+        - from: payment_processing
+          to: cancelled
+          trigger: "payment_failed"
+          guard: "retry_count >= 3"
+    examples:
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_failed"
+          retry_count: 0
+          failure_reason: "insufficient_funds"
+        expected:
+          new_state: "pending_payment"
+          retry_count_after: 1
+          retry_allowed: true
+          customer_notified: true
+        description: "First payment failure (retry_count=0) -> returns to pending_payment for retry."
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_failed"
+          retry_count: 1
+          failure_reason: "card_declined"
+        expected:
+          new_state: "pending_payment"
+          retry_count_after: 2
+          retry_allowed: true
+        description: "Second payment failure (retry_count=1) -> still allowed to retry."
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_failed"
+          retry_count: 2
+          failure_reason: "gateway_error"
+        expected:
+          new_state: "pending_payment"
+          retry_count_after: 3
+          retry_allowed: true
+        description: "Third payment failure (retry_count=2, boundary on-point for < 3) -> last retry allowed."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - payment
+      - retry
+      - boundary
+
+  - name: "Payment failure auto-cancellation (retry_count >= 3)"
+    description: >
+      When payment fails and the retry count has reached or exceeded 3,
+      the order is automatically cancelled. The guard condition retry_count >= 3
+      triggers the transition to the cancelled terminal state.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium. But upgrading to high because auto-cancellation is a silent terminal action; the customer may not realize the order was lost."
+    techniques:
+      - state_transition
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      State transition models the auto-cancel path. Boundary value tests the
+      exact threshold (retry_count=3 as on-point). Error guessing considers
+      edge cases like retry_count exceeding 3 due to race conditions.
+    preconditions:
+      - "Order is in payment_processing state"
+      - "retry_count has reached 3"
+    state_transition:
+      states:
+        - payment_processing
+        - cancelled
+      transitions:
+        - from: payment_processing
+          to: cancelled
+          trigger: "payment_failed"
+          guard: "retry_count >= 3"
+    examples:
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_failed"
+          retry_count: 3
+        expected:
+          new_state: "cancelled"
+          cancellation_reason: "payment_failures_exhausted"
+          customer_notified: true
+          payment_holds_released: true
+        description: "Exactly 3 retries exhausted (boundary on-point for >= 3) -> auto-cancelled."
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_failed"
+          retry_count: 4
+        expected:
+          new_state: "cancelled"
+          cancellation_reason: "payment_failures_exhausted"
+        description: "retry_count=4 (above threshold, guard still satisfied) -> auto-cancelled."
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_failed"
+          retry_count: 100
+        expected:
+          new_state: "cancelled"
+          cancellation_reason: "payment_failures_exhausted"
+        description: "Extreme retry count (error guessing: possible race condition) -> still auto-cancels cleanly."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - payment
+      - auto-cancel
+      - boundary
+
+  - name: "Payment retry boundary at threshold (retry_count = 2 vs 3)"
+    description: >
+      Tests the exact boundary between retry-allowed and auto-cancel behavior.
+      At retry_count=2, the next failure should allow one more retry. At
+      retry_count=3, the next failure should auto-cancel. This is the critical
+      off-by-one boundary in the retry logic.
+    type: boundary
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium. Upgrading to high because an off-by-one in retry logic could silently cancel orders one attempt too early or allow infinite retries."
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value analysis targets the exact threshold. The retry_count=2
+      is the last on-point for the < 3 guard, and retry_count=3 is the first
+      on-point for the >= 3 guard.
+    preconditions:
+      - "Order is in payment_processing state"
+    examples:
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_failed"
+          retry_count: 2
+        expected:
+          new_state: "pending_payment"
+          can_retry: true
+        description: "BVA on-point for < 3: retry_count=2 allows retry (last chance)."
+      - input:
+          current_state: "payment_processing"
+          trigger: "payment_failed"
+          retry_count: 3
+        expected:
+          new_state: "cancelled"
+          can_retry: false
+        description: "BVA on-point for >= 3: retry_count=3 triggers auto-cancel."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - payment
+      - retry
+      - critical-path
+
+  # ==========================================================================
+  # CANCELLATION (from confirmed, within 30 minutes)
+  # ==========================================================================
+  - name: "Order cancellation within 30-minute window"
+    description: >
+      A customer can cancel a confirmed order within 30 minutes of confirmation.
+      The guard condition time_since_confirm < 30min must be satisfied. Upon
+      cancellation, the order transitions to cancelled state and a refund is
+      initiated.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high. Cancellation directly impacts financial transactions and customer satisfaction."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the cancellation path from confirmed to cancelled.
+      Boundary value analysis tests the 30-minute time window at its edges.
+    preconditions:
+      - "Order is in confirmed state"
+      - "Customer is authenticated and is the order owner"
+    state_transition:
+      states:
+        - confirmed
+        - cancelled
+      transitions:
+        - from: confirmed
+          to: cancelled
+          trigger: "customer_cancel_request"
+          guard: "time_since_confirm < 30 minutes"
+    examples:
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm_minutes: 0
+        expected:
+          new_state: "cancelled"
+          refund_initiated: true
+        description: "Immediate cancellation (0 minutes) -> allowed."
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm_minutes: 15
+        expected:
+          new_state: "cancelled"
+          refund_initiated: true
+        description: "Cancellation at 15 minutes (mid-window) -> allowed."
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm_minutes: 29
+        expected:
+          new_state: "cancelled"
+          refund_initiated: true
+        description: "Cancellation at 29 minutes (one minute before window closes) -> allowed."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - cancellation
+      - time-constraint
+
+  - name: "Cancellation window boundary at exactly 30 minutes"
+    description: >
+      Tests the exact boundary of the 30-minute cancellation window. The guard
+      condition is time_since_confirm < 30 minutes (strict less-than), so
+      exactly 30 minutes should be rejected while 29 minutes 59 seconds should
+      be the last acceptable moment.
+    type: boundary
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium. Upgrading to high because incorrect boundary handling could allow late cancellations or deny valid ones, both having financial impact."
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value analysis at the 30-minute threshold: 29m59s (last valid),
+      30m00s (first invalid), 30m01s (just beyond). Tests the strict less-than
+      guard semantics.
+    preconditions:
+      - "Order is in confirmed state"
+    examples:
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm_seconds: 1799
+        expected:
+          new_state: "cancelled"
+          refund_initiated: true
+        description: "BVA: 29 minutes 59 seconds (last valid second before boundary)."
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm_seconds: 1800
+        expected:
+          error: "CANCELLATION_WINDOW_EXPIRED"
+          state_unchanged: true
+        description: "BVA: Exactly 30 minutes (on-point for boundary, guard fails with strict <)."
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm_seconds: 1801
+        expected:
+          error: "CANCELLATION_WINDOW_EXPIRED"
+          state_unchanged: true
+        description: "BVA: 30 minutes 1 second (just past boundary, clearly rejected)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - cancellation
+      - time-constraint
+      - critical-path
+
+  - name: "Cancellation rejected after window expiry"
+    description: >
+      Cancellation attempts well after the 30-minute window has closed are
+      rejected. The order remains in confirmed state (or whichever state it
+      has progressed to).
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3. Average: 2.25 -> medium. Customer receives clear feedback; no silent failure."
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning groups all times > 30 minutes as a single invalid
+      partition. State transition confirms no transition fires.
+    preconditions:
+      - "Order is in confirmed state"
+      - "More than 30 minutes have elapsed since confirmation"
+    examples:
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm_minutes: 45
+        expected:
+          error: "CANCELLATION_WINDOW_EXPIRED"
+          state_unchanged: true
+        description: "45 minutes after confirmation -> cancellation denied."
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_cancel_request"
+          time_since_confirm_minutes: 1440
+        expected:
+          error: "CANCELLATION_WINDOW_EXPIRED"
+          state_unchanged: true
+        description: "24 hours after confirmation -> cancellation denied."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - cancellation
+      - error-handling
+      - time-constraint
+
+  - name: "Cancellation from non-confirmed states is rejected"
+    description: >
+      Cancellation is only valid from the confirmed state. Attempts to cancel
+      from any other state (cart, pending_payment, payment_processing,
+      preparing, shipped, delivered) must be rejected.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high. Allowing cancellation from wrong states could cause data inconsistency or financial loss."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition testing covers invalid transitions (N- paths). Error
+      guessing anticipates attempts from every non-confirmed state.
+    preconditions: []
+    examples:
+      - input:
+          current_state: "cart"
+          trigger: "customer_cancel_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot cancel from cart state."
+      - input:
+          current_state: "pending_payment"
+          trigger: "customer_cancel_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot cancel from pending_payment state."
+      - input:
+          current_state: "payment_processing"
+          trigger: "customer_cancel_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot cancel from payment_processing state."
+      - input:
+          current_state: "preparing"
+          trigger: "customer_cancel_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot cancel from preparing state (already in fulfilment)."
+      - input:
+          current_state: "shipped"
+          trigger: "customer_cancel_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot cancel from shipped state."
+      - input:
+          current_state: "delivered"
+          trigger: "customer_cancel_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot cancel from delivered state (must use refund instead)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - cancellation
+      - negative-test
+      - invalid-transition
+
+  # ==========================================================================
+  # REFUND (from delivered, within 30 days)
+  # ==========================================================================
+  - name: "Refund request within 30-day window"
+    description: >
+      A customer can request a refund from the delivered state within 30 days
+      of delivery. The guard condition time_since_delivery < 30 days must be
+      satisfied. The order transitions from delivered to refund_requested.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high. Refund processing directly involves financial reversal and compliance obligations."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the refund request path. Boundary value analysis
+      tests the 30-day time window at its edges.
+    preconditions:
+      - "Order is in delivered state"
+      - "Customer is authenticated and is the order owner"
+    state_transition:
+      states:
+        - delivered
+        - refund_requested
+        - refunded
+      transitions:
+        - from: delivered
+          to: refund_requested
+          trigger: "customer_refund_request"
+          guard: "time_since_delivery < 30 days"
+        - from: refund_requested
+          to: refunded
+          trigger: "refund_approved"
+          guard: "refund review completed and approved"
+    examples:
+      - input:
+          current_state: "delivered"
+          trigger: "customer_refund_request"
+          time_since_delivery_days: 0
+        expected:
+          new_state: "refund_requested"
+          refund_review_initiated: true
+        description: "Refund requested on delivery day -> accepted."
+      - input:
+          current_state: "delivered"
+          trigger: "customer_refund_request"
+          time_since_delivery_days: 15
+        expected:
+          new_state: "refund_requested"
+          refund_review_initiated: true
+        description: "Refund requested at 15 days (mid-window) -> accepted."
+      - input:
+          current_state: "delivered"
+          trigger: "customer_refund_request"
+          time_since_delivery_days: 29
+        expected:
+          new_state: "refund_requested"
+          refund_review_initiated: true
+        description: "Refund requested at 29 days (one day before window closes) -> accepted."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - refund
+      - time-constraint
+
+  - name: "Refund window boundary at exactly 30 days"
+    description: >
+      Tests the exact boundary of the 30-day refund window. The guard condition
+      is time_since_delivery < 30 days (strict less-than), so exactly 30 days
+      should be rejected while 29 days 23 hours 59 minutes should be accepted.
+    type: boundary
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium. Upgrading to high because incorrect boundary handling at the refund window has direct financial and legal implications (consumer protection laws)."
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value analysis at the 30-day threshold: day 29 (last valid day),
+      day 30 (first invalid day), day 31 (clearly beyond). Tests guard semantics
+      at the temporal boundary.
+    preconditions:
+      - "Order is in delivered state"
+    examples:
+      - input:
+          current_state: "delivered"
+          trigger: "customer_refund_request"
+          time_since_delivery_days: 29
+        expected:
+          new_state: "refund_requested"
+        description: "BVA: Day 29 (last valid day before boundary)."
+      - input:
+          current_state: "delivered"
+          trigger: "customer_refund_request"
+          time_since_delivery_days: 30
+        expected:
+          error: "REFUND_WINDOW_EXPIRED"
+          state_unchanged: true
+        description: "BVA: Exactly 30 days (on-point for boundary, guard fails with strict <)."
+      - input:
+          current_state: "delivered"
+          trigger: "customer_refund_request"
+          time_since_delivery_days: 31
+        expected:
+          error: "REFUND_WINDOW_EXPIRED"
+          state_unchanged: true
+        description: "BVA: Day 31 (clearly beyond boundary)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - refund
+      - time-constraint
+      - critical-path
+
+  - name: "Refund request rejected after window expiry"
+    description: >
+      Refund requests submitted after the 30-day window has closed are rejected.
+      The order remains in the delivered state.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3. Average: 2.25 -> medium. Customer receives clear feedback; no silent failure."
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning groups all times >= 30 days as a single invalid
+      partition. State transition confirms no transition fires.
+    preconditions:
+      - "Order is in delivered state"
+      - "More than 30 days have elapsed since delivery"
+    examples:
+      - input:
+          current_state: "delivered"
+          trigger: "customer_refund_request"
+          time_since_delivery_days: 60
+        expected:
+          error: "REFUND_WINDOW_EXPIRED"
+          state_unchanged: true
+        description: "60 days after delivery -> refund denied."
+      - input:
+          current_state: "delivered"
+          trigger: "customer_refund_request"
+          time_since_delivery_days: 365
+        expected:
+          error: "REFUND_WINDOW_EXPIRED"
+          state_unchanged: true
+        description: "1 year after delivery -> refund denied."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - refund
+      - error-handling
+      - time-constraint
+
+  - name: "Refund approval completes the refund lifecycle"
+    description: >
+      After a refund request is submitted and reviewed, approval transitions
+      the order from refund_requested to refunded (terminal state). The
+      payment reversal is executed.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high. Refund execution involves financial reversal; errors cause either double-refund or stuck refund."
+    techniques:
+      - state_transition
+    technique_rationale: "State transition validates the terminal refund path."
+    preconditions:
+      - "Order is in refund_requested state"
+      - "Refund review has been completed"
+    state_transition:
+      states:
+        - refund_requested
+        - refunded
+      transitions:
+        - from: refund_requested
+          to: refunded
+          trigger: "refund_approved"
+          guard: "refund review completed and approved"
+    examples:
+      - input:
+          current_state: "refund_requested"
+          trigger: "refund_approved"
+          review_outcome: "approved"
+        expected:
+          new_state: "refunded"
+          payment_reversed: true
+          customer_notified: true
+        description: "Approved refund completes the refund lifecycle."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - refund
+      - financial
+
+  - name: "Refund request from non-delivered states is rejected"
+    description: >
+      Refund requests are only valid from the delivered state. Attempts from
+      any other state must be rejected as invalid state transitions.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.25 -> medium. Upgrading to high because allowing refund from wrong states could cause financial loss without actual delivery."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition tests invalid transitions (N- paths). Error guessing
+      anticipates refund attempts from each non-delivered state.
+    examples:
+      - input:
+          current_state: "confirmed"
+          trigger: "customer_refund_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot request refund from confirmed state."
+      - input:
+          current_state: "shipped"
+          trigger: "customer_refund_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot request refund from shipped state (must wait for delivery)."
+      - input:
+          current_state: "cancelled"
+          trigger: "customer_refund_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          state_unchanged: true
+        description: "Cannot request refund from cancelled state."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - refund
+      - negative-test
+      - invalid-transition
+
+  # ==========================================================================
+  # INVALID STATE TRANSITIONS (N- Coverage)
+  # ==========================================================================
+  - name: "Invalid state transitions are rejected"
+    description: >
+      The state machine must reject all transitions that are not explicitly
+      defined. This covers jump transitions (e.g., cart -> delivered), backward
+      transitions (e.g., shipped -> confirmed), and transitions from terminal
+      states (cancelled, refunded).
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1. Average: 2.00 -> medium. Upgrading to high because invalid transitions that silently succeed can corrupt order data and financial records."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition N- coverage tests every invalid state-event pair. Error
+      guessing focuses on the most dangerous invalid transitions.
+    examples:
+      - input:
+          current_state: "cart"
+          trigger: "payment_captured"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot jump from cart directly to confirmed (skipping payment)."
+      - input:
+          current_state: "cart"
+          trigger: "delivery_confirmed"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot jump from cart directly to delivered."
+      - input:
+          current_state: "shipped"
+          trigger: "warehouse_acknowledged"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot go backward from shipped to preparing."
+      - input:
+          current_state: "delivered"
+          trigger: "checkout_initiated"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot restart checkout from delivered state."
+      - input:
+          current_state: "cancelled"
+          trigger: "payment_captured"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot confirm payment on a cancelled order (terminal state)."
+      - input:
+          current_state: "cancelled"
+          trigger: "warehouse_acknowledged"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot prepare a cancelled order."
+      - input:
+          current_state: "refunded"
+          trigger: "checkout_initiated"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot reopen a refunded order (terminal state)."
+      - input:
+          current_state: "refunded"
+          trigger: "customer_refund_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot request double refund on already-refunded order."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - negative-test
+      - invalid-transition
+      - security
+
+  # ==========================================================================
+  # DECISION TABLE — Payment Failure Outcome
+  # ==========================================================================
+  - name: "Payment failure outcome decision table"
+    description: >
+      Decision table capturing the combinatorial logic of payment failure
+      outcomes based on retry count, failure type, and whether the payment
+      was partially captured. Different combinations lead to different
+      actions: retry, auto-cancel, manual review, or void-and-retry.
+    type: combinatorial
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium. Upgrading to high because incorrect payment failure routing can cause financial loss, stuck orders, or double charges."
+    techniques:
+      - decision_table
+      - state_transition
+    technique_rationale: >
+      Decision table enumerates all meaningful combinations of failure conditions.
+      State transition validates the resulting state change for each rule.
+    decision_table:
+      conditions:
+        - "retry_count"
+        - "failure_type"
+        - "partial_capture"
+      actions:
+        - "next_state"
+        - "action"
+        - "customer_notification"
+      rules:
+        - description: "Soft decline, retries remaining, no partial capture"
+          condition_values:
+            retry_count: "< 3"
+            failure_type: "soft_decline"
+            partial_capture: false
+          expected_actions:
+            next_state: "pending_payment"
+            action: "allow_retry"
+            customer_notification: "payment_failed_retry_available"
+        - description: "Soft decline, retries exhausted, no partial capture"
+          condition_values:
+            retry_count: ">= 3"
+            failure_type: "soft_decline"
+            partial_capture: false
+          expected_actions:
+            next_state: "cancelled"
+            action: "auto_cancel"
+            customer_notification: "order_cancelled_payment_failed"
+        - description: "Hard decline (fraud), any retry count, no partial capture"
+          condition_values:
+            retry_count: "any"
+            failure_type: "hard_decline_fraud"
+            partial_capture: false
+          expected_actions:
+            next_state: "cancelled"
+            action: "immediate_cancel_flag_fraud"
+            customer_notification: "payment_declined_contact_bank"
+        - description: "Gateway error, retries remaining, no partial capture"
+          condition_values:
+            retry_count: "< 3"
+            failure_type: "gateway_error"
+            partial_capture: false
+          expected_actions:
+            next_state: "pending_payment"
+            action: "allow_retry"
+            customer_notification: "temporary_error_please_retry"
+        - description: "Gateway error, retries exhausted, no partial capture"
+          condition_values:
+            retry_count: ">= 3"
+            failure_type: "gateway_error"
+            partial_capture: false
+          expected_actions:
+            next_state: "cancelled"
+            action: "auto_cancel"
+            customer_notification: "order_cancelled_gateway_unavailable"
+        - description: "Any failure type, partial capture exists"
+          condition_values:
+            retry_count: "any"
+            failure_type: "any"
+            partial_capture: true
+          expected_actions:
+            next_state: "payment_processing"
+            action: "void_partial_capture_then_retry_or_cancel"
+            customer_notification: "payment_issue_being_resolved"
+    examples:
+      - input:
+          retry_count: 1
+          failure_type: "soft_decline"
+          partial_capture: false
+        expected:
+          next_state: "pending_payment"
+          action: "allow_retry"
+        description: "Soft decline with retries left -> allow retry."
+      - input:
+          retry_count: 3
+          failure_type: "soft_decline"
+          partial_capture: false
+        expected:
+          next_state: "cancelled"
+          action: "auto_cancel"
+        description: "Soft decline with retries exhausted -> auto-cancel."
+      - input:
+          retry_count: 0
+          failure_type: "hard_decline_fraud"
+          partial_capture: false
+        expected:
+          next_state: "cancelled"
+          action: "immediate_cancel_flag_fraud"
+        description: "Fraud decline -> immediate cancel regardless of retry count."
+      - input:
+          retry_count: 2
+          failure_type: "gateway_error"
+          partial_capture: true
+        expected:
+          action: "void_partial_capture_then_retry_or_cancel"
+        description: "Partial capture with gateway error -> void first, then decide."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - payment
+      - failure-handling
+
+  # ==========================================================================
+  # EDGE CASES & ERROR GUESSING
+  # ==========================================================================
+  - name: "Concurrent state transition race condition"
+    description: >
+      Two events arrive simultaneously for the same order (e.g., customer
+      cancellation and warehouse acknowledgment both fire at the same instant
+      for an order in confirmed state). Only one transition should succeed
+      and the other should be rejected.
+    type: edge_case
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1. Average: 2.00 -> medium. Upgrading to high because race conditions in state machines can cause data corruption that is extremely hard to detect."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets concurrency hazards. State transition validates
+      that only one valid transition fires under contention.
+    preconditions:
+      - "Order is in confirmed state"
+      - "Two events arrive simultaneously"
+    examples:
+      - input:
+          current_state: "confirmed"
+          concurrent_triggers:
+            - "customer_cancel_request"
+            - "warehouse_acknowledged"
+          time_since_confirm_minutes: 10
+        expected:
+          exactly_one_transition: true
+          final_state_in: ["cancelled", "preparing"]
+          no_data_corruption: true
+        description: "Concurrent cancel + warehouse ack -> exactly one succeeds, no corruption."
+      - input:
+          current_state: "payment_processing"
+          concurrent_triggers:
+            - "payment_captured"
+            - "payment_failed"
+        expected:
+          exactly_one_transition: true
+          final_state_in: ["confirmed", "pending_payment", "cancelled"]
+          no_data_corruption: true
+        description: "Concurrent payment success + failure -> exactly one outcome."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - race-condition
+      - state-machine
+      - error-guessing
+
+  - name: "Duplicate event delivery (idempotency)"
+    description: >
+      The same event is delivered twice due to network retry or message queue
+      at-least-once delivery. The state machine must handle duplicate events
+      idempotently — the second event should be a no-op if the first already
+      succeeded.
+    type: edge_case
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium. Upgrading to high because duplicate event handling is critical in distributed systems and failures are silent."
+    techniques:
+      - error_guessing
+    technique_rationale: "Error guessing targets at-least-once delivery semantics common in distributed systems."
+    preconditions:
+      - "Event has already been processed once"
+    examples:
+      - input:
+          current_state: "confirmed"
+          trigger: "payment_captured"
+          event_id: "evt-abc-123"
+          already_processed: true
+        expected:
+          state_unchanged: true
+          no_side_effects: true
+          response: "already_processed"
+        description: "Duplicate payment_captured event is idempotently ignored."
+      - input:
+          current_state: "cancelled"
+          trigger: "customer_cancel_request"
+          event_id: "evt-def-456"
+          already_processed: true
+        expected:
+          state_unchanged: true
+          no_side_effects: true
+        description: "Duplicate cancellation on already-cancelled order is a no-op."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - idempotency
+      - distributed-systems
+      - error-guessing
+
+  - name: "State transition with stale data (optimistic locking)"
+    description: >
+      A transition is attempted with a stale version of the order (e.g.,
+      order was modified between read and write). The system must detect
+      the version conflict and reject the stale update.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 -> medium. Optimistic locking failures are visible but can confuse users."
+    techniques:
+      - error_guessing
+    technique_rationale: "Error guessing targets data consistency issues from concurrent modification."
+    examples:
+      - input:
+          current_state: "confirmed"
+          trigger: "warehouse_acknowledged"
+          order_version: 3
+          current_db_version: 4
+        expected:
+          error: "VERSION_CONFLICT"
+          state_unchanged: true
+          retry_hint: true
+        description: "Stale version detected -> rejected with retry hint."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - concurrency
+      - optimistic-locking
+      - error-guessing
+
+  - name: "Full payment retry cycle exhaustion (3 failures then auto-cancel)"
+    description: >
+      End-to-end scenario where a customer attempts payment 3 times, each
+      time failing, cycling through payment_processing -> pending_payment
+      three times, and on the fourth failure (retry_count=3) the order is
+      auto-cancelled.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high. The complete retry cycle must work end-to-end; partial failures in the loop can strand orders."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition covers the full retry loop traversal. Boundary value
+      tests the exact count at which auto-cancellation triggers.
+    preconditions:
+      - "Order starts in pending_payment state"
+      - "Payment method will fail every attempt"
+    state_transition:
+      states:
+        - pending_payment
+        - payment_processing
+        - cancelled
+      transitions:
+        - from: pending_payment
+          to: payment_processing
+          trigger: "payment_submitted"
+          guard: "valid payment method provided"
+        - from: payment_processing
+          to: pending_payment
+          trigger: "payment_failed"
+          guard: "retry_count < 3"
+        - from: payment_processing
+          to: cancelled
+          trigger: "payment_failed"
+          guard: "retry_count >= 3"
+    examples:
+      - input:
+          initial_state: "pending_payment"
+          events:
+            - { trigger: "payment_submitted", retry_count: 0 }
+            - { trigger: "payment_failed", retry_count: 0 }
+            - { trigger: "payment_submitted", retry_count: 1 }
+            - { trigger: "payment_failed", retry_count: 1 }
+            - { trigger: "payment_submitted", retry_count: 2 }
+            - { trigger: "payment_failed", retry_count: 2 }
+            - { trigger: "payment_submitted", retry_count: 3 }
+            - { trigger: "payment_failed", retry_count: 3 }
+        expected:
+          state_sequence:
+            - "pending_payment"
+            - "payment_processing"
+            - "pending_payment"
+            - "payment_processing"
+            - "pending_payment"
+            - "payment_processing"
+            - "pending_payment"
+            - "payment_processing"
+            - "cancelled"
+          final_state: "cancelled"
+          total_attempts: 4
+          cancellation_reason: "payment_failures_exhausted"
+        description: "Full 4-attempt cycle (initial + 3 retries) ending in auto-cancellation."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - payment
+      - retry
+      - end-to-end
+
+  - name: "Transition from terminal states is impossible"
+    description: >
+      Terminal states (cancelled, refunded) must not allow any outbound
+      transitions. Any attempt to trigger an event on a terminal-state
+      order must be rejected.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1. Average: 2.00 -> medium. Upgrading to high because resurrecting cancelled/refunded orders has direct financial and audit implications."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition N- coverage ensures no outbound transitions from terminal
+      states. Error guessing covers unusual resurrection attempts.
+    examples:
+      - input:
+          current_state: "cancelled"
+          trigger: "checkout_initiated"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+          message: "Order is in terminal state and cannot be modified"
+        description: "Cannot restart checkout on cancelled order."
+      - input:
+          current_state: "cancelled"
+          trigger: "payment_submitted"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot submit payment on cancelled order."
+      - input:
+          current_state: "refunded"
+          trigger: "warehouse_acknowledged"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot prepare a refunded order."
+      - input:
+          current_state: "refunded"
+          trigger: "customer_refund_request"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Cannot double-refund."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - terminal-state
+      - negative-test
+
+  # ==========================================================================
+  # COMPLETE STATE MACHINE OVERVIEW
+  # ==========================================================================
+  - name: "Complete order state machine with all states and transitions"
+    description: >
+      Comprehensive state transition model defining all 10 states and 12
+      transitions of the order lifecycle, including guard conditions. This
+      scenario serves as the master reference for the state machine topology.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.50 -> high. The state machine definition is the single source of truth for order behavior."
+    techniques:
+      - state_transition
+    technique_rationale: "State transition testing is the primary technique for validating finite state machines."
+    state_transition:
+      states:
+        - cart
+        - pending_payment
+        - payment_processing
+        - confirmed
+        - preparing
+        - shipped
+        - delivered
+        - cancelled
+        - refund_requested
+        - refunded
+      transitions:
+        - from: cart
+          to: pending_payment
+          trigger: "checkout_initiated"
+          guard: "cart is non-empty and all items are in stock"
+        - from: pending_payment
+          to: payment_processing
+          trigger: "payment_submitted"
+          guard: "valid payment method provided"
+        - from: payment_processing
+          to: confirmed
+          trigger: "payment_captured"
+          guard: "payment gateway returns success"
+        - from: payment_processing
+          to: pending_payment
+          trigger: "payment_failed"
+          guard: "retry_count < 3"
+        - from: payment_processing
+          to: cancelled
+          trigger: "payment_failed"
+          guard: "retry_count >= 3"
+        - from: confirmed
+          to: preparing
+          trigger: "warehouse_acknowledged"
+          guard: "warehouse confirms inventory allocation"
+        - from: confirmed
+          to: cancelled
+          trigger: "customer_cancel_request"
+          guard: "time_since_confirm < 30 minutes"
+        - from: preparing
+          to: shipped
+          trigger: "tracking_number_assigned"
+          guard: "carrier accepts package and issues tracking number"
+        - from: shipped
+          to: delivered
+          trigger: "delivery_confirmed"
+          guard: "delivery proof obtained (signature or photo)"
+        - from: delivered
+          to: refund_requested
+          trigger: "customer_refund_request"
+          guard: "time_since_delivery < 30 days"
+        - from: refund_requested
+          to: refunded
+          trigger: "refund_approved"
+          guard: "refund review completed and approved"
+    examples:
+      - input:
+          total_states: 10
+          total_transitions: 11
+          terminal_states: ["cancelled", "refunded"]
+          guarded_transitions: 11
+        expected:
+          all_states_reachable: true
+          no_orphan_states: true
+          terminal_states_have_no_outbound: true
+        description: "State machine topology validation — all states reachable, terminals have no exits."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - topology
+      - master-reference
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As an online store customer, I want my order to progress through a defined
+    lifecycle (cart through delivery) with the ability to cancel confirmed orders
+    within 30 minutes and request refunds on delivered orders within 30 days,
+    so that I have a predictable and fair ordering experience with appropriate
+    safeguards.
+  rules:
+    - rule_name: "Orders follow a linear forward progression: cart -> pending_payment -> payment_processing -> confirmed -> preparing -> shipped -> delivered"
+      examples:
+        - "New order starts in cart state, checkout moves it to pending_payment"
+        - "Payment submission moves order from pending_payment to payment_processing"
+        - "Successful payment capture moves order from payment_processing to confirmed"
+        - "Warehouse acknowledgment moves order from confirmed to preparing"
+        - "Tracking number assignment moves order from preparing to shipped"
+        - "Delivery confirmation moves order from shipped to delivered"
+        - "Skipping states (e.g., cart -> confirmed) is rejected as invalid transition"
+
+    - rule_name: "Payment failures retry up to 3 times before auto-cancelling"
+      examples:
+        - "First payment failure (retry_count=0) returns order to pending_payment for retry"
+        - "Second payment failure (retry_count=1) returns order to pending_payment for retry"
+        - "Third payment failure (retry_count=2) returns order to pending_payment for last retry"
+        - "Fourth payment failure (retry_count=3) auto-cancels the order"
+        - "Fraud-flagged decline immediately cancels regardless of retry count"
+        - "Partial capture failure voids the partial capture before retrying"
+
+    - rule_name: "Orders can be cancelled from confirmed state within 30 minutes of confirmation"
+      examples:
+        - "Cancel at 0 minutes -> allowed, refund initiated"
+        - "Cancel at 15 minutes -> allowed, refund initiated"
+        - "Cancel at 29 minutes 59 seconds -> allowed (last valid moment)"
+        - "Cancel at exactly 30 minutes -> rejected, window expired"
+        - "Cancel at 45 minutes -> rejected, window expired"
+        - "Cancel from preparing state -> rejected, wrong state"
+        - "Cancel from shipped state -> rejected, must use refund after delivery"
+
+    - rule_name: "Customers can request refunds from delivered state within 30 days of delivery"
+      examples:
+        - "Refund request on delivery day -> accepted, review initiated"
+        - "Refund request at 15 days -> accepted, review initiated"
+        - "Refund request at 29 days -> accepted (last valid day)"
+        - "Refund request at exactly 30 days -> rejected, window expired"
+        - "Refund request at 60 days -> rejected, window expired"
+        - "Refund request from shipped state -> rejected, must wait for delivery"
+        - "Approved refund transitions order from refund_requested to refunded"
+
+    - rule_name: "Terminal states (cancelled, refunded) allow no further transitions"
+      examples:
+        - "Cancelled order cannot be re-opened for checkout"
+        - "Cancelled order cannot accept payment"
+        - "Refunded order cannot be prepared or shipped"
+        - "Refunded order cannot be refunded again (no double-refund)"
+
+    - rule_name: "State transitions must be atomic and idempotent under concurrency"
+      examples:
+        - "Concurrent cancel + warehouse ack -> exactly one transition succeeds"
+        - "Concurrent payment success + failure -> exactly one outcome"
+        - "Duplicate event delivery -> second event is a no-op"
+        - "Stale version conflict -> rejected with retry hint"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

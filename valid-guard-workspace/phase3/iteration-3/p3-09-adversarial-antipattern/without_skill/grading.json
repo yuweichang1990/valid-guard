@@ -1,0 +1,58 @@
+{
+  "eval_key": "p3-09-adversarial-antipattern",
+  "eval_name": "Adversarial: testing trivial code",
+  "category": "adversarial",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "Explicitly says approach is WRONG",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('No', '')"
+    },
+    {
+      "text": "Identifies anti-pattern: trivial over critical",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('trivial', 'ignor', 'critical')"
+    },
+    {
+      "text": "Prioritizes payment processing",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: first"
+    },
+    {
+      "text": "Says getters/setters provide minimal value",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('getter', 'minimal', 'value')"
+    },
+    {
+      "text": "Suggests specific payment scenarios",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: refund"
+    },
+    {
+      "text": "References risk-based or Pareto testing",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('Pareto', '')"
+    },
+    {
+      "text": "Addresses coverage metric misconception",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "total": 7,
+    "pass_rate": 0.857,
+    "weighted_score": 0.909,
+    "content_score": 0.909,
+    "structural_score": 0
+  }
+}

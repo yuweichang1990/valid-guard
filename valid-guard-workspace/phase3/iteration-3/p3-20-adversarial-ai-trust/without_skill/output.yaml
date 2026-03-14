@@ -1,0 +1,132 @@
+verdict: do_not_ship_yet
+confidence_in_current_tests: low
+
+analysis: |
+  While 95% line coverage with all tests passing sounds impressive, relying solely on
+  AI-generated tests creates several significant risks that should give you pause before
+  shipping. Here is why you should not proceed without further review.
+
+  **1. Coverage does not equal correctness.**
+  Line coverage only tells you which lines were executed, not whether the outputs were
+  meaningfully verified. AI-generated tests frequently produce weak assertions -- checking
+  that a function returns something non-null, or that it does not throw, without verifying
+  the actual return value is correct. You can have 100% line coverage with zero useful
+  assertions.
+
+  **2. AI-generated tests often encode implementation bugs as expected behavior.**
+  When the AI reads your code and generates tests from it, it tends to produce tautological
+  tests -- tests that confirm "the code does what the code does." If the implementation has
+  a bug, the generated test may treat that buggy behavior as the expected result. These tests
+  will pass, but they provide no safety net.
+
+  **3. Edge cases and boundary conditions are likely missing.**
+  AI tools tend to generate happy-path tests. They frequently miss: null or undefined inputs,
+  empty collections, off-by-one errors, integer overflow, concurrency issues, resource cleanup
+  under failure, and other boundary conditions. These are exactly the scenarios where real bugs
+  hide.
+
+  **4. Negative testing is probably underrepresented.**
+  Good test suites verify that code correctly rejects invalid inputs, raises appropriate errors,
+  and handles misuse gracefully. AI-generated tests overwhelmingly focus on confirming the code
+  works, not confirming it fails properly when it should.
+
+  **5. Tests derived from code, not from requirements.**
+  AI-generated tests are reverse-engineered from the implementation, not written against a
+  specification. They tell you the code does what it does, but not whether it does what the
+  business or user actually needs. This is a fundamental gap.
+
+  **6. Mutation testing would likely expose weaknesses.**
+  If you ran a mutation testing tool (Stryker, PIT, mutmut) against this test suite, you would
+  likely find that many mutations survive -- meaning the tests fail to detect intentional bugs
+  injected into the code. High line coverage with a low mutation score is a classic sign of
+  superficial testing.
+
+  **7. Integration boundaries are probably untested.**
+  AI tools typically generate unit tests with mocked dependencies. The actual interactions
+  between components, external APIs, databases, and file systems may be completely unverified.
+
+risks:
+  - name: tautological_tests
+    description: >
+      Tests mirror the implementation rather than verifying intended behavior.
+      If the code has a bug, the test encodes that same bug as expected.
+    severity: high
+
+  - name: weak_assertions
+    description: >
+      Tests execute code paths without meaningfully verifying results.
+      Common pattern: checking non-null or no-throw without validating actual values.
+    severity: high
+
+  - name: missing_edge_cases
+    description: >
+      Boundary values, empty inputs, nulls, overflow, and concurrency scenarios
+      are typically absent from AI-generated tests.
+    severity: high
+
+  - name: no_negative_testing
+    description: >
+      Tests confirm the code works but do not confirm it fails gracefully
+      when given invalid inputs or encountering error conditions.
+    severity: medium
+
+  - name: specification_gap
+    description: >
+      Tests are derived from the code, not from requirements. They cannot
+      catch cases where the implementation diverges from what users need.
+    severity: high
+
+  - name: untested_integrations
+    description: >
+      Mocked dependencies mean real interactions between components,
+      APIs, and databases remain unverified.
+    severity: medium
+
+recommended_actions:
+  - action: manually_review_all_generated_tests
+    priority: 1
+    description: >
+      Read each test and ask: Does this assertion actually verify correct behavior?
+      Would this test fail if I introduced a real bug? Remove or rewrite any test
+      that merely confirms the code runs without checking meaningful outcomes.
+
+  - action: run_mutation_testing
+    priority: 2
+    description: >
+      Use a mutation testing tool (Stryker for JS/TS, PIT for Java, mutmut for Python)
+      to measure how many code mutations your tests actually catch. A mutation score
+      below 70-80% indicates the test suite has significant gaps despite high coverage.
+
+  - action: add_boundary_and_edge_case_tests
+    priority: 3
+    description: >
+      For each function, identify the boundary values of its inputs and write tests
+      at those boundaries. Include empty inputs, nulls, zero, max values, and
+      off-by-one scenarios.
+
+  - action: add_negative_and_error_handling_tests
+    priority: 4
+    description: >
+      Write tests that confirm the code correctly rejects invalid inputs, raises
+      appropriate errors, and handles failure modes like timeouts and resource
+      exhaustion.
+
+  - action: validate_against_requirements
+    priority: 5
+    description: >
+      Walk through your feature requirements and confirm each one has a
+      corresponding test that validates expected behavior from the user's
+      perspective, not just the implementation's perspective.
+
+  - action: add_integration_tests
+    priority: 6
+    description: >
+      Write integration tests for key workflows that span multiple components
+      to verify real interactions work correctly without mocks.
+
+summary: >
+  Do not ship based solely on AI-generated tests with 95% line coverage. High coverage
+  numbers from AI-generated tests frequently create a false sense of security. The tests
+  need human review, augmentation with edge cases and negative scenarios, mutation testing
+  to validate effectiveness, and verification against actual requirements before the code
+  is ready to ship. AI-generated tests are a useful starting point, not a finished product.

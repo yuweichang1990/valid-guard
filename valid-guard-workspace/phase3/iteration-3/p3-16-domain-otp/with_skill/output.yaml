@@ -1,0 +1,1362 @@
+# Valid Guard Test Plan — OTP Verification for Payment Transactions
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "OTP Verification for Payment Transactions"
+
+feature_description: >
+  One-Time Password (OTP) verification during payment transactions. Covers the
+  full OTP lifecycle: generation and delivery via SMS/email, user input and
+  validation, expiration enforcement, brute-force attack protection with
+  account lockout, and handling of invalid/malformed OTP entries. The OTP serves
+  as a second-factor authentication step before a payment is authorized.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # HAPPY PATH — OTP Delivery & Successful Verification
+  # ==========================================================================
+  - name: "Successful OTP delivery via SMS"
+    description: >
+      When a payment transaction is initiated, the system generates a valid OTP
+      and delivers it to the user's registered mobile number via SMS within the
+      expected time window.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. OTP delivery is the gateway to every payment.
+      If SMS delivery fails, the entire payment flow is blocked for the user.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning verifies the valid class of delivery — a
+      registered mobile number receiving an OTP within the expected timeframe.
+    preconditions:
+      - "User is authenticated"
+      - "User has a verified mobile number on file"
+      - "Payment transaction has been initiated and is awaiting OTP verification"
+    examples:
+      - input:
+          transaction_id: "TXN-001"
+          delivery_channel: "sms"
+          registered_phone: "+1-555-123-4567"
+        expected:
+          otp_generated: true
+          otp_length: 6
+          sms_sent: true
+          delivery_time_ms: "<5000"
+        description: "OTP generated and delivered via SMS to registered phone within 5 seconds."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - delivery
+      - sms
+      - critical-path
+      - smoke
+
+  - name: "Successful OTP delivery via email"
+    description: >
+      System delivers the OTP to the user's registered email address as a
+      fallback or primary channel depending on user preference.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2.
+      Average: 2.5 -> high. Email is a common fallback channel; failure blocks
+      users who cannot receive SMS.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning covers the valid email delivery class.
+    preconditions:
+      - "User is authenticated"
+      - "User has a verified email address on file"
+      - "Payment transaction is awaiting OTP verification"
+    examples:
+      - input:
+          transaction_id: "TXN-002"
+          delivery_channel: "email"
+          registered_email: "user@example.com"
+        expected:
+          otp_generated: true
+          otp_length: 6
+          email_sent: true
+          delivery_time_ms: "<10000"
+        description: "OTP generated and delivered via email within 10 seconds."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - delivery
+      - email
+      - critical-path
+
+  - name: "Successful OTP verification with correct code"
+    description: >
+      User receives the OTP by SMS or email, enters it correctly within the
+      validity window, and the payment transaction is authorized.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. This is the core success path — correct OTP must
+      always authorize the payment.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning confirms the valid OTP input class produces
+      the expected authorization outcome.
+    preconditions:
+      - "OTP has been generated and delivered to user"
+      - "OTP has not expired"
+      - "User account is not locked"
+    examples:
+      - input:
+          transaction_id: "TXN-001"
+          otp_entered: "482917"
+          otp_actual: "482917"
+          time_since_generation_seconds: 60
+        expected:
+          verification_result: "success"
+          payment_authorized: true
+          transaction_state: "authorized"
+        description: "Correct OTP entered well within the validity window authorizes payment."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - verification
+      - critical-path
+      - smoke
+
+  - name: "OTP resend on user request"
+    description: >
+      User requests a new OTP. The previous OTP is invalidated and a fresh one
+      is generated and delivered. Resend is rate-limited.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 -> medium. Resend is a common recovery flow but not on every
+      transaction. Failure is noticeable and user can retry.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      Equivalence partitioning covers the valid resend request class. State
+      transition models the OTP lifecycle from active to invalidated to new OTP.
+    preconditions:
+      - "An OTP has already been generated for this transaction"
+      - "Resend limit has not been reached"
+    examples:
+      - input:
+          transaction_id: "TXN-001"
+          resend_request: true
+          resend_count: 1
+          max_resend_limit: 3
+        expected:
+          previous_otp_invalidated: true
+          new_otp_generated: true
+          new_otp_delivered: true
+          remaining_resends: 2
+        description: "First resend invalidates old OTP and delivers a new one."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - delivery
+      - resend
+
+  # ==========================================================================
+  # EXPIRATION — OTP Time Boundaries
+  # ==========================================================================
+  - name: "OTP verification at exact expiration boundary"
+    description: >
+      Tests the exact boundary where the OTP transitions from valid to expired.
+      Typically OTPs expire after 5 minutes (300 seconds). Tests at 299s, 300s,
+      and 301s.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, but rounded to high due to security implication.
+      An off-by-one error at the expiration boundary could allow replay attacks
+      with expired OTPs — a silent failure the user would never detect.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Boundary value analysis is the canonical technique for testing time-based
+      thresholds. Tests the exact expiration point and values immediately
+      adjacent to it.
+    preconditions:
+      - "OTP has been generated with a 300-second (5 minute) TTL"
+      - "User account is not locked"
+    examples:
+      - input:
+          otp_entered: "482917"
+          otp_actual: "482917"
+          otp_ttl_seconds: 300
+          time_since_generation_seconds: 299
+        expected:
+          verification_result: "success"
+          payment_authorized: true
+        description: "OTP entered 1 second before expiry — accepted."
+      - input:
+          otp_entered: "482917"
+          otp_actual: "482917"
+          otp_ttl_seconds: 300
+          time_since_generation_seconds: 300
+        expected:
+          verification_result: "expired"
+          payment_authorized: false
+          error: "OTP_EXPIRED"
+        description: "OTP entered exactly at expiry boundary — rejected."
+      - input:
+          otp_entered: "482917"
+          otp_actual: "482917"
+          otp_ttl_seconds: 300
+          time_since_generation_seconds: 301
+        expected:
+          verification_result: "expired"
+          payment_authorized: false
+          error: "OTP_EXPIRED"
+        description: "OTP entered 1 second after expiry — rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - expiration
+      - boundary
+      - security
+
+  - name: "OTP used after significant delay past expiration"
+    description: >
+      OTP is submitted long after expiration (e.g., 10 minutes, 1 hour). System
+      must reject and not leak timing information.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 2.
+      Average: 2.25 -> medium. Rare scenario but could indicate stolen OTP
+      replay attempt. System must handle uniformly.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning covers the expired OTP class at various delays.
+      Error guessing anticipates replay attack patterns with old codes.
+    preconditions:
+      - "OTP was generated more than 5 minutes ago"
+    examples:
+      - input:
+          otp_entered: "482917"
+          otp_actual: "482917"
+          time_since_generation_seconds: 600
+        expected:
+          verification_result: "expired"
+          payment_authorized: false
+          error: "OTP_EXPIRED"
+        description: "OTP used 10 minutes after generation — rejected as expired."
+      - input:
+          otp_entered: "482917"
+          otp_actual: "482917"
+          time_since_generation_seconds: 3600
+        expected:
+          verification_result: "expired"
+          payment_authorized: false
+          error: "OTP_EXPIRED"
+        description: "OTP used 1 hour after generation — rejected as expired."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - expiration
+      - security
+      - replay
+
+  - name: "Expired OTP prompts resend, new OTP works"
+    description: >
+      After an OTP expires, the user requests a resend, receives a new OTP,
+      and successfully verifies with the new code. Confirms the old expired
+      OTP cannot be used after a new one is issued.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, elevated to high because accepting a stale OTP
+      after reissue is a critical security flaw that is hard for users to detect.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition models the OTP lifecycle through expiration and reissue.
+      Error guessing tests whether the old OTP is still accepted after reissue.
+    preconditions:
+      - "Original OTP has expired"
+      - "User requests resend"
+    state_transition:
+      states:
+        - "otp_generated"
+        - "otp_expired"
+        - "new_otp_generated"
+        - "otp_verified"
+      transitions:
+        - from: "otp_generated"
+          to: "otp_expired"
+          trigger: "ttl_elapsed"
+          guard: "time_since_generation >= ttl"
+        - from: "otp_expired"
+          to: "new_otp_generated"
+          trigger: "user_requests_resend"
+          guard: "resend_count < max_resends"
+        - from: "new_otp_generated"
+          to: "otp_verified"
+          trigger: "correct_new_otp_entered"
+    examples:
+      - input:
+          old_otp: "482917"
+          new_otp: "739261"
+          otp_entered: "739261"
+        expected:
+          verification_result: "success"
+          payment_authorized: true
+        description: "New OTP after expiry is accepted."
+      - input:
+          old_otp: "482917"
+          new_otp: "739261"
+          otp_entered: "482917"
+        expected:
+          verification_result: "failure"
+          payment_authorized: false
+          error: "INVALID_OTP"
+        description: "Old expired OTP is rejected even though it was once valid."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - expiration
+      - state-machine
+      - security
+      - critical-path
+
+  # ==========================================================================
+  # BRUTE-FORCE PROTECTION
+  # ==========================================================================
+  - name: "Account lockout after maximum failed OTP attempts"
+    description: >
+      After N consecutive failed OTP attempts (e.g., 5), the system locks the
+      OTP verification for that transaction and/or the user account to prevent
+      brute-force attacks.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, elevated to high because without brute-force
+      protection, a 6-digit OTP can be guessed in at most 1 million attempts.
+      Silent failure — attacker succeeds without user awareness.
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value analysis tests the exact lockout threshold (attempt N-1,
+      N, and N+1). State transition models the progression from unlocked
+      through warning to locked state.
+    preconditions:
+      - "OTP has been generated and delivered"
+      - "Max failed attempts is configured to 5"
+    state_transition:
+      states:
+        - "unlocked"
+        - "warning"
+        - "locked"
+      transitions:
+        - from: "unlocked"
+          to: "warning"
+          trigger: "failed_attempt"
+          guard: "failed_count >= 3 AND failed_count < 5"
+        - from: "warning"
+          to: "locked"
+          trigger: "failed_attempt"
+          guard: "failed_count >= 5"
+        - from: "locked"
+          to: "unlocked"
+          trigger: "lockout_period_expired"
+          guard: "time_since_lock >= lockout_duration"
+    examples:
+      - input:
+          consecutive_failures: 4
+          max_attempts: 5
+          otp_entered: "000000"
+          otp_actual: "482917"
+        expected:
+          verification_result: "failure"
+          account_locked: false
+          remaining_attempts: 1
+          warning_shown: true
+        description: "4th failed attempt — still unlocked but warning displayed."
+      - input:
+          consecutive_failures: 5
+          max_attempts: 5
+          otp_entered: "000000"
+          otp_actual: "482917"
+        expected:
+          verification_result: "failure"
+          account_locked: true
+          remaining_attempts: 0
+          error: "OTP_LOCKED_BRUTE_FORCE"
+          lockout_duration_minutes: 30
+        description: "5th failed attempt triggers account lockout for 30 minutes."
+      - input:
+          consecutive_failures: 5
+          max_attempts: 5
+          otp_entered: "482917"
+          otp_actual: "482917"
+          account_locked: true
+        expected:
+          verification_result: "failure"
+          payment_authorized: false
+          error: "ACCOUNT_LOCKED"
+        description: "Correct OTP rejected because account is already locked."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - brute-force
+      - security
+      - critical-path
+      - lockout
+
+  - name: "Brute-force attempt counter resets after successful verification"
+    description: >
+      If the user enters some wrong OTPs but then enters the correct one before
+      reaching the lockout threshold, the failure counter resets to zero.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 -> medium. Important for usability — false lockout of
+      legitimate users who mistype is annoying but not catastrophic.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition verifies the counter reset when transitioning from
+      failed attempts back to a successful verification state.
+    preconditions:
+      - "User has some failed attempts but below the lockout threshold"
+    examples:
+      - input:
+          consecutive_failures: 3
+          max_attempts: 5
+          otp_entered: "482917"
+          otp_actual: "482917"
+        expected:
+          verification_result: "success"
+          payment_authorized: true
+          failure_counter_reset: true
+        description: "Correct OTP after 3 failures resets counter and authorizes payment."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - brute-force
+      - usability
+      - counter-reset
+
+  - name: "Rate limiting on OTP verification requests"
+    description: >
+      System enforces rate limiting on OTP submission attempts to slow down
+      automated brute-force attacks. Rapid successive requests within a short
+      window are throttled.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, elevated to high because automated attacks
+      can submit thousands of attempts per second without rate limiting.
+      The attack is silent and can succeed before lockout takes effect.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the rate limit threshold exactly. Error guessing
+      anticipates bot-driven rapid-fire submission patterns.
+    preconditions:
+      - "Rate limit is configured to 1 request per 2 seconds"
+    examples:
+      - input:
+          requests_in_window:
+            - { otp: "111111", delay_ms: 0 }
+            - { otp: "222222", delay_ms: 500 }
+            - { otp: "333333", delay_ms: 500 }
+          window_seconds: 2
+        expected:
+          first_request_processed: true
+          subsequent_requests_throttled: true
+          error: "RATE_LIMIT_EXCEEDED"
+          retry_after_seconds: 2
+        description: "Three OTP submissions within 1 second triggers rate limiting."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - brute-force
+      - rate-limiting
+      - security
+
+  - name: "Lockout duration boundary and automatic unlock"
+    description: >
+      After lockout period expires (e.g., 30 minutes), the user can attempt
+      OTP verification again. Tests the boundary at 29 min, 30 min, and 31 min.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2.
+      Average: 1.75 -> medium. Lockout expiry is rare but important for
+      usability — permanent lockout would force support escalation.
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value tests the exact lockout duration threshold. State
+      transition verifies the locked-to-unlocked transition.
+    preconditions:
+      - "Account was locked due to brute-force detection"
+      - "Lockout duration is 30 minutes"
+    examples:
+      - input:
+          account_locked: true
+          lockout_duration_minutes: 30
+          time_since_lockout_minutes: 29
+          otp_entered: "482917"
+          otp_actual: "482917"
+        expected:
+          verification_result: "failure"
+          error: "ACCOUNT_LOCKED"
+          remaining_lockout_minutes: 1
+        description: "Attempt 1 minute before lockout expires — still locked."
+      - input:
+          account_locked: true
+          lockout_duration_minutes: 30
+          time_since_lockout_minutes: 30
+          otp_entered: "482917"
+          otp_actual: "482917"
+        expected:
+          verification_result: "success"
+          payment_authorized: true
+          account_locked: false
+        description: "Attempt exactly at lockout expiry — unlocked, correct OTP accepted."
+      - input:
+          account_locked: true
+          lockout_duration_minutes: 30
+          time_since_lockout_minutes: 31
+          otp_entered: "000000"
+          otp_actual: "482917"
+        expected:
+          verification_result: "failure"
+          account_locked: false
+          remaining_attempts: 4
+        description: "Attempt after lockout — unlocked but wrong OTP starts fresh counter."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - brute-force
+      - boundary
+      - lockout
+      - usability
+
+  # ==========================================================================
+  # INVALID OTP HANDLING
+  # ==========================================================================
+  - name: "Incorrect OTP code entered"
+    description: >
+      User enters a valid-format but incorrect OTP code. The system rejects
+      it with a generic error message that does not reveal the actual OTP.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Wrong OTP is the most common error case. The
+      error message must not leak information about the actual code.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning covers the invalid OTP value class. Error
+      guessing anticipates information leakage in error responses.
+    preconditions:
+      - "OTP has been generated and is valid"
+      - "Account is not locked"
+    examples:
+      - input:
+          otp_entered: "000000"
+          otp_actual: "482917"
+        expected:
+          verification_result: "failure"
+          payment_authorized: false
+          error: "INVALID_OTP"
+          error_message_contains_actual_otp: false
+        description: "Wrong OTP rejected with generic error, no OTP leakage."
+      - input:
+          otp_entered: "482916"
+          otp_actual: "482917"
+        expected:
+          verification_result: "failure"
+          payment_authorized: false
+          error: "INVALID_OTP"
+        description: "OTP off by one digit — still rejected, no partial match hint."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - invalid-otp
+      - error-handling
+      - security
+
+  - name: "Empty OTP submission"
+    description: >
+      User submits an empty or null OTP value. System validates input format
+      before attempting verification.
+    type: error_handling
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 3.
+      Average: 1.5 -> medium, but reduced to low because the UI normally
+      prevents empty submission and the error is immediately visible.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning covers the empty/null invalid input class.
+    preconditions:
+      - "OTP verification form is displayed"
+    examples:
+      - input:
+          otp_entered: ""
+        expected:
+          verification_result: "failure"
+          error: "OTP_REQUIRED"
+        description: "Empty string OTP rejected with validation error."
+      - input:
+          otp_entered: null
+        expected:
+          verification_result: "failure"
+          error: "OTP_REQUIRED"
+        description: "Null OTP rejected with validation error."
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - invalid-otp
+      - validation
+
+  - name: "OTP with invalid format (non-numeric, wrong length)"
+    description: >
+      User enters an OTP that does not match the expected format — alphabetic
+      characters, special characters, too short, too long, or containing spaces.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 1, Detectability: 3.
+      Average: 2.0 -> medium. Format validation prevents unnecessary backend
+      calls but the error is obvious to the user.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+    technique_rationale: >
+      Equivalence partitioning covers multiple invalid format classes (alpha,
+      special chars, mixed). Boundary value tests length boundaries (5-digit
+      and 7-digit vs expected 6-digit).
+    preconditions:
+      - "OTP verification form is displayed"
+      - "Expected OTP format is 6 numeric digits"
+    examples:
+      - input:
+          otp_entered: "abcdef"
+        expected:
+          verification_result: "failure"
+          error: "OTP_INVALID_FORMAT"
+        description: "Alphabetic characters rejected."
+      - input:
+          otp_entered: "12345"
+        expected:
+          verification_result: "failure"
+          error: "OTP_INVALID_FORMAT"
+        description: "5-digit OTP (too short) rejected."
+      - input:
+          otp_entered: "1234567"
+        expected:
+          verification_result: "failure"
+          error: "OTP_INVALID_FORMAT"
+        description: "7-digit OTP (too long) rejected."
+      - input:
+          otp_entered: "48 29 17"
+        expected:
+          verification_result: "failure"
+          error: "OTP_INVALID_FORMAT"
+        description: "OTP with embedded spaces rejected."
+      - input:
+          otp_entered: "48@#17"
+        expected:
+          verification_result: "failure"
+          error: "OTP_INVALID_FORMAT"
+        description: "OTP with special characters rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - invalid-otp
+      - validation
+      - boundary
+
+  - name: "SQL injection and XSS via OTP input field"
+    description: >
+      Attacker submits SQL injection payloads or XSS scripts through the OTP
+      input field. The system must sanitize input and reject without executing
+      malicious content.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, elevated to high because successful injection
+      can compromise the entire payment system and user data.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets well-known injection attack patterns that
+      experienced testers know to test against authentication fields.
+    preconditions:
+      - "OTP verification endpoint is accessible"
+    examples:
+      - input:
+          otp_entered: "' OR '1'='1"
+        expected:
+          verification_result: "failure"
+          error: "OTP_INVALID_FORMAT"
+          sql_executed: false
+        description: "SQL injection payload rejected and not executed."
+      - input:
+          otp_entered: "<script>alert('xss')</script>"
+        expected:
+          verification_result: "failure"
+          error: "OTP_INVALID_FORMAT"
+          script_executed: false
+        description: "XSS payload rejected and not rendered."
+      - input:
+          otp_entered: "482917; DROP TABLE transactions;"
+        expected:
+          verification_result: "failure"
+          error: "OTP_INVALID_FORMAT"
+        description: "SQL drop table injection in OTP field rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - injection
+      - owasp
+
+  - name: "OTP reuse after successful verification"
+    description: >
+      After an OTP has been successfully used to authorize a payment, the same
+      OTP must not be accepted again for any subsequent transaction or replay.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, elevated to high because OTP reuse would allow
+      an attacker who intercepts a used OTP to authorize additional payments.
+      Silent failure — no visible indicator to the user.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition tracks the OTP from used to invalidated. Error guessing
+      anticipates replay attacks with previously valid codes.
+    preconditions:
+      - "OTP was previously verified successfully"
+      - "Original transaction is in authorized state"
+    examples:
+      - input:
+          otp_entered: "482917"
+          otp_status: "already_used"
+          transaction_id: "TXN-001"
+        expected:
+          verification_result: "failure"
+          error: "OTP_ALREADY_USED"
+          payment_authorized: false
+        description: "Previously used OTP is rejected on second submission."
+      - input:
+          otp_entered: "482917"
+          otp_status: "already_used"
+          transaction_id: "TXN-002"
+        expected:
+          verification_result: "failure"
+          error: "OTP_ALREADY_USED"
+          payment_authorized: false
+        description: "Used OTP from a different transaction is rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - replay-attack
+      - one-time-use
+
+  # ==========================================================================
+  # DELIVERY FAILURES & EDGE CASES
+  # ==========================================================================
+  - name: "OTP delivery failure due to invalid phone number"
+    description: >
+      SMS delivery fails because the registered phone number is invalid,
+      disconnected, or unreachable. System must handle gracefully and offer
+      alternative delivery.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3.
+      Average: 2.0 -> medium. Uncommon but blocks the user from completing
+      the payment. Error is visible as user does not receive OTP.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning covers the invalid phone number class. Error
+      guessing anticipates carrier-specific delivery failures.
+    preconditions:
+      - "Payment transaction is initiated"
+      - "User's phone number is invalid or unreachable"
+    examples:
+      - input:
+          delivery_channel: "sms"
+          registered_phone: "+0-000-000-0000"
+        expected:
+          sms_sent: false
+          error: "DELIVERY_FAILED"
+          fallback_offered: true
+          fallback_channel: "email"
+        description: "Invalid phone number triggers delivery failure and email fallback."
+      - input:
+          delivery_channel: "sms"
+          registered_phone: "+1-555-999-0000"
+          carrier_status: "unreachable"
+        expected:
+          sms_sent: false
+          error: "DELIVERY_FAILED"
+          retry_attempted: true
+        description: "Unreachable carrier triggers retry then offers fallback."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - delivery
+      - error-handling
+      - fallback
+
+  - name: "OTP delivery timeout — SMS gateway unresponsive"
+    description: >
+      The SMS gateway does not respond within the configured timeout. System
+      should not block indefinitely and must provide user feedback.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 2.
+      Average: 2.25 -> medium, elevated to high because gateway outages can
+      affect all users simultaneously during peak transaction periods.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets external dependency failure scenarios that are
+      common in distributed payment systems.
+    preconditions:
+      - "SMS gateway timeout is configured to 10 seconds"
+    examples:
+      - input:
+          delivery_channel: "sms"
+          gateway_response_time_ms: 11000
+          gateway_timeout_ms: 10000
+        expected:
+          sms_sent: false
+          error: "GATEWAY_TIMEOUT"
+          user_message: "Unable to send OTP. Please try again or use email."
+          fallback_offered: true
+        description: "SMS gateway timeout triggers user-friendly error and fallback."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - delivery
+      - timeout
+      - reliability
+
+  - name: "Resend limit exceeded"
+    description: >
+      User exhausts the maximum number of OTP resend attempts. Further resend
+      requests are denied to prevent abuse.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3.
+      Average: 2.0 -> medium. Rare scenario but important to prevent OTP
+      generation abuse. Error is clearly communicated to the user.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Boundary value analysis tests the exact resend limit and the attempt
+      immediately after.
+    preconditions:
+      - "Maximum resend limit is 3"
+    examples:
+      - input:
+          resend_count: 3
+          max_resend_limit: 3
+          resend_request: true
+        expected:
+          new_otp_generated: false
+          error: "RESEND_LIMIT_EXCEEDED"
+          support_contact_shown: true
+        description: "4th resend attempt denied — limit reached."
+      - input:
+          resend_count: 2
+          max_resend_limit: 3
+          resend_request: true
+        expected:
+          new_otp_generated: true
+          remaining_resends: 0
+          warning: "This is your last resend attempt."
+        description: "3rd resend allowed but warns user it is the last."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - delivery
+      - boundary
+      - resend
+
+  # ==========================================================================
+  # STATE TRANSITION — Full OTP Lifecycle
+  # ==========================================================================
+  - name: "OTP lifecycle state transitions"
+    description: >
+      Verifies the complete OTP state machine from generation through
+      verification or expiration, including all valid and invalid transitions.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. Invalid state transitions could allow OTP bypass
+      or double authorization. Silent failure — user would not detect the flaw.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      The OTP lifecycle is a finite state machine with distinct states and
+      event-driven transitions. State transition testing is the canonical
+      technique.
+    state_transition:
+      states:
+        - "not_generated"
+        - "generated"
+        - "delivered"
+        - "pending_verification"
+        - "verified"
+        - "expired"
+        - "invalidated"
+        - "locked"
+      transitions:
+        - from: "not_generated"
+          to: "generated"
+          trigger: "payment_initiated"
+          guard: "transaction_valid AND user_authenticated"
+        - from: "generated"
+          to: "delivered"
+          trigger: "delivery_confirmed"
+          guard: "sms_or_email_sent_successfully"
+        - from: "generated"
+          to: "not_generated"
+          trigger: "delivery_failed"
+          guard: "all_channels_exhausted"
+        - from: "delivered"
+          to: "pending_verification"
+          trigger: "user_opens_verification_form"
+        - from: "pending_verification"
+          to: "verified"
+          trigger: "correct_otp_submitted"
+          guard: "not_expired AND not_locked AND attempts < max"
+        - from: "pending_verification"
+          to: "pending_verification"
+          trigger: "wrong_otp_submitted"
+          guard: "attempts < max AND not_expired"
+        - from: "pending_verification"
+          to: "locked"
+          trigger: "wrong_otp_submitted"
+          guard: "attempts >= max"
+        - from: "pending_verification"
+          to: "expired"
+          trigger: "ttl_elapsed"
+        - from: "expired"
+          to: "generated"
+          trigger: "user_requests_resend"
+          guard: "resend_count < max_resends"
+        - from: "locked"
+          to: "pending_verification"
+          trigger: "lockout_period_expired"
+        - from: "verified"
+          to: "invalidated"
+          trigger: "payment_completed"
+    examples:
+      - input:
+          current_state: "pending_verification"
+          trigger: "correct_otp_submitted"
+          otp_entered: "482917"
+          otp_actual: "482917"
+        expected:
+          new_state: "verified"
+          payment_authorized: true
+        description: "Valid transition from pending to verified."
+      - input:
+          current_state: "verified"
+          trigger: "correct_otp_submitted"
+          otp_entered: "482917"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Illegal transition — cannot verify an already-verified OTP."
+      - input:
+          current_state: "not_generated"
+          trigger: "correct_otp_submitted"
+          otp_entered: "482917"
+        expected:
+          error: "INVALID_STATE_TRANSITION"
+        description: "Illegal transition — cannot submit OTP before generation."
+      - input:
+          current_state: "locked"
+          trigger: "correct_otp_submitted"
+          otp_entered: "482917"
+        expected:
+          error: "ACCOUNT_LOCKED"
+        description: "Cannot verify while in locked state — must wait for unlock."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - critical-path
+      - lifecycle
+
+  # ==========================================================================
+  # COMBINATORIAL — OTP Verification Decision Table
+  # ==========================================================================
+  - name: "OTP verification decision table"
+    description: >
+      Decision table covering the combination of conditions that determine
+      whether an OTP verification succeeds: OTP correctness, expiration status,
+      account lock status, and attempt count.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1.
+      Average: 2.5 -> high. The interplay of these conditions determines
+      payment authorization. An incorrect combination could authorize a
+      fraudulent payment or block a legitimate one.
+    techniques:
+      - decision_table
+      - pairwise
+    technique_rationale: >
+      Decision table enumerates the key condition combinations that determine
+      the verification outcome. Pairwise reduces the combinatorial explosion
+      while ensuring all condition pairs are covered.
+    decision_table:
+      conditions:
+        - "otp_correct"
+        - "otp_expired"
+        - "account_locked"
+        - "attempts_within_limit"
+      actions:
+        - "verification_result"
+        - "payment_authorized"
+        - "error_code"
+      rules:
+        - description: "Correct OTP, not expired, not locked, within limit"
+          condition_values:
+            otp_correct: true
+            otp_expired: false
+            account_locked: false
+            attempts_within_limit: true
+          expected_actions:
+            verification_result: "success"
+            payment_authorized: true
+            error_code: null
+        - description: "Incorrect OTP, not expired, not locked, within limit"
+          condition_values:
+            otp_correct: false
+            otp_expired: false
+            account_locked: false
+            attempts_within_limit: true
+          expected_actions:
+            verification_result: "failure"
+            payment_authorized: false
+            error_code: "INVALID_OTP"
+        - description: "Correct OTP, expired, not locked, within limit"
+          condition_values:
+            otp_correct: true
+            otp_expired: true
+            account_locked: false
+            attempts_within_limit: true
+          expected_actions:
+            verification_result: "failure"
+            payment_authorized: false
+            error_code: "OTP_EXPIRED"
+        - description: "Correct OTP, not expired, locked, within limit"
+          condition_values:
+            otp_correct: true
+            otp_expired: false
+            account_locked: true
+            attempts_within_limit: true
+          expected_actions:
+            verification_result: "failure"
+            payment_authorized: false
+            error_code: "ACCOUNT_LOCKED"
+        - description: "Incorrect OTP, not expired, not locked, at limit (lockout trigger)"
+          condition_values:
+            otp_correct: false
+            otp_expired: false
+            account_locked: false
+            attempts_within_limit: false
+          expected_actions:
+            verification_result: "failure"
+            payment_authorized: false
+            error_code: "OTP_LOCKED_BRUTE_FORCE"
+        - description: "Correct OTP, expired, locked, within limit — multiple failures compound"
+          condition_values:
+            otp_correct: true
+            otp_expired: true
+            account_locked: true
+            attempts_within_limit: true
+          expected_actions:
+            verification_result: "failure"
+            payment_authorized: false
+            error_code: "ACCOUNT_LOCKED"
+    examples:
+      - input:
+          otp_entered: "482917"
+          otp_actual: "482917"
+          otp_expired: false
+          account_locked: false
+          attempt_number: 1
+          max_attempts: 5
+        expected:
+          verification_result: "success"
+          payment_authorized: true
+        description: "All conditions favorable — payment authorized."
+      - input:
+          otp_entered: "000000"
+          otp_actual: "482917"
+          otp_expired: false
+          account_locked: false
+          attempt_number: 5
+          max_attempts: 5
+        expected:
+          verification_result: "failure"
+          payment_authorized: false
+          error: "OTP_LOCKED_BRUTE_FORCE"
+        description: "Wrong OTP at max attempts — lockout triggered."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - combinatorial
+      - critical-path
+
+  # ==========================================================================
+  # EDGE CASES
+  # ==========================================================================
+  - name: "Concurrent OTP verification from multiple devices"
+    description: >
+      User (or attacker) submits the OTP simultaneously from two different
+      sessions or devices. Only one should succeed; the other must be rejected
+      to prevent double-authorization.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, elevated to high because a race condition in
+      OTP verification could lead to double payment authorization, causing
+      direct financial loss. Silent failure.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets concurrency and race condition scenarios that
+      are common failure modes in distributed payment systems.
+    preconditions:
+      - "OTP has been generated and delivered"
+      - "User has two active sessions"
+    examples:
+      - input:
+          session_1_otp: "482917"
+          session_2_otp: "482917"
+          submitted_simultaneously: true
+        expected:
+          authorizations_count: 1
+          second_session_error: "OTP_ALREADY_USED"
+        description: "Only one concurrent verification succeeds — no double auth."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - race-condition
+      - security
+
+  - name: "OTP verification for cancelled or timed-out transaction"
+    description: >
+      User submits the correct OTP but the underlying payment transaction has
+      already been cancelled or timed out. The OTP should be rejected because
+      there is no valid transaction to authorize.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2.
+      Average: 1.75 -> medium. Uncommon but could cause orphaned authorizations
+      if not handled properly.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition verifies that the transaction state gates OTP acceptance.
+      Error guessing anticipates the case where transaction and OTP lifecycles
+      are out of sync.
+    preconditions:
+      - "Payment transaction was initiated but subsequently cancelled or expired"
+    examples:
+      - input:
+          otp_entered: "482917"
+          otp_actual: "482917"
+          transaction_status: "cancelled"
+        expected:
+          verification_result: "failure"
+          payment_authorized: false
+          error: "TRANSACTION_CANCELLED"
+        description: "Valid OTP rejected because the transaction is already cancelled."
+      - input:
+          otp_entered: "482917"
+          otp_actual: "482917"
+          transaction_status: "timed_out"
+        expected:
+          verification_result: "failure"
+          payment_authorized: false
+          error: "TRANSACTION_EXPIRED"
+        description: "Valid OTP rejected because the transaction has timed out."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - edge-case
+      - transaction-lifecycle
+
+  - name: "OTP verification response time consistency (timing attack prevention)"
+    description: >
+      The server response time for correct vs incorrect OTP must be consistent
+      to prevent timing-based side-channel attacks that could reveal whether
+      partial OTP digits match.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, elevated to high because timing side-channels
+      can reduce the OTP search space, making brute-force feasible. The
+      attack is undetectable by the end user.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates timing side-channel attacks, a well-known
+      security concern for authentication systems.
+    preconditions:
+      - "OTP verification endpoint is accessible"
+    examples:
+      - input:
+          otp_actual: "482917"
+          test_otps: ["000000", "400000", "480000", "482000", "482900", "482917"]
+        expected:
+          response_time_variance_ms: "<50"
+          constant_time_comparison: true
+        description: "Response times for OTPs with increasing prefix matches must not vary significantly."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - timing-attack
+      - side-channel
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As a customer making a payment, I want to verify my identity using a
+    One-Time Password so that my transaction is protected against unauthorized
+    access.
+  rules:
+    - rule_name: "OTP must be delivered to the registered contact within acceptable time"
+      examples:
+        - "SMS to valid phone -> OTP delivered within 5 seconds"
+        - "Email to valid address -> OTP delivered within 10 seconds"
+        - "SMS to invalid phone -> delivery fails, email fallback offered"
+        - "SMS gateway timeout -> user informed, retry or fallback offered"
+        - "Resend request within limit -> old OTP invalidated, new one sent"
+        - "Resend request at limit -> denied with support contact"
+
+    - rule_name: "OTP expires after the configured TTL (5 minutes)"
+      examples:
+        - "Correct OTP at 299 seconds -> accepted"
+        - "Correct OTP at 300 seconds -> rejected as expired"
+        - "Correct OTP at 301 seconds -> rejected as expired"
+        - "Correct OTP at 10 minutes -> rejected as expired"
+        - "Expired OTP resent -> new OTP valid, old one rejected"
+
+    - rule_name: "Brute-force protection locks account after max failed attempts"
+      examples:
+        - "4th failed attempt -> warning shown, 1 attempt remaining"
+        - "5th failed attempt -> account locked for 30 minutes"
+        - "Correct OTP while locked -> rejected with ACCOUNT_LOCKED"
+        - "Attempt after 30-minute lockout -> unlocked, can retry"
+        - "3 failures then correct OTP -> counter resets, payment authorized"
+        - "Rapid-fire automated submissions -> rate limited after threshold"
+
+    - rule_name: "Invalid OTP input is rejected with appropriate error"
+      examples:
+        - "Wrong 6-digit OTP -> INVALID_OTP error, no code leakage"
+        - "Empty/null OTP -> OTP_REQUIRED validation error"
+        - "Non-numeric OTP (letters, symbols) -> OTP_INVALID_FORMAT error"
+        - "5-digit or 7-digit OTP -> OTP_INVALID_FORMAT error"
+        - "SQL injection payload -> rejected, not executed"
+        - "XSS payload -> rejected, not rendered"
+
+    - rule_name: "OTP is single-use and bound to the originating transaction"
+      examples:
+        - "Reuse of verified OTP on same transaction -> OTP_ALREADY_USED"
+        - "Reuse of verified OTP on different transaction -> OTP_ALREADY_USED"
+        - "Concurrent submission from two devices -> only one succeeds"
+
+    - rule_name: "OTP verification must not leak timing information"
+      examples:
+        - "Response time for correct vs incorrect OTP varies by < 50ms"
+        - "Response time does not correlate with number of matching prefix digits"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

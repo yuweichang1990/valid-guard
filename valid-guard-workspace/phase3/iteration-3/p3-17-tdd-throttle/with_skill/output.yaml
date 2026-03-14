@@ -1,0 +1,861 @@
+# Valid Guard Test Plan — Throttle Function
+# Generated: 2026-03-14T08:30:00Z
+# Source: natural language
+
+feature: "Throttle Function"
+
+feature_description: >
+  A throttle function that limits how often a callback fires. It accepts a
+  callback function and a delay in milliseconds. The throttled function executes
+  immediately on the first call, then ignores subsequent calls until the delay
+  period has elapsed. After the delay expires, the next call executes and
+  restarts the timer. If the delay is zero or negative, no throttling is
+  applied and the callback fires on every invocation.
+
+risk_level: medium
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ---------- Happy Path -----------------------------------------------------
+  - name: "First call executes callback immediately"
+    description: >
+      When the throttled function is called for the first time, the wrapped
+      callback fires immediately without any delay. This is the primary
+      expected behavior — the user should see an instant response on the
+      initial invocation.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 → high. Every consumer relies on immediate first
+      execution. If the first call is silently dropped, the feature appears
+      completely broken.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP partitions the call timeline into "first call" (no prior invocations)
+      vs "subsequent calls". This scenario covers the valid first-call class.
+    preconditions:
+      - "throttle(callback, delay) has been called to create a throttled wrapper"
+      - "The throttled wrapper has never been invoked"
+    examples:
+      - input:
+          call_sequence: ["call_1"]
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 1
+          callback_invoked_immediately: true
+        description: "Single initial call fires callback immediately."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+
+  - name: "Callback executes again after delay expires"
+    description: >
+      After the first call and once the delay period has fully elapsed, the
+      next call to the throttled function should fire the callback and restart
+      the delay timer. This verifies the core throttle-and-release cycle.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 → high. The throttle-release cycle is the fundamental
+      behavior. If it never releases, the callback fires only once ever.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      EP distinguishes calls during the throttled period from calls after
+      expiry. State transition models the ready→throttled→ready cycle.
+    preconditions:
+      - "Throttled wrapper has been invoked at least once"
+      - "The full delay period has elapsed since the last execution"
+    examples:
+      - input:
+          call_1_time_ms: 0
+          call_2_time_ms: 250
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 2
+          call_2_executed: true
+        description: "Call at 250ms fires because 200ms delay has expired."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - critical-path
+
+  - name: "Multiple throttle cycles work consecutively"
+    description: >
+      The throttle mechanism should work across multiple cycles: fire, wait,
+      fire, wait, fire — verifying the timer restarts correctly each time.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 → medium. Multi-cycle correctness matters for long-lived
+      throttled handlers but is less common than single-cycle usage.
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition verifies the repeated ready→throttled→ready cycle
+      across multiple iterations (1-switch coverage).
+    preconditions:
+      - "Throttled wrapper created with a positive delay"
+    examples:
+      - input:
+          calls:
+            - time_ms: 0
+            - time_ms: 300
+            - time_ms: 600
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 3
+          all_calls_executed: true
+        description: "Three calls spaced 300ms apart with 200ms delay — all fire."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - multi-cycle
+
+  # ---------- State Transition — Ready / Throttled ---------------------------
+  - name: "Calls during throttle period are ignored"
+    description: >
+      Calls made after the first execution but before the delay expires must
+      be silently ignored. The callback should not fire, and no error should
+      be raised.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3.
+      Average: 3.0 → high. Failing to suppress calls defeats the purpose of
+      throttling. This could cause performance degradation, API rate limit
+      violations, or UI jank — and the failure is silent (high detectability
+      score = hard to detect).
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition captures the throttled state where calls are ignored.
+      EP partitions calls by timing: within-delay (suppressed class) vs
+      after-delay (executed class).
+    state_transition:
+      states:
+        - ready
+        - throttled
+      transitions:
+        - from: ready
+          to: throttled
+          trigger: "throttled_function_invoked"
+          guard: "No active throttle timer"
+        - from: throttled
+          to: throttled
+          trigger: "throttled_function_invoked"
+          guard: "Delay period has not yet elapsed"
+        - from: throttled
+          to: ready
+          trigger: "delay_timer_expired"
+          guard: "Full delay period has elapsed since last execution"
+        - from: ready
+          to: throttled
+          trigger: "throttled_function_invoked"
+          guard: "Timer restarts on re-execution"
+    preconditions:
+      - "Throttled wrapper has been invoked once (timer started)"
+    examples:
+      - input:
+          call_1_time_ms: 0
+          call_2_time_ms: 50
+          call_3_time_ms: 100
+          call_4_time_ms: 150
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 1
+          calls_ignored: [2, 3, 4]
+        description: "Rapid calls at 50ms intervals within 200ms window — only first fires."
+      - input:
+          call_1_time_ms: 0
+          call_2_time_ms: 199
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 1
+          call_2_executed: false
+        description: "Call at 199ms (1ms before expiry) is still suppressed."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - core-logic
+      - critical-path
+
+  - name: "Transition from throttled to ready after delay"
+    description: >
+      Verifies the exact transition from throttled state back to ready state.
+      Once the delay timer expires, the state should transition to ready so
+      the next invocation is accepted.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 → high. If the state never transitions back to ready,
+      the throttled function becomes permanently blocked.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition verifies the throttled→ready edge. BVA tests the
+      exact boundary at delay expiry (call at delay-1 vs delay vs delay+1).
+    state_transition:
+      states:
+        - ready
+        - throttled
+      transitions:
+        - from: throttled
+          to: ready
+          trigger: "delay_timer_expired"
+          guard: "Elapsed time >= delay"
+        - from: ready
+          to: throttled
+          trigger: "throttled_function_invoked"
+          guard: "Callback executes and timer restarts"
+    examples:
+      - input:
+          call_1_time_ms: 0
+          call_2_time_ms: 200
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 2
+          call_2_executed: true
+          state_after_call_2: "throttled"
+        description: "Call exactly at delay boundary (200ms) fires — state returns to throttled."
+      - input:
+          call_1_time_ms: 0
+          call_2_time_ms: 201
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 2
+          call_2_executed: true
+        description: "Call 1ms after delay fires — confirms ready state was reached."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - boundary
+
+  # ---------- Boundary Value Analysis — Delay Parameter ----------------------
+  - name: "BVA on delay parameter — zero delay (no throttling)"
+    description: >
+      When delay is exactly 0, no throttling should be applied. Every call
+      to the throttled function should execute the callback immediately. This
+      is the lower boundary where throttling behavior switches off.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1.
+      Average: 1.75 → medium. Zero-delay is a valid configuration for
+      disabling throttling. Failure is visible immediately.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA targets the boundary at delay=0 where behavior changes from
+      "no throttling" to "throttling active". EP partitions delay into
+      non-positive (no throttle) vs positive (throttle active).
+    examples:
+      - input:
+          delay_ms: 0
+          call_count: 5
+          call_interval_ms: 0
+        expected:
+          callback_invocation_count: 5
+          all_calls_executed: true
+        description: "Delay=0 — all 5 rapid calls fire, no throttling."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - delay-parameter
+
+  - name: "BVA on delay parameter — negative delay (no throttling)"
+    description: >
+      When delay is negative, no throttling should be applied. The function
+      should behave identically to the zero-delay case — every call fires.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1.
+      Average: 1.5 → medium. Negative delay is an unusual input but must
+      be handled gracefully per the specification.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA tests below-zero boundary. EP treats negative delay as part of
+      the "no throttling" equivalence class.
+    examples:
+      - input:
+          delay_ms: -1
+          call_count: 3
+          call_interval_ms: 0
+        expected:
+          callback_invocation_count: 3
+          all_calls_executed: true
+        description: "Delay=-1 (just below zero boundary) — no throttling applied."
+      - input:
+          delay_ms: -1000
+          call_count: 3
+          call_interval_ms: 0
+        expected:
+          callback_invocation_count: 3
+          all_calls_executed: true
+        description: "Large negative delay — still no throttling."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - boundary
+      - delay-parameter
+
+  - name: "BVA on delay parameter — delay of 1ms (minimum positive throttle)"
+    description: >
+      Delay=1 is the smallest positive value where throttling should activate.
+      This is the on-point above the zero boundary. The function should
+      throttle with a 1ms window.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2.
+      Average: 1.75 → medium. Very small delays test timer precision. An
+      off-by-one in boundary logic could disable throttling at delay=1.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      BVA at the boundary+1 point: delay=1 is the first value where
+      throttling should engage. Tests the exact transition from "no
+      throttle" to "throttle active".
+    examples:
+      - input:
+          delay_ms: 1
+          call_1_time_ms: 0
+          call_2_time_ms: 0
+        expected:
+          callback_invocation_count: 1
+          call_2_suppressed: true
+        description: "Delay=1ms — second simultaneous call is suppressed."
+      - input:
+          delay_ms: 1
+          call_1_time_ms: 0
+          call_2_time_ms: 2
+        expected:
+          callback_invocation_count: 2
+          call_2_executed: true
+        description: "Delay=1ms — call at 2ms fires after 1ms window expires."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - delay-parameter
+
+  - name: "BVA on delay timing — call exactly at delay boundary"
+    description: >
+      Tests the exact boundary where elapsed time equals the delay value.
+      Determines whether the boundary condition uses >= or > comparison.
+      Call at exactly delay ms should execute (>= semantics per spec: after
+      the delay expires means the delay period has elapsed).
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 2, Detectability: 3.
+      Average: 2.5 → high. Off-by-one at the delay boundary is a classic
+      defect. Silent failure (callback either fires or does not) makes it
+      hard to detect in production.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Classic three-value BVA around the delay expiry point: delay-1
+      (suppressed), delay (fires), delay+1 (fires). Tests the >= vs >
+      boundary condition.
+    examples:
+      - input:
+          call_1_time_ms: 0
+          call_2_time_ms: 199
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 1
+          call_2_executed: false
+        description: "Call at delay-1 (199ms) — still within throttle window, suppressed."
+      - input:
+          call_1_time_ms: 0
+          call_2_time_ms: 200
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 2
+          call_2_executed: true
+        description: "Call exactly at delay (200ms) — delay has elapsed, fires."
+      - input:
+          call_1_time_ms: 0
+          call_2_time_ms: 201
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 2
+          call_2_executed: true
+        description: "Call at delay+1 (201ms) — clearly past window, fires."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - off-by-one
+      - critical-path
+
+  # ---------- Edge Cases -----------------------------------------------------
+  - name: "Callback arguments are forwarded correctly"
+    description: >
+      The throttled wrapper should forward all arguments passed to it to
+      the underlying callback when the callback fires. Arguments from
+      suppressed calls should be discarded entirely.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 3, Consequence: 2, Detectability: 1.
+      Average: 2.0 → medium. Most throttled functions accept arguments
+      (e.g., event objects). Dropping or garbling arguments breaks
+      downstream logic.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP partitions by argument type: no args, single arg, multiple args,
+      mixed types. Verifies forwarding across equivalence classes.
+    preconditions:
+      - "Callback accepts arguments"
+    examples:
+      - input:
+          callback_args: [42, "hello", true]
+          delay_ms: 100
+        expected:
+          received_args: [42, "hello", true]
+        description: "Multiple arguments of different types forwarded to callback."
+      - input:
+          callback_args: []
+          delay_ms: 100
+        expected:
+          received_args: []
+        description: "No arguments — callback invoked with no args."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - argument-forwarding
+
+  - name: "Callback return value is propagated on executed calls"
+    description: >
+      When the callback executes (not suppressed), its return value should
+      be returned by the throttled wrapper. Suppressed calls should return
+      undefined/null.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 2, Consequence: 1, Detectability: 1.
+      Average: 1.25 → low. Most throttle use cases (event handlers) do not
+      use the return value. Failure is immediately visible.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP partitions calls into executed (return value propagated) and
+      suppressed (returns undefined/null).
+    examples:
+      - input:
+          callback_return: 42
+          call_timing: "first_call"
+          delay_ms: 100
+        expected:
+          wrapper_return: 42
+        description: "First call return value propagated."
+      - input:
+          callback_return: 42
+          call_timing: "within_throttle"
+          delay_ms: 100
+        expected:
+          wrapper_return: null
+        description: "Suppressed call returns null/undefined."
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - return-value
+
+  - name: "Callback this-context is preserved"
+    description: >
+      When the throttled function is called as a method on an object, the
+      callback should receive the correct this-context binding. This is
+      critical for object-oriented usage patterns.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1.
+      Average: 1.75 → medium. In JavaScript/TypeScript, losing this-context
+      is a common bug with wrapper functions, but it is immediately visible
+      in testing.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates the common defect of losing this-binding
+      when wrapping functions — a historically frequent JS/TS bug.
+    examples:
+      - input:
+          object: { name: "test" }
+          method: "getName"
+          delay_ms: 100
+        expected:
+          this_context: { name: "test" }
+          callback_has_correct_this: true
+        description: "Method called on object preserves this-context."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - this-context
+      - javascript
+
+  - name: "No call after creation — callback never fires"
+    description: >
+      If the throttle wrapper is created but never invoked, the callback
+      should never be called. Verifies no eager or scheduled execution.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1.
+      Average: 1.0 → low. Unlikely to fail, but a scheduled-execution
+      implementation bug could cause phantom invocations.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP covers the "zero invocations" equivalence class — an empty
+      input partition.
+    examples:
+      - input:
+          calls: 0
+          delay_ms: 100
+          wait_ms: 500
+        expected:
+          callback_invocation_count: 0
+        description: "No invocations, even after waiting 500ms."
+    test_ref: ""
+    status: uncovered
+    priority: 5
+    tags:
+      - edge-case
+      - no-op
+
+  # ---------- Error Handling -------------------------------------------------
+  - name: "Callback that throws does not break throttle state"
+    description: >
+      If the callback throws an exception, the throttle mechanism should
+      still function correctly. The timer should still be set, and subsequent
+      calls after the delay should still fire.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 → medium. Exception in callback could leave internal
+      state corrupted if error handling is missing. Partially silent —
+      throttle appears broken for subsequent calls.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates the defect where an exception in the
+      callback disrupts the internal timer or state management.
+    preconditions:
+      - "Callback is configured to throw an error"
+    examples:
+      - input:
+          callback_behavior: "throws Error('fail')"
+          call_1_time_ms: 0
+          call_2_time_ms: 250
+          delay_ms: 200
+        expected:
+          call_1_throws: true
+          call_2_executed: true
+          throttle_state_intact: true
+        description: "Error on first call does not prevent second call after delay."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - error-handling
+      - resilience
+
+  - name: "Multiple independent throttled functions do not interfere"
+    description: >
+      Two separate throttled wrappers created from different callbacks
+      should maintain independent timers and state. Invoking one should not
+      affect the throttle window of the other.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 → medium. Shared mutable state between instances is a
+      common implementation bug (e.g., closure over shared variable).
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets the likely defect of shared state across
+      throttle instances — a known anti-pattern in closure-based
+      implementations.
+    examples:
+      - input:
+          throttle_a_delay_ms: 200
+          throttle_b_delay_ms: 500
+          call_a_time_ms: 0
+          call_b_time_ms: 0
+          call_a2_time_ms: 100
+          call_b2_time_ms: 100
+        expected:
+          callback_a_count: 1
+          callback_b_count: 1
+          independent_timers: true
+        description: "Two throttled wrappers with different delays maintain independent state."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - isolation
+      - independence
+
+  # ---------- BVA on Delay — Large Values ------------------------------------
+  - name: "BVA on delay parameter — very large delay"
+    description: >
+      Tests behavior with a very large delay value. The throttle should
+      still work correctly without overflow or unexpected behavior.
+    type: boundary
+    risk: low
+    risk_rationale: >
+      Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1.
+      Average: 1.0 → low. Large delays are unusual in practice. Any
+      overflow issue would be immediately visible.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      BVA at upper extreme of the delay range. Error guessing for
+      integer overflow or timer API limits (e.g., setTimeout max of
+      2^31-1 ms in JavaScript).
+    examples:
+      - input:
+          delay_ms: 2147483647
+          call_1_time_ms: 0
+          call_2_time_ms: 100
+        expected:
+          callback_invocation_count: 1
+          call_2_suppressed: true
+        description: "Max 32-bit signed int delay — second call suppressed."
+      - input:
+          delay_ms: 86400000
+          call_count: 1
+        expected:
+          callback_invocation_count: 1
+          callback_invoked_immediately: true
+        description: "24-hour delay — first call still fires immediately."
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - boundary
+      - delay-parameter
+      - overflow
+
+  # ---------- Decision Table — Delay Classification --------------------------
+  - name: "Decision table for delay classification and throttle behavior"
+    description: >
+      Decision table that maps the delay parameter value to the expected
+      throttle behavior. Covers the three equivalence classes: negative,
+      zero, and positive delay values combined with call timing.
+    type: combinatorial
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.0 → medium. Combinatorial view ensures no behavior gap
+      between the delay classification and the timing-based suppression.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table captures the complete condition-action mapping for
+      delay classification x call timing. EP identifies the three delay
+      partitions.
+    decision_table:
+      conditions:
+        - "delay_value"
+        - "call_timing_relative_to_delay"
+      actions:
+        - "throttling_active"
+        - "callback_fires"
+      rules:
+        - description: "Negative delay — all calls fire regardless of timing"
+          condition_values:
+            delay_value: "negative"
+            call_timing_relative_to_delay: "any"
+          expected_actions:
+            throttling_active: false
+            callback_fires: true
+        - description: "Zero delay — all calls fire regardless of timing"
+          condition_values:
+            delay_value: "zero"
+            call_timing_relative_to_delay: "any"
+          expected_actions:
+            throttling_active: false
+            callback_fires: true
+        - description: "Positive delay, first call"
+          condition_values:
+            delay_value: "positive"
+            call_timing_relative_to_delay: "first_call"
+          expected_actions:
+            throttling_active: true
+            callback_fires: true
+        - description: "Positive delay, within throttle window"
+          condition_values:
+            delay_value: "positive"
+            call_timing_relative_to_delay: "within_delay"
+          expected_actions:
+            throttling_active: true
+            callback_fires: false
+        - description: "Positive delay, after throttle window expired"
+          condition_values:
+            delay_value: "positive"
+            call_timing_relative_to_delay: "after_delay"
+          expected_actions:
+            throttling_active: true
+            callback_fires: true
+    examples:
+      - input:
+          delay_ms: -5
+          call_count: 3
+        expected:
+          callback_invocation_count: 3
+        description: "Negative delay — all three calls execute."
+      - input:
+          delay_ms: 0
+          call_count: 3
+        expected:
+          callback_invocation_count: 3
+        description: "Zero delay — all three calls execute."
+      - input:
+          delay_ms: 100
+          call_1_time_ms: 0
+          call_2_time_ms: 50
+          call_3_time_ms: 150
+        expected:
+          callback_invocation_count: 2
+          calls_executed: [1, 3]
+        description: "Positive delay — first fires, second suppressed, third fires after expiry."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - decision-table
+      - delay-classification
+
+  # ---------- Performance / Rapid Fire ---------------------------------------
+  - name: "Rapid-fire burst — only first call in window executes"
+    description: >
+      Simulates a burst of many rapid calls (e.g., scroll events, resize
+      events). Only the first call in each throttle window should fire.
+    type: performance
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 3, Consequence: 2, Detectability: 1.
+      Average: 2.0 → medium. This is the primary real-world use case
+      (event handlers). The throttle must survive high-frequency input.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP treats the burst as many members of the "within-delay" partition.
+      Error guessing anticipates potential issues with timer accumulation,
+      memory leaks, or stack overflow under rapid invocation.
+    examples:
+      - input:
+          call_count: 100
+          call_interval_ms: 1
+          delay_ms: 200
+        expected:
+          callback_invocation_count: 1
+          no_memory_leak: true
+        description: "100 calls in 100ms — only the first fires within the 200ms window."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - performance
+      - burst
+      - real-world
+
+# ---------------------------------------------------------------------------
+# Example Mapping
+# ---------------------------------------------------------------------------
+example_mapping:
+  story: >
+    As a developer, I want to throttle function execution so that expensive
+    operations (API calls, DOM updates, event handlers) are rate-limited to
+    fire at most once per specified delay period.
+  rules:
+    - rule_name: "Immediate first execution"
+      examples:
+        - "First call with delay=200ms fires callback immediately"
+        - "First call with delay=0 fires callback immediately"
+        - "No calls made — callback never fires"
+
+    - rule_name: "Subsequent calls are suppressed within the delay window"
+      examples:
+        - "Call at 50ms after first (delay=200ms) — suppressed"
+        - "Call at 199ms after first (delay=200ms) — suppressed"
+        - "100 rapid calls in 100ms (delay=200ms) — only first fires"
+        - "Arguments from suppressed calls are discarded"
+
+    - rule_name: "Callback fires again after delay expires"
+      examples:
+        - "Call at 200ms after first (delay=200ms) — fires"
+        - "Call at 201ms after first (delay=200ms) — fires"
+        - "Three calls at 0ms, 300ms, 600ms (delay=200ms) — all three fire"
+        - "Timer restarts after each execution"
+
+    - rule_name: "Zero or negative delay disables throttling"
+      examples:
+        - "delay=0 — all 5 rapid calls fire"
+        - "delay=-1 — all 3 rapid calls fire"
+        - "delay=-1000 — all calls fire"
+
+    - rule_name: "Callback interface contract"
+      examples:
+        - "Arguments are forwarded to callback on executed calls"
+        - "Return value is propagated on executed calls"
+        - "this-context is preserved when called as object method"
+        - "Callback exception does not break throttle state"
+
+    - rule_name: "Instance isolation"
+      examples:
+        - "Two throttled wrappers with different delays have independent timers"
+        - "Invoking one throttled wrapper does not affect the other"
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+metadata:
+  created_at: "2026-03-14T08:30:00Z"
+  updated_at: "2026-03-14T08:30:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "typescript"
+  test_framework: "jest"

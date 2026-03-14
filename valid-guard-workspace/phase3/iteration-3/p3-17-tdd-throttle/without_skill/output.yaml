@@ -1,0 +1,178 @@
+test_plan:
+  function_under_test: throttle
+  description: >
+    Plans tests for a throttle function that limits how often a callback fires.
+    It takes a callback function and a delay in milliseconds. The throttled function
+    executes immediately on the first call, ignores subsequent calls until the delay
+    period has elapsed, and then allows the next call to execute and restart the timer.
+    If the delay is zero or negative, no throttling is applied.
+
+  test_cases:
+    - id: 1
+      name: "First call executes immediately"
+      description: >
+        When the throttled function is called for the first time, it should invoke
+        the callback immediately without any delay.
+      input:
+        callback: "a tracking/spy function"
+        delay: 1000
+      action: "Call the throttled function once"
+      expected: "The callback is invoked exactly once, immediately"
+
+    - id: 2
+      name: "Subsequent calls within the delay period are ignored"
+      description: >
+        After the first call executes, any calls made before the delay period has
+        elapsed should be silently ignored and the callback should not fire again.
+      input:
+        callback: "a tracking/spy function"
+        delay: 1000
+      action: "Call the throttled function, then call it again at 200ms, 400ms, and 800ms"
+      expected: "The callback is invoked only once (the first call); the three subsequent calls are ignored"
+
+    - id: 3
+      name: "Call after delay period has elapsed executes and restarts the timer"
+      description: >
+        Once the delay period has fully elapsed since the last executed call,
+        the next call should execute immediately and restart the throttle timer.
+      input:
+        callback: "a tracking/spy function"
+        delay: 500
+      action: "Call the throttled function, advance time by 500ms or more, then call it again"
+      expected: "The callback is invoked exactly twice: once on the first call and once after the delay has elapsed"
+
+    - id: 4
+      name: "Multiple throttle cycles work correctly"
+      description: >
+        The throttle mechanism should work across multiple cycles: execute, wait
+        for delay, execute again, wait for delay, execute again, etc.
+      input:
+        callback: "a tracking/spy function"
+        delay: 300
+      action: >
+        Call at t=0 (executes), call at t=100 (ignored), call at t=200 (ignored),
+        call at t=300 (executes), call at t=400 (ignored), call at t=600 (executes)
+      expected: "The callback is invoked exactly three times: at t=0, t=300, and t=600"
+
+    - id: 5
+      name: "Zero delay disables throttling"
+      description: >
+        When the delay is zero, no throttling should be applied and every call
+        should execute the callback immediately.
+      input:
+        callback: "a tracking/spy function"
+        delay: 0
+      action: "Call the throttled function three times in rapid succession"
+      expected: "The callback is invoked three times, once for each call"
+
+    - id: 6
+      name: "Negative delay disables throttling"
+      description: >
+        When the delay is negative, no throttling should be applied and every call
+        should execute the callback immediately, same as zero delay.
+      input:
+        callback: "a tracking/spy function"
+        delay: -100
+      action: "Call the throttled function three times in rapid succession"
+      expected: "The callback is invoked three times, once for each call"
+
+    - id: 7
+      name: "Arguments are forwarded to the callback"
+      description: >
+        When the throttled function is called with arguments, those arguments
+        should be passed through to the underlying callback.
+      input:
+        callback: "a spy function that records its arguments"
+        delay: 1000
+      action: "Call the throttled function with arguments (e.g., 'hello', 42)"
+      expected: "The callback receives the exact arguments ('hello', 42) that were passed to the throttled function"
+
+    - id: 8
+      name: "Arguments from ignored calls are not queued or deferred"
+      description: >
+        When calls are made during the throttle period and are ignored, their
+        arguments should not be saved or replayed later.
+      input:
+        callback: "a spy function that records its arguments"
+        delay: 500
+      action: "Call with arg 'first' at t=0, call with arg 'second' at t=100, advance past delay, call with arg 'third'"
+      expected: "The callback is called twice: first with 'first', then with 'third'; 'second' is never seen"
+
+    - id: 9
+      name: "Return value of the callback is passed through on executed calls"
+      description: >
+        When the throttled function executes the callback, the return value of
+        the callback should be returned to the caller.
+      input:
+        callback: "a function that returns a specific value (e.g., 42)"
+        delay: 1000
+      action: "Call the throttled function"
+      expected: "The throttled function returns 42 (the callback's return value)"
+
+    - id: 10
+      name: "Return value is undefined for ignored/throttled calls"
+      description: >
+        When a call is made during the throttle period and is ignored, the
+        throttled function should return undefined since the callback was not invoked.
+      input:
+        callback: "a function that returns 42"
+        delay: 1000
+      action: "Call the throttled function (executes, returns 42), then call again within the delay"
+      expected: "The first call returns 42; the second call returns undefined"
+
+    - id: 11
+      name: "The this context is preserved when the callback executes"
+      description: >
+        If the throttled function is called as a method on an object, the callback
+        should receive the correct this context.
+      input:
+        callback: "a function that references 'this'"
+        delay: 1000
+      action: "Attach the throttled function to an object and call it as a method"
+      expected: "The callback's 'this' refers to the object on which the throttled function was called"
+
+    - id: 12
+      name: "Separate throttled instances operate independently"
+      description: >
+        Creating multiple throttled functions from different callbacks should
+        produce independent throttle timers that do not interfere with each other.
+      input:
+        callback_a: "spy function A"
+        callback_b: "spy function B"
+        delay: 500
+      action: "Call throttled A at t=0, call throttled B at t=100, call throttled A at t=200"
+      expected: "Callback A is invoked once (t=0 executes, t=200 is throttled); Callback B is invoked once (t=100 is its first call); they do not affect each other"
+
+    - id: 13
+      name: "Exact boundary - call at exactly the delay time executes"
+      description: >
+        A call made at exactly the moment the delay period expires (not before,
+        not after) should be treated as past the delay and should execute.
+      input:
+        callback: "a tracking/spy function"
+        delay: 500
+      action: "Call at t=0, then call again at exactly t=500"
+      expected: "The callback is invoked exactly twice"
+
+    - id: 14
+      name: "No calls after initial - timer does not auto-fire"
+      description: >
+        If the throttled function is called once and then never called again,
+        the callback should not fire again automatically when the delay elapses.
+        The throttle is not a repeating interval.
+      input:
+        callback: "a tracking/spy function"
+        delay: 500
+      action: "Call the throttled function once, then advance time well past the delay without calling again"
+      expected: "The callback is invoked exactly once; no additional invocations occur"
+
+    - id: 15
+      name: "Rapid-fire calls only execute at throttle boundaries"
+      description: >
+        Stress test: many rapid calls over a period should only result in executions
+        at the expected throttle interval boundaries.
+      input:
+        callback: "a spy function tracking call count"
+        delay: 200
+      action: "Call the throttled function every 50ms for 1000ms (20 calls total)"
+      expected: "The callback is invoked approximately 5-6 times (at t=0, t=200, t=400, t=600, t=800, and possibly t=1000)"

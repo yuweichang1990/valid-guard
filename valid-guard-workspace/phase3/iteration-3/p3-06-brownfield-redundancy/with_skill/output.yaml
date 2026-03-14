@@ -1,0 +1,1220 @@
+# Valid Guard — Brownfield Redundancy Analysis & Gap Discovery Advisory
+# Generated: 2026-03-14T00:00:00Z
+# Source: natural_language — user advisory request
+# Context: 500-test brownfield suite suspected of redundancy with untested edge cases
+
+feature: "Test Suite Redundancy Elimination and Gap Discovery"
+
+feature_description: >
+  Advisory plan for systematically analyzing an existing 500-test suite to identify
+  redundant tests that waste execution time and maintenance effort, while simultaneously
+  discovering untested scenarios — especially high-risk edge cases, boundary conditions,
+  and error paths that the current suite misses. This plan applies Valid Guard's
+  brownfield analysis methodology: reverse-engineer scenarios from existing code,
+  map existing tests to those scenarios, flag redundancy clusters, and surface coverage gaps
+  weighted by risk.
+
+risk_level: high
+
+entry_point: brownfield
+
+source:
+  type: natural_language
+  path: "user advisory request — brownfield redundancy analysis"
+
+# =============================================================================
+# PHASE 1: REDUNDANCY IDENTIFICATION
+# =============================================================================
+# Valid Guard uses EP (Equivalence Partitioning) as the primary lens for
+# detecting redundancy. When multiple tests exercise values within the SAME
+# equivalence class, they are redundant — they cannot detect different faults.
+# BVA (Boundary Value Analysis) distinguishes meaningful near-boundary tests
+# from duplicates that simply retest the interior of a partition.
+# DT (Decision Tables) reveal when tests cover the same rule (condition
+# combination) repeatedly while leaving other rules uncovered.
+# =============================================================================
+
+scenarios:
+  # ---------------------------------------------------------------------------
+  # S1: Equivalence Partition Redundancy Audit
+  # ---------------------------------------------------------------------------
+  - name: "EP redundancy audit — identify tests hitting the same equivalence class"
+    description: >
+      For each function/module under test, map every existing test case's input values
+      to their equivalence class. If N tests all supply values from the same valid
+      partition (e.g., 12 tests for 'valid email' with only formatting variations),
+      N-1 of those tests are redundant. Retain ONE representative per class plus
+      boundary values. This is the single highest-yield redundancy detection technique.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — directly affects test suite maintainability and CI pipeline speed.
+      Frequency: 3 — every test run pays the cost of redundant tests.
+      Consequence: 2 — redundant tests create false confidence and slow feedback loops
+      but do not cause data loss.
+      Detectability: 3 — redundancy is silent; teams rarely notice until suite runtime
+      becomes painful.
+      Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP is the foundational technique for redundancy detection. By classifying all input
+      values in existing tests into equivalence classes, you can objectively determine which
+      tests exercise the same partition and are therefore redundant.
+    preconditions:
+      - "Inventory of all 500 test cases with their input values accessible"
+      - "Source code under test is available for partition analysis"
+      - "Test naming or docstrings allow mapping tests to the function/module they cover"
+    examples:
+      - input:
+          existing_tests_for_validate_email:
+            - "test@example.com"
+            - "user@domain.org"
+            - "name@company.co"
+            - "hello@world.io"
+            - "foo@bar.net"
+          equivalence_classes_identified:
+            - "valid standard email (all 5 tests)"
+        expected:
+          redundant_count: 4
+          retained_count: 1
+          action: "Keep one representative, remove 4 duplicates"
+        description: >
+          Five tests all supply values from the 'valid standard email' equivalence class.
+          Only one is needed. The freed capacity should be redirected to untested classes
+          like 'email with unicode domain', 'email with plus addressing', 'email at max
+          length', etc.
+      - input:
+          existing_tests_for_calculate_discount:
+            - "amount=50, discount=10%"
+            - "amount=75, discount=10%"
+            - "amount=100, discount=10%"
+            - "amount=200, discount=10%"
+        expected:
+          equivalence_class: "valid amount with standard percentage discount"
+          redundant_count: 3
+          insight: >
+            All four inputs fall in the same EP class (valid positive amount, valid
+            percentage). None test boundary values (amount=0, discount=0%, discount=100%)
+            or invalid classes (negative amount, discount > 100%).
+        description: >
+          Multiple tests vary the amount within the valid range but never test boundaries
+          or invalid inputs — classic redundancy with simultaneous gap.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - redundancy-detection
+      - equivalence-partitioning
+      - phase-1
+
+  # ---------------------------------------------------------------------------
+  # S2: Boundary Value Redundancy vs. Gap Detection
+  # ---------------------------------------------------------------------------
+  - name: "BVA audit — separate meaningful boundary tests from interior duplicates"
+    description: >
+      For each numeric range, length limit, threshold, or ordered domain in the codebase,
+      check whether existing tests cover the canonical BVA points: min-1, min, min+1,
+      nominal, max-1, max, max+1. Tests that hit interior values (e.g., testing age=25
+      and age=30 when the valid range is 0-150) are redundant with each other but NOT
+      with boundary tests. This technique simultaneously finds redundancy (interior
+      duplicates) and gaps (missing boundary tests).
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 — boundary errors are the #1 source of off-by-one bugs in production.
+      Frequency: 3 — boundaries are exercised on every transaction involving limits.
+      Consequence: 3 — off-by-one errors in payment thresholds, rate limits, or
+      permission checks can cause financial loss or security breaches.
+      Detectability: 2 — boundary bugs sometimes manifest as subtle incorrect behavior
+      rather than crashes.
+      Average: 2.75 -> high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA and EP work together here. EP identifies the partitions; BVA identifies which
+      tests within a partition are meaningful (near boundaries) vs. redundant (deep interior).
+      A test at age=0 and a test at age=25 are in the same valid partition, but only the
+      age=0 test covers a boundary — so the age=25 test is redundant UNLESS it serves as
+      the nominal representative.
+    preconditions:
+      - "All numeric ranges, thresholds, and length limits in the codebase are cataloged"
+      - "Existing test input values are extractable for boundary mapping"
+    examples:
+      - input:
+          function: "validate_age(age: int) -> bool"
+          valid_range: "0-150"
+          existing_test_values: [5, 10, 25, 30, 42, 50, 65, 100]
+        expected:
+          boundary_coverage:
+            min_minus_1: "MISSING (age=-1)"
+            min: "MISSING (age=0)"
+            min_plus_1: "MISSING (age=1)"
+            nominal: "COVERED (age=25 or any interior value)"
+            max_minus_1: "MISSING (age=149)"
+            max: "MISSING (age=150)"
+            max_plus_1: "MISSING (age=151)"
+          redundant_tests: 7
+          missing_boundary_tests: 6
+          verdict: >
+            8 existing tests all hit the interior of the valid partition. 7 are
+            redundant. Zero boundary values are tested. This is the most common
+            pattern in brownfield suites.
+        description: >
+          Classic brownfield anti-pattern: many tests for the 'comfortable middle' of a
+          range with zero boundary coverage. BVA analysis reveals both the redundancy
+          and the critical gaps simultaneously.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - redundancy-detection
+      - gap-discovery
+      - boundary-value-analysis
+      - phase-1
+
+  # ---------------------------------------------------------------------------
+  # S3: Decision Table Redundancy Audit
+  # ---------------------------------------------------------------------------
+  - name: "DT redundancy audit — detect duplicate rule coverage in combinatorial logic"
+    description: >
+      For business logic with multiple conditions (if/else chains, permission matrices,
+      pricing tiers), build a decision table enumerating all condition combinations (rules).
+      Map each existing test to the rule it covers. Redundancy: multiple tests covering the
+      same rule. Gaps: rules with no test at all. This is especially powerful for
+      authorization logic, discount engines, and workflow routing.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — combinatorial logic errors in authorization or pricing directly affect
+      correctness and security.
+      Frequency: 2 — combinatorial paths are triggered based on user context and
+      configuration, not every request.
+      Consequence: 3 — wrong authorization decision or wrong price calculation can cause
+      security breach or financial loss.
+      Detectability: 3 — combinatorial bugs are hard to detect because they only manifest
+      under specific condition combinations that may not occur in manual testing.
+      Average: 2.75 -> high.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      DT systematically enumerates all condition combinations. By mapping existing tests to
+      DT rules, you immediately see which rules have 0 tests (gap), 1 test (adequate), or
+      5+ tests (redundancy). EP further validates that each test supplies a representative
+      value from its equivalence class rather than a duplicate.
+    preconditions:
+      - "Business rules with multiple conditions are identified in the codebase"
+      - "Existing tests can be mapped to the condition combinations they exercise"
+    decision_table:
+      conditions:
+        - "user_role (admin/member/guest)"
+        - "subscription_active (true/false)"
+        - "resource_type (public/private/premium)"
+      actions:
+        - "access_granted"
+        - "upgrade_prompt_shown"
+      rules:
+        - description: "Admin with active subscription accessing premium resource"
+          condition_values:
+            user_role: "admin"
+            subscription_active: true
+            resource_type: "premium"
+          expected_actions:
+            access_granted: true
+            upgrade_prompt_shown: false
+        - description: "Guest accessing private resource"
+          condition_values:
+            user_role: "guest"
+            subscription_active: false
+            resource_type: "private"
+          expected_actions:
+            access_granted: false
+            upgrade_prompt_shown: true
+        - description: "Member without subscription accessing premium resource"
+          condition_values:
+            user_role: "member"
+            subscription_active: false
+            resource_type: "premium"
+          expected_actions:
+            access_granted: false
+            upgrade_prompt_shown: true
+    examples:
+      - input:
+          total_rules_in_decision_table: 18
+          rules_with_tests: 6
+          rules_with_multiple_tests: 3
+          rules_with_zero_tests: 12
+        expected:
+          redundant_tests_from_duplicate_rules: 5
+          untested_rules: 12
+          coverage_percentage: 33
+          verdict: >
+            Only 6 of 18 rules are tested. 3 of those 6 have duplicate tests (5 extra
+            tests). 12 rules have zero coverage. Redirect effort from duplicates to
+            the 12 uncovered rules, prioritizing those involving security-critical
+            combinations (e.g., guest + private + premium).
+        description: >
+          Decision table analysis on an authorization module. Reveals that test effort
+          clusters around common happy paths while two-thirds of the condition space
+          is untested.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - redundancy-detection
+      - gap-discovery
+      - decision-table
+      - phase-1
+
+  # ---------------------------------------------------------------------------
+  # S4: Test Anti-Pattern Scan
+  # ---------------------------------------------------------------------------
+  - name: "Anti-pattern scan — flag tests that provide zero defect-detection value"
+    description: >
+      Beyond redundancy (same equivalence class), some tests are genuinely meaningless
+      because they contain anti-patterns that prevent them from catching any bug.
+      Scan all 500 tests for: tautology tests (assert mirrors implementation),
+      inspector tests (access private state), tests with no assertions, tests that
+      swallow exceptions, tests with overly loose assertions (assert result is not None),
+      and tests with logic (loops/conditionals computing expected values).
+      These tests inflate the count without contributing to defect detection.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — meaningless tests create dangerous false confidence; the team believes
+      code is tested when it is not.
+      Frequency: 3 — anti-pattern tests run on every CI build, consuming resources while
+      providing zero signal.
+      Consequence: 3 — bugs ship to production because the team trusts a test suite
+      that cannot detect faults.
+      Detectability: 3 — anti-pattern tests always pass, so they are never flagged by CI;
+      only manual review or mutation testing reveals their worthlessness.
+      Average: 3.0 -> high.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error Guessing is applied here in a meta-testing sense: we use knowledge of common
+      test authoring mistakes to guess which tests are likely to be defective themselves.
+      The anti-pattern catalog (tautology, inspector, invisible failure, etc.) provides
+      the heuristic checklist.
+    preconditions:
+      - "Full test source code is accessible for static analysis"
+      - "Test framework and assertion library are identified"
+    examples:
+      - input:
+          test_code: |
+            def test_calculate_total():
+                result = calculate_total(100, 0.08)
+                assert result == 100 * 1.08  # Tautology: mirrors implementation
+        expected:
+          anti_pattern: "tautology_test"
+          severity: "high"
+          recommendation: >
+            Replace with independently derived expected value: assert result == 108.0.
+            The current test cannot detect a bug in the formula because it uses the
+            same formula to compute the expected value.
+        description: >
+          Tautology test detected. The assertion recomputes the same formula as the
+          production code. If the formula is wrong, the test passes anyway.
+      - input:
+          test_code: |
+            def test_user_creation():
+                user = create_user("alice", "alice@example.com")
+                assert user is not None
+                assert user.name  # Truthy check, not value check
+        expected:
+          anti_pattern: "loose_assertion"
+          severity: "medium"
+          recommendation: >
+            Assert specific values: assert user.name == "alice" and
+            assert user.email == "alice@example.com". The current test passes
+            even if name is assigned incorrectly.
+        description: >
+          Loose assertion test. Checks existence but not correctness. Would pass
+          even if create_user assigned wrong values to fields.
+      - input:
+          test_code: |
+            def test_process_data():
+                try:
+                    result = process(invalid_data)
+                except Exception:
+                    pass
+        expected:
+          anti_pattern: "invisible_failure"
+          severity: "critical"
+          recommendation: >
+            Use pytest.raises(SpecificException) and assert on the error message.
+            The current test ALWAYS passes regardless of what process() does.
+        description: >
+          Invisible failure pattern. Exception is swallowed. This test provides
+          literally zero information about system behavior.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - anti-pattern-detection
+      - test-quality
+      - phase-1
+
+  # ---------------------------------------------------------------------------
+  # S5: Mutation Testing for Tautology Detection
+  # ---------------------------------------------------------------------------
+  - name: "Mutation testing validation — confirm which tests actually detect faults"
+    description: >
+      After static analysis identifies suspected redundant or meaningless tests,
+      validate with mutation testing. Introduce small code mutations (change > to >=,
+      flip boolean, remove a statement) and re-run the test suite. Tests that never
+      fail for any mutation are confirmed meaningless. Tests that are the ONLY test
+      to kill a specific mutant are confirmed essential. This provides empirical
+      evidence for redundancy vs. necessity decisions.
+    type: combinatorial
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — mutation testing is a validation step, not a production risk.
+      Frequency: 1 — run periodically (e.g., weekly or per sprint), not on every commit.
+      Consequence: 2 — if skipped, redundancy decisions rely solely on static analysis
+      which may miss subtle test value.
+      Detectability: 1 — mutation testing results are explicit and clear.
+      Average: 1.5 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP classifies mutations into equivalence classes (e.g., all arithmetic operator
+      mutations in a single function). EG anticipates which mutation types are most
+      likely to reveal tautological tests (e.g., boundary mutations for off-by-one,
+      boolean negation for condition coverage).
+    preconditions:
+      - "Mutation testing tool is available (e.g., mutmut for Python, Stryker for JS/TS, pitest for Java)"
+      - "Test suite execution time is manageable (or a subset can be selected)"
+      - "Baseline test run passes (all 500 tests green)"
+    examples:
+      - input:
+          mutation: "Changed 'price * (1 - discount)' to 'price * (1 + discount)'"
+          tests_that_failed: 0
+          total_tests_covering_function: 8
+        expected:
+          verdict: "surviving_mutant"
+          implication: >
+            All 8 tests covering this function failed to detect a sign flip in the
+            discount calculation. This confirms the tests are likely tautological
+            (asserting the formula, not the result) or use overly loose assertions.
+        description: >
+          A surviving mutant proves that 8 tests provide zero defect detection for a
+          critical pricing calculation. These tests should be rewritten, not just pruned.
+    test_ref: null
+    status: uncovered
+    priority: 2
+    tags:
+      - mutation-testing
+      - validation
+      - phase-1
+
+  # ---------------------------------------------------------------------------
+  # PHASE 2: GAP DISCOVERY
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # S6: Missing Negative/Error Path Tests
+  # ---------------------------------------------------------------------------
+  - name: "Error path gap analysis — discover untested failure modes"
+    description: >
+      For each function/module with existing tests, check the ratio of happy-path tests
+      to error-path tests. Valid Guard mandates at least a 1:2 ratio (one happy path per
+      two error cases) for high-risk features. Common gaps: null/undefined inputs, empty
+      collections, wrong types, malformed formats, unauthorized access, timeout conditions,
+      concurrent modifications, and resource exhaustion. Use Error Guessing combined with
+      EP (invalid partition classes) to systematically enumerate missing error paths.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — untested error paths are the primary source of production incidents.
+      Frequency: 3 — error conditions occur regularly in production (bad input, network
+      failures, race conditions).
+      Consequence: 3 — unhandled errors cause crashes, data corruption, security
+      vulnerabilities.
+      Detectability: 3 — error path bugs are silent until triggered in production;
+      happy-path-only tests give no warning.
+      Average: 3.0 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP's invalid partition classes systematically identify categories of bad input that
+      need tests. EG supplements with experience-based anticipation of failure modes that
+      EP alone might miss (race conditions, resource exhaustion, encoding issues).
+    preconditions:
+      - "Source code functions with their error handling logic are identified"
+      - "Existing test inventory distinguishes happy vs. error tests (by naming or assertions)"
+    examples:
+      - input:
+          function: "transfer_funds(from_account, to_account, amount)"
+          existing_tests:
+            - "test_transfer_valid_amount (happy path)"
+            - "test_transfer_large_amount (happy path — still valid)"
+            - "test_transfer_between_accounts (happy path)"
+          missing_error_paths:
+            - "amount = 0"
+            - "amount = negative"
+            - "amount > sender balance"
+            - "from_account == to_account"
+            - "from_account does not exist"
+            - "to_account is frozen/closed"
+            - "concurrent transfer causes overdraft"
+            - "network failure mid-transfer (partial state)"
+        expected:
+          happy_path_count: 3
+          error_path_count: 0
+          gap_count: 8
+          ratio: "3:0 (target: 1:2)"
+          priority_gaps:
+            - "amount > sender balance (financial loss)"
+            - "concurrent transfer overdraft (data integrity)"
+            - "network failure mid-transfer (partial state)"
+        description: >
+          A critical funds transfer function has 3 happy path tests and zero error path
+          tests. EP reveals 8 invalid partition classes that are completely untested.
+          The highest priority gaps involve financial loss and data integrity.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - gap-discovery
+      - error-paths
+      - phase-2
+
+  # ---------------------------------------------------------------------------
+  # S7: Missing State Transition Tests
+  # ---------------------------------------------------------------------------
+  - name: "State transition gap analysis — discover untested lifecycle paths"
+    description: >
+      Identify all entities with lifecycle states (orders, subscriptions, sessions,
+      workflows, connections) and build state transition diagrams. Map existing tests
+      to transitions they cover. Common gaps: invalid transitions (e.g., attempting
+      to ship a cancelled order), re-entry transitions (e.g., reactivating a suspended
+      account), and multi-step paths (e.g., the full refund->restock->credit flow).
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3 — state transition bugs cause entities to enter impossible states,
+      corrupting business data.
+      Frequency: 2 — lifecycle transitions happen regularly but not on every request.
+      Consequence: 3 — an order stuck in 'processing' forever or a subscription that
+      cannot be cancelled causes direct user harm and potential legal/compliance issues.
+      Detectability: 3 — invalid state bugs are often silent; the entity appears normal
+      until someone inspects the data.
+      Average: 2.75 -> high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST systematically enumerates all valid and invalid transitions. Most brownfield suites
+      test the happy path through the state machine (created->active->completed) but miss
+      invalid transitions and recovery paths. EG adds domain-specific anticipation of
+      tricky state scenarios.
+    preconditions:
+      - "Entities with status/state fields are identified"
+      - "State transition diagram or state machine logic is reverse-engineered from code"
+    state_transition:
+      states:
+        - "created"
+        - "processing"
+        - "shipped"
+        - "delivered"
+        - "cancelled"
+        - "returned"
+        - "refunded"
+      transitions:
+        - from: "created"
+          to: "processing"
+          trigger: "payment_confirmed"
+          guard: "payment amount matches order total"
+        - from: "processing"
+          to: "shipped"
+          trigger: "shipment_dispatched"
+          guard: "all items in stock"
+        - from: "shipped"
+          to: "delivered"
+          trigger: "delivery_confirmed"
+          guard: "recipient acknowledged"
+        - from: "delivered"
+          to: "returned"
+          trigger: "return_requested"
+          guard: "within return window"
+        - from: "returned"
+          to: "refunded"
+          trigger: "refund_processed"
+          guard: "return inspection passed"
+        - from: "created"
+          to: "cancelled"
+          trigger: "user_cancelled"
+          guard: "not yet shipped"
+        - from: "processing"
+          to: "cancelled"
+          trigger: "user_cancelled"
+          guard: "not yet shipped"
+    examples:
+      - input:
+          total_transitions: 7
+          existing_tests_cover: ["created->processing", "processing->shipped", "shipped->delivered"]
+          untested_transitions:
+            - "delivered->returned"
+            - "returned->refunded"
+            - "created->cancelled"
+            - "processing->cancelled"
+          untested_invalid_transitions:
+            - "delivered->processing (backward transition)"
+            - "cancelled->shipped (resurrection)"
+            - "refunded->processing (re-processing after refund)"
+        expected:
+          valid_transition_coverage: "3/7 (43%)"
+          invalid_transitions_tested: "0"
+          highest_priority_gaps:
+            - "cancelled->shipped (must be blocked — shipped goods with no payment)"
+            - "delivered->returned (return flow completely untested)"
+        description: >
+          Order lifecycle has 7 valid transitions but only the forward happy path
+          (3 transitions) is tested. The return/refund flow and cancellation flow
+          are completely untested. Zero invalid transitions are tested.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - gap-discovery
+      - state-transitions
+      - phase-2
+
+  # ---------------------------------------------------------------------------
+  # S8: Missing Boundary Value Tests
+  # ---------------------------------------------------------------------------
+  - name: "Boundary gap analysis — discover untested thresholds and limits"
+    description: >
+      Catalog all boundaries in the codebase: numeric ranges, string length limits,
+      collection size limits, date ranges, rate limits, pagination boundaries, file
+      size limits, timeout thresholds. For each boundary, check whether existing tests
+      cover the canonical BVA points (min-1, min, min+1, nominal, max-1, max, max+1).
+      Off-by-one errors at boundaries are among the most common and dangerous bugs.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 — boundary errors in financial calculations, access controls, and rate
+      limiting directly affect correctness and security.
+      Frequency: 3 — boundary values are encountered constantly (first item, last page,
+      max retries, rate limit threshold).
+      Consequence: 3 — off-by-one in a rate limiter allows DoS; off-by-one in pagination
+      skips or duplicates records; off-by-one in a discount threshold gives wrong price.
+      Detectability: 2 — some boundary bugs cause visible errors; others silently produce
+      wrong results that go unnoticed.
+      Average: 2.75 -> high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA is the primary technique. EP provides the partition structure within which
+      boundaries are identified. Together they ensure both the boundary points and the
+      partition representatives are covered.
+    preconditions:
+      - "All numeric ranges, limits, thresholds in the codebase are cataloged"
+      - "Configuration values that define limits are identified (e.g., MAX_RETRIES, PAGE_SIZE)"
+    examples:
+      - input:
+          boundary: "pagination — page_size range [1, 100], page_number range [1, total_pages]"
+          existing_tests:
+            - "page_size=10, page_number=1"
+            - "page_size=20, page_number=2"
+            - "page_size=50, page_number=3"
+          missing_bva_points:
+            - "page_size=0 (below minimum)"
+            - "page_size=1 (minimum)"
+            - "page_size=100 (maximum)"
+            - "page_size=101 (above maximum)"
+            - "page_number=0 (below minimum)"
+            - "page_number=total_pages (last page)"
+            - "page_number=total_pages+1 (beyond last page)"
+            - "page_size=-1 (negative)"
+        expected:
+          existing_boundary_coverage: "0/8 critical boundary points"
+          redundant_interior_tests: 2
+          new_tests_needed: 8
+        description: >
+          Pagination has 3 tests, all hitting comfortable interior values. None of
+          the 8 critical boundary points (min, max, just outside) are tested. This is
+          a high-priority gap: boundary errors in pagination cause missing data or
+          server errors.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - gap-discovery
+      - boundary-values
+      - phase-2
+
+  # ---------------------------------------------------------------------------
+  # S9: Missing Combinatorial/Pairwise Tests
+  # ---------------------------------------------------------------------------
+  - name: "Pairwise gap analysis — discover untested parameter interactions"
+    description: >
+      For functions or API endpoints with 3+ parameters each having 2+ possible values,
+      check whether existing tests cover all pairwise parameter interactions. In a
+      brownfield suite, tests tend to exercise one parameter at a time while holding
+      others at default values, missing interaction bugs that only manifest when specific
+      parameter pairs combine.
+    type: combinatorial
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — interaction bugs are typically in secondary features or configuration
+      combinations.
+      Frequency: 2 — parameter combinations are exercised by different user segments.
+      Consequence: 2 — interaction bugs usually cause feature malfunction, not data loss.
+      Detectability: 2 — interaction bugs often produce visible errors but only for
+      affected parameter combinations.
+      Average: 2.0 -> medium.
+    techniques:
+      - pairwise
+      - equivalence_partitioning
+    technique_rationale: >
+      Pairwise testing ensures every pair of parameter values appears in at least one test.
+      This is far more efficient than full combinatorial testing while catching the majority
+      of interaction bugs. EP defines the value classes for each parameter.
+    preconditions:
+      - "Functions with 3+ parameters are identified"
+      - "Each parameter's valid value set is defined"
+    examples:
+      - input:
+          function: "search(query, sort_by, filter_category, page_size, locale)"
+          parameters:
+            query: ["short", "long", "special_chars", "empty"]
+            sort_by: ["relevance", "date", "price"]
+            filter_category: ["all", "electronics", "books"]
+            page_size: [10, 50, 100]
+            locale: ["en-US", "zh-TW", "ar-SA"]
+          existing_tests: 5
+          pairwise_minimum: 15
+        expected:
+          pairwise_coverage: "33%"
+          missing_interaction_pairs: >
+            special_chars + ar-SA (RTL + special chars), empty + price_sort,
+            locale=zh-TW + filter=electronics, etc.
+          recommendation: >
+            Generate a pairwise covering array of ~15 tests to replace the 5 ad-hoc
+            tests, achieving 100% pairwise coverage with only 10 additional tests.
+        description: >
+          Search API has 5 parameters with 3-4 values each (324 full combinations).
+          Only 5 tests exist, covering a tiny fraction of parameter interactions.
+          Pairwise covering array needs only ~15 tests for complete pair coverage.
+    test_ref: null
+    status: uncovered
+    priority: 2
+    tags:
+      - gap-discovery
+      - pairwise
+      - phase-2
+
+  # ---------------------------------------------------------------------------
+  # S10: Missing Security/Authorization Edge Cases
+  # ---------------------------------------------------------------------------
+  - name: "Security gap analysis — discover untested authorization and input validation paths"
+    description: >
+      Security-related test gaps are the highest-consequence gaps. Check for: missing
+      authorization tests (can a guest access admin endpoints?), missing input validation
+      tests (SQL injection, XSS, path traversal), missing authentication edge cases
+      (expired tokens, revoked sessions, concurrent logins), and missing data exposure
+      tests (does the API leak sensitive fields to unauthorized roles?).
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 — security bugs directly threaten data integrity and user trust.
+      Frequency: 2 — security attacks are targeted, not on every request, but probing
+      is constant.
+      Consequence: 3 — security breach causes data loss, regulatory penalties, reputation
+      damage.
+      Detectability: 3 — security bugs are exploited silently; the team does not know
+      until damage is done.
+      Average: 2.75 -> high.
+    techniques:
+      - decision_table
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      DT maps the authorization matrix (role x resource x action -> allow/deny). EP
+      defines valid and invalid input classes for injection testing. EG anticipates
+      common attack vectors based on the technology stack.
+    preconditions:
+      - "All API endpoints and their authorization requirements are documented or discoverable"
+      - "Role/permission model is understood"
+      - "Input validation logic locations are identified"
+    examples:
+      - input:
+          endpoint: "DELETE /api/users/{id}"
+          roles: ["admin", "member", "guest", "unauthenticated"]
+          existing_tests:
+            - "admin deletes user (happy path)"
+          missing_tests:
+            - "member attempts to delete another user (should be 403)"
+            - "guest attempts to delete user (should be 401/403)"
+            - "unauthenticated request (should be 401)"
+            - "admin deletes own account (edge case)"
+            - "user ID with path traversal (../../admin)"
+            - "deleted user attempts to delete (revoked session)"
+        expected:
+          authorization_coverage: "1/4 roles tested"
+          security_gaps: 6
+          priority: "critical — authorization bypass is a P0 security issue"
+        description: >
+          A destructive endpoint (DELETE user) has only one test for the admin happy path.
+          No test verifies that non-admin roles are blocked. This is a critical
+          authorization gap.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - gap-discovery
+      - security
+      - authorization
+      - phase-2
+
+  # ---------------------------------------------------------------------------
+  # S11: Concurrency and Race Condition Gaps
+  # ---------------------------------------------------------------------------
+  - name: "Concurrency gap analysis — discover untested race conditions and parallel execution paths"
+    description: >
+      Most brownfield test suites execute entirely sequentially and never test concurrent
+      access. For features involving shared state (inventory counts, account balances,
+      session management, caching), check whether any tests exercise parallel execution.
+      Common gaps: double-submit prevention, concurrent update conflicts, cache
+      invalidation races, and connection pool exhaustion.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — race conditions cause data corruption that is difficult to diagnose
+      and repair.
+      Frequency: 2 — concurrency issues manifest under load, which may be intermittent.
+      Consequence: 3 — double charges, inventory overselling, lost updates are direct
+      financial and data integrity issues.
+      Detectability: 3 — race conditions are intermittent and often unreproducible in
+      testing environments; they surface only in production under load.
+      Average: 2.75 -> high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST models the state machine with concurrent event arrivals (two transitions firing
+      simultaneously). EG anticipates common concurrency pitfalls based on the technology
+      stack (e.g., non-atomic read-modify-write, missing database locks, unsynchronized
+      cache access).
+    preconditions:
+      - "Shared mutable state locations are identified (databases, caches, in-memory stores)"
+      - "Features that handle concurrent requests are cataloged"
+    examples:
+      - input:
+          feature: "inventory management — decrement stock on purchase"
+          existing_tests: ["test_purchase_decrements_stock (sequential)"]
+          missing_concurrency_tests:
+            - "Two simultaneous purchases for the last item in stock"
+            - "Purchase during inventory restock (concurrent increment + decrement)"
+            - "Cart checkout while item is being removed from catalog"
+        expected:
+          concurrency_tests_exist: 0
+          concurrency_gaps: 3
+          highest_risk: >
+            Two simultaneous purchases for last item — can cause overselling
+            (stock goes to -1) if decrement is not atomic.
+        description: >
+          Inventory management has zero concurrency tests. The sequential test
+          passes but cannot detect the overselling bug that occurs when two
+          purchases hit the last item simultaneously.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - gap-discovery
+      - concurrency
+      - race-conditions
+      - phase-2
+
+  # ---------------------------------------------------------------------------
+  # S12: Cross-Module Integration Gaps
+  # ---------------------------------------------------------------------------
+  - name: "Integration gap analysis — discover untested cross-module data flows"
+    description: >
+      Brownfield suites often have good unit test coverage per module but miss the
+      integration boundaries. Analyze the Level 3 call chains (cross-function data flow)
+      to identify untested integration paths: data transformation between modules,
+      error propagation across boundaries, and contract mismatches (module A sends
+      format X but module B expects format Y).
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — integration bugs affect feature correctness but are usually bounded
+      to the interacting modules.
+      Frequency: 2 — integration paths are exercised during normal workflows.
+      Consequence: 2 — integration failures cause feature malfunction, usually with
+      visible error messages.
+      Detectability: 2 — integration bugs often produce error responses that are visible
+      but may be misattributed to the wrong module.
+      Average: 2.0 -> medium.
+    techniques:
+      - cause_effect
+      - error_guessing
+    technique_rationale: >
+      Cause-Effect graphing maps the logical dependencies between module inputs and
+      outputs, revealing which cross-boundary data flows need testing. EG anticipates
+      common integration pitfalls (serialization format mismatches, timezone handling
+      differences between modules, encoding assumptions).
+    preconditions:
+      - "Module dependency graph is mapped (which modules call which)"
+      - "Data contracts between modules are identified (API schemas, function signatures)"
+    examples:
+      - input:
+          module_a: "OrderService.create_order()"
+          module_b: "PaymentService.charge()"
+          module_c: "InventoryService.reserve()"
+          existing_unit_tests: 45
+          existing_integration_tests: 2
+          untested_integration_paths:
+            - "OrderService -> PaymentService when payment format changes"
+            - "PaymentService failure -> OrderService rollback -> InventoryService unreserve"
+            - "InventoryService partial failure during multi-item order"
+        expected:
+          unit_test_count: 45
+          integration_test_count: 2
+          integration_gap_count: 3
+          highest_risk: >
+            Payment failure rollback chain — if PaymentService fails after
+            InventoryService.reserve() succeeds, the rollback must unreserve.
+            This path is completely untested.
+        description: >
+          45 unit tests, 2 integration tests. The rollback chain across 3 services
+          is untested. This is a common brownfield gap where each module is tested
+          in isolation but the failure propagation path between them is not.
+    test_ref: null
+    status: uncovered
+    priority: 2
+    tags:
+      - gap-discovery
+      - integration
+      - cross-module
+      - phase-2
+
+  # ---------------------------------------------------------------------------
+  # PHASE 3: SYSTEMATIC REMEDIATION PROCESS
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # S13: Redundancy Elimination Workflow
+  # ---------------------------------------------------------------------------
+  - name: "Redundancy elimination workflow — safe pruning process"
+    description: >
+      After identifying redundant tests via EP/BVA/DT analysis (Phase 1), follow a
+      safe elimination workflow. Do NOT simply delete tests. Instead: (1) Tag candidates
+      as @redundant, (2) Run mutation testing to confirm they add no unique fault detection,
+      (3) Quarantine (skip) rather than delete for one sprint, (4) Delete only after
+      confirming no regressions during the quarantine period. This protects against
+      false-positive redundancy identification.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — removing a test that was actually needed could allow a regression.
+      Frequency: 1 — redundancy elimination is a periodic maintenance activity.
+      Consequence: 2 — if a needed test is wrongly removed, a bug may slip through
+      until the next analysis cycle.
+      Detectability: 1 — the quarantine period provides a safety net for detection.
+      Average: 1.5 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP confirms redundancy by showing tests hit the same partition. EG provides
+      caution: some tests that appear redundant under EP may actually test different
+      non-functional aspects (performance characteristics, memory usage, etc.).
+    preconditions:
+      - "Phase 1 analysis is complete with redundancy candidates identified"
+      - "Mutation testing infrastructure is available"
+      - "Version control allows easy revert if a wrongly-removed test is needed"
+    examples:
+      - input:
+          redundancy_candidates: 120
+          confirmed_by_mutation_testing: 95
+          false_positives: 25
+          quarantine_period: "1 sprint"
+        expected:
+          safe_to_remove: 95
+          retain: 25
+          suite_reduction: "19% (500 -> 405 tests)"
+          execution_time_saved: "~19% reduction in CI pipeline duration"
+        description: >
+          Of 120 redundancy candidates, mutation testing confirms 95 are truly
+          redundant (they kill no unique mutants). 25 candidates are retained because
+          they uniquely detect at least one mutant. After quarantine, 95 tests are
+          safely removed.
+    test_ref: null
+    status: uncovered
+    priority: 2
+    tags:
+      - remediation
+      - safe-pruning
+      - phase-3
+
+  # ---------------------------------------------------------------------------
+  # S14: Gap Filling Priority Matrix
+  # ---------------------------------------------------------------------------
+  - name: "Gap filling priority matrix — risk-weighted test creation order"
+    description: >
+      After discovering gaps (Phase 2), prioritize which new tests to write first using
+      the risk assessment matrix. Create tests in strict priority order:
+      (1) High-risk security gaps, (2) High-risk boundary/state transition gaps,
+      (3) High-risk error path gaps, (4) Medium-risk combinatorial gaps,
+      (5) Low-risk happy path gaps. This ensures maximum defect-detection value
+      per test written.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 — the order in which gaps are filled determines how quickly the suite
+      achieves meaningful coverage of critical paths.
+      Frequency: 3 — new tests are written every sprint; wrong prioritization wastes
+      every sprint's testing effort.
+      Consequence: 2 — wrong priority means high-risk gaps remain open longer than
+      necessary.
+      Detectability: 1 — priority decisions are explicit and reviewable.
+      Average: 2.25 -> medium. (Elevated to high due to compounding effect over time.)
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      DT maps the priority decision: risk_level x gap_type x module_criticality -> priority.
+      EP classifies gaps into priority equivalence classes to batch similar-priority work.
+    preconditions:
+      - "Phase 2 gap analysis is complete"
+      - "Risk assessment for all discovered gaps is performed"
+    decision_table:
+      conditions:
+        - "risk_level (high/medium/low)"
+        - "gap_type (security/boundary/state/error/combinatorial/integration)"
+        - "module_criticality (core/secondary/peripheral)"
+      actions:
+        - "priority_rank (1-5)"
+        - "required_techniques_count (1-3+)"
+        - "negative_tests_required (yes/no)"
+      rules:
+        - description: "High-risk security gap in core module"
+          condition_values:
+            risk_level: "high"
+            gap_type: "security"
+            module_criticality: "core"
+          expected_actions:
+            priority_rank: 1
+            required_techniques_count: "3+"
+            negative_tests_required: "yes"
+        - description: "Medium-risk boundary gap in secondary module"
+          condition_values:
+            risk_level: "medium"
+            gap_type: "boundary"
+            module_criticality: "secondary"
+          expected_actions:
+            priority_rank: 3
+            required_techniques_count: 2
+            negative_tests_required: "yes"
+        - description: "Low-risk combinatorial gap in peripheral module"
+          condition_values:
+            risk_level: "low"
+            gap_type: "combinatorial"
+            module_criticality: "peripheral"
+          expected_actions:
+            priority_rank: 5
+            required_techniques_count: 1
+            negative_tests_required: "no"
+    examples:
+      - input:
+          total_gaps_discovered: 45
+          high_risk_gaps: 12
+          medium_risk_gaps: 20
+          low_risk_gaps: 13
+        expected:
+          sprint_1_target: "12 high-risk gaps (security + boundary + state transition)"
+          sprint_2_target: "10 highest-priority medium-risk gaps"
+          sprint_3_target: "10 remaining medium-risk + 5 low-risk gaps"
+          post_remediation_suite_size: "~450 tests (405 after pruning + 45 new gap-filling tests)"
+          weighted_coverage_improvement: "estimated 55% -> 85%"
+        description: >
+          45 gaps are prioritized across 3 sprints. High-risk gaps first, then medium,
+          then low. The suite shrinks from 500 to ~450 (remove 95 redundant, add 45
+          targeted) while dramatically improving weighted scenario coverage.
+    test_ref: null
+    status: uncovered
+    priority: 1
+    tags:
+      - remediation
+      - prioritization
+      - phase-3
+
+  # ---------------------------------------------------------------------------
+  # S15: Continuous Redundancy Prevention
+  # ---------------------------------------------------------------------------
+  - name: "Continuous redundancy prevention — gates to stop future redundancy accumulation"
+    description: >
+      After cleanup, install preventive measures: (1) Require every new test to reference
+      a scenario ID from the Valid Guard plan (traceability), (2) Run EP analysis in CI
+      to warn when a new test duplicates an existing equivalence class, (3) Periodic
+      mutation testing (monthly) to detect tests that have become tautological after
+      refactoring, (4) Track the ratio of tests-per-scenario; flag when it exceeds 3:1.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — prevention avoids gradual degradation of the test suite quality over
+      months and years.
+      Frequency: 2 — redundancy accumulates slowly, with each sprint adding a few
+      duplicates.
+      Consequence: 1 — without prevention, the suite returns to 500+ redundant tests
+      within a year, but the impact is gradual not catastrophic.
+      Detectability: 1 — CI gates provide immediate visibility into redundancy creep.
+      Average: 1.5 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP-based CI checks automatically classify new test inputs into existing partitions,
+      warning when a test adds no new partition coverage. EG anticipates common
+      developer behaviors that introduce redundancy (copy-paste test modification,
+      writing a test for a bug fix without checking if the partition is already covered).
+    preconditions:
+      - "Phase 1 and Phase 3 are complete — clean baseline established"
+      - "CI/CD pipeline is available for integrating quality gates"
+      - "Valid Guard plan is maintained as the source of truth for scenario-to-test mapping"
+    examples:
+      - input:
+          new_test: "test_validate_email_with_plus_sign"
+          existing_tests_for_validate_email: ["test_validate_standard_email"]
+          ep_analysis: "plus-sign email is a NEW equivalence class (subaddressing)"
+        expected:
+          verdict: "APPROVED — covers new equivalence class"
+          action: "Add test, link to scenario in Valid Guard plan"
+        description: >
+          CI gate checks a new email validation test against existing EP coverage
+          and approves it because plus-sign addressing is a distinct equivalence class
+          not covered by the existing standard email test.
+      - input:
+          new_test: "test_validate_email_another_valid_format"
+          existing_tests_for_validate_email: ["test_validate_standard_email"]
+          ep_analysis: "another valid format belongs to SAME equivalence class as standard email"
+        expected:
+          verdict: "WARNING — same equivalence class as test_validate_standard_email"
+          action: "Review: is this truly a different class, or is it redundant?"
+        description: >
+          CI gate warns that a new test duplicates an existing equivalence class,
+          prompting the developer to either justify the test or replace it with a
+          test for an uncovered class.
+    test_ref: null
+    status: uncovered
+    priority: 3
+    tags:
+      - remediation
+      - prevention
+      - ci-gates
+      - phase-3
+
+# =============================================================================
+# EXAMPLE MAPPING
+# =============================================================================
+
+example_mapping:
+  story: >
+    As a test engineering lead, I want to eliminate redundant tests from our 500-test suite
+    and discover untested edge cases, so that our CI pipeline is faster, maintenance burden
+    is lower, and critical paths are actually protected.
+
+  rules:
+    - rule_name: "One representative test per equivalence class"
+      examples:
+        - "5 tests for 'valid email' -> keep 1, identify missing classes (unicode domain, max length, plus addressing)"
+        - "4 tests for 'valid discount amount' -> keep 1 boundary set, identify missing invalid classes (negative, >100%)"
+        - "8 tests for 'valid age' all hitting interior values -> keep 1 nominal, add 6 boundary tests"
+
+    - rule_name: "Boundary values must be tested at min-1, min, min+1, max-1, max, max+1"
+      examples:
+        - "Pagination page_size [1,100]: test 0, 1, 2, 50, 99, 100, 101"
+        - "Password length [8,128]: test 7, 8, 9, 64, 127, 128, 129"
+        - "Retry count [0,3]: test -1, 0, 1, 2, 3, 4"
+
+    - rule_name: "Every decision table rule must have exactly one test"
+      examples:
+        - "Authorization matrix with 18 rules: map existing tests to rules, identify 12 untested rules"
+        - "Pricing engine with 8 discount rules: 3 rules tested by 7 tests (redundant), 5 rules untested"
+        - "Feature flag matrix: 4 flags -> 16 combinations, only 3 tested"
+
+    - rule_name: "Invalid transitions in state machines must be explicitly tested"
+      examples:
+        - "Order: test that cancelled->shipped is blocked"
+        - "Subscription: test that expired->active requires re-payment, not just reactivation"
+        - "Session: test that expired token cannot be refreshed without re-authentication"
+
+    - rule_name: "Error-to-happy-path ratio must be at least 2:1 for high-risk features"
+      examples:
+        - "Fund transfer: 3 happy paths, 0 error paths -> add 8 error paths (negative amount, overdraft, concurrent, etc.)"
+        - "User registration: 5 happy paths, 1 error path -> add 9 error paths (duplicate email, weak password, injection, etc.)"
+
+    - rule_name: "Tautological and meaningless tests must be identified and rewritten"
+      examples:
+        - "Test asserts result == input * rate -> tautology, rewrite with hardcoded expected value"
+        - "Test asserts result is not None -> loose assertion, assert specific return value"
+        - "Test catches all exceptions with pass -> invisible failure, use pytest.raises with specific type"
+
+    - rule_name: "Redundancy removal requires quarantine before deletion"
+      examples:
+        - "Tag 95 confirmed-redundant tests as @skip for one sprint, then delete if no regressions"
+        - "Mutation testing confirms 25 'redundant' candidates actually kill unique mutants -> retain them"
+
+  questions:
+    - "What is the primary language and test framework of the 500-test suite?"
+    - "Is mutation testing infrastructure already available, or does it need to be set up?"
+    - "Are there CI pipeline time constraints that make reducing the suite size urgent?"
+    - "Is there an existing requirements document or user story backlog to trace scenarios against?"
+    - "What is the current test execution time, and what is the target?"
+    - "Are there known production bugs that escaped the current test suite? These would indicate specific gap areas."
+    - "Is the 500-test suite for a single service/module or distributed across multiple?"
+    - "Are there any existing code coverage reports (line/branch) to cross-reference with scenario coverage?"
+
+# =============================================================================
+# METADATA
+# =============================================================================
+
+metadata:
+  created_at: "2026-03-14T00:00:00Z"
+  updated_at: "2026-03-14T00:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"
+
+# =============================================================================
+# SUMMARY
+# =============================================================================
+# Total scenarios: 15
+# Risk distribution: high=10, medium=4, low=0 (1 medium elevated to high in rationale)
+# Technique distribution:
+#   - equivalence_partitioning: 12 scenarios (primary redundancy detection technique)
+#   - boundary_value: 3 scenarios
+#   - decision_table: 3 scenarios
+#   - error_guessing: 10 scenarios
+#   - state_transition: 2 scenarios
+#   - pairwise: 1 scenario
+#   - cause_effect: 1 scenario
+#
+# Phase structure:
+#   Phase 1 — Redundancy Identification (S1-S5): 5 scenarios
+#   Phase 2 — Gap Discovery (S6-S12): 7 scenarios
+#   Phase 3 — Systematic Remediation (S13-S15): 3 scenarios
+#
+# Expected outcomes:
+#   - Remove ~95 redundant tests (19% suite reduction)
+#   - Discover ~45 high-priority gap-filling tests
+#   - Net suite size: ~450 tests (10% smaller but dramatically better coverage)
+#   - Weighted scenario coverage: estimated improvement from ~55% to ~85%
+#
+# Open questions: 8 (see example_mapping.questions)
+#
+# Next steps:
+#   1. Run /vg analyze <path> to execute this methodology against actual code
+#   2. Run /vg review to generate interactive HTML report for team review
+#   3. Run /vg generate to create gap-filling test code
+# =============================================================================

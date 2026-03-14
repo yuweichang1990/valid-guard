@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify grading script parses
+        working-directory: valid-guard-workspace/phase3
+        run: |
+          python -c "import grade_phase3; print(f'EVAL_CHECKS: {len(grade_phase3.EVAL_CHECKS)} entries')"
+
+      - name: Run grading on iteration-3
+        working-directory: valid-guard-workspace/phase3
+        run: |
+          python grade_phase3.py iteration-3
+
+      - name: Validate all 30 eval output files exist
+        working-directory: valid-guard-workspace/phase3
+        run: |
+          missing=0
+          for dir in iteration-3/p3-*/; do
+            eval_name=$(basename "$dir")
+            for config in with_skill without_skill; do
+              if [ ! -f "$dir$config/output.yaml" ]; then
+                echo "MISSING: $eval_name/$config/output.yaml"
+                missing=$((missing + 1))
+              fi
+            done
+          done
+          total=$(ls -d iteration-3/p3-*/ 2>/dev/null | wc -l)
+          echo "Found $total eval directories, $missing missing output files"
+          if [ "$missing" -gt 0 ]; then
+            exit 1
+          fi
+          echo "All eval outputs present."

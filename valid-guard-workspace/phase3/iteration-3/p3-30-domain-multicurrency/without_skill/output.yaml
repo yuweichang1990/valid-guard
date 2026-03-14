@@ -1,0 +1,939 @@
+test_plan:
+  api_endpoint: "POST /payments"
+  description: >
+    Test cases for a multi-currency payment API that accepts
+    {amount, currency, card_token} and must correctly handle
+    currency validation, decimal precision rules, boundary amounts,
+    and currency conversion edge cases.
+
+  common:
+    valid_card_token: "tok_visa_4242424242424242"
+    expired_card_token: "tok_expired_0000"
+    base_headers:
+      Content-Type: "application/json"
+      Authorization: "Bearer test_sk_key"
+
+  # ---------------------------------------------------------------------------
+  # 1. Invalid Currency Codes
+  # ---------------------------------------------------------------------------
+  invalid_currency_codes:
+    - id: "CURR-001"
+      title: "Fictitious ISO 4217 code 'XXX' (reserved for testing/no currency)"
+      request:
+        amount: 10.00
+        currency: "XXX"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_CURRENCY"
+        error_message: "The currency code 'XXX' is not a supported ISO 4217 currency."
+
+    - id: "CURR-002"
+      title: "Fictitious ISO 4217 code 'ZZZ' (unassigned)"
+      request:
+        amount: 10.00
+        currency: "ZZZ"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_CURRENCY"
+        error_message: "The currency code 'ZZZ' is not a supported ISO 4217 currency."
+
+    - id: "CURR-003"
+      title: "Empty string currency code"
+      request:
+        amount: 10.00
+        currency: ""
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "MISSING_CURRENCY"
+        error_message: "The 'currency' field is required and must be a valid ISO 4217 currency code."
+
+    - id: "CURR-004"
+      title: "Numeric value instead of string currency code"
+      request:
+        amount: 10.00
+        currency: 840
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_CURRENCY_TYPE"
+        error_message: "The 'currency' field must be a three-letter ISO 4217 string, not a numeric value."
+
+    - id: "CURR-005"
+      title: "Lowercase currency code 'usd' (test case-sensitivity handling)"
+      request:
+        amount: 10.00
+        currency: "usd"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        note: >
+          API should accept lowercase and normalize internally.
+          If the API is strict, expect 400 with an error instructing
+          the caller to use uppercase ISO 4217 codes.
+
+    - id: "CURR-006"
+      title: "Two-letter code 'US' (too short)"
+      request:
+        amount: 10.00
+        currency: "US"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_CURRENCY"
+        error_message: "The currency code 'US' is not a supported ISO 4217 currency."
+
+    - id: "CURR-007"
+      title: "Four-letter code 'USDD' (too long)"
+      request:
+        amount: 10.00
+        currency: "USDD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_CURRENCY"
+        error_message: "The currency code 'USDD' is not a supported ISO 4217 currency."
+
+    - id: "CURR-008"
+      title: "Null currency value"
+      request:
+        amount: 10.00
+        currency: null
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "MISSING_CURRENCY"
+        error_message: "The 'currency' field is required and must be a valid ISO 4217 currency code."
+
+    - id: "CURR-009"
+      title: "Special characters in currency code"
+      request:
+        amount: 10.00
+        currency: "$$$"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_CURRENCY"
+        error_message: "The currency code '$$$' is not a supported ISO 4217 currency."
+
+    - id: "CURR-010"
+      title: "Deprecated currency code 'ZWD' (Zimbabwean Dollar, retired 2009)"
+      request:
+        amount: 10.00
+        currency: "ZWD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "UNSUPPORTED_CURRENCY"
+        error_message: "The currency 'ZWD' is no longer in active circulation and is not supported."
+
+  # ---------------------------------------------------------------------------
+  # 2. Negative Payment Amounts
+  # ---------------------------------------------------------------------------
+  negative_amounts:
+    - id: "NEG-001"
+      title: "Small negative amount"
+      request:
+        amount: -1.00
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT"
+        error_message: "Payment amount must be a non-negative value. Received: -1.00."
+
+    - id: "NEG-002"
+      title: "Negative fractional amount"
+      request:
+        amount: -0.01
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT"
+        error_message: "Payment amount must be a non-negative value. Received: -0.01."
+
+    - id: "NEG-003"
+      title: "Large negative amount"
+      request:
+        amount: -999999.99
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT"
+        error_message: "Payment amount must be a non-negative value. Received: -999999.99."
+
+    - id: "NEG-004"
+      title: "Negative zero (-0.00) — IEEE 754 edge case"
+      request:
+        amount: -0.00
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        note: >
+          -0.00 is mathematically equal to 0.00. The API should normalize
+          this to 0.00 and treat it as a zero-amount authorization if supported,
+          or return 400 if zero-amount payments are not allowed.
+
+    - id: "NEG-005"
+      title: "Negative amount with zero-decimal currency (JPY)"
+      request:
+        amount: -500
+        currency: "JPY"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT"
+        error_message: "Payment amount must be a non-negative value. Received: -500."
+
+  # ---------------------------------------------------------------------------
+  # 3. Zero-Amount Transactions ($0 Authorization)
+  # ---------------------------------------------------------------------------
+  zero_amount_transactions:
+    - id: "ZERO-001"
+      title: "Zero-amount USD authorization (card verification)"
+      request:
+        amount: 0.00
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 0.00
+          currency: "USD"
+          type: "card_verification"
+        note: >
+          Many processors allow $0 auth for card-on-file verification.
+          The API should flag this as a card_verification transaction type.
+
+    - id: "ZERO-002"
+      title: "Zero-amount JPY authorization (zero-decimal currency)"
+      request:
+        amount: 0
+        currency: "JPY"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 0
+          currency: "JPY"
+          type: "card_verification"
+
+    - id: "ZERO-003"
+      title: "Zero-amount with processor that does not support $0 auth"
+      request:
+        amount: 0.00
+        currency: "USD"
+        card_token: "tok_processor_no_zero_auth"
+      expected:
+        http_status: 422
+        error_code: "ZERO_AMOUNT_NOT_SUPPORTED"
+        error_message: "The payment processor does not support zero-amount authorizations."
+
+    - id: "ZERO-004"
+      title: "Zero amount expressed as string '0'"
+      request:
+        amount: "0"
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT_TYPE"
+        error_message: "The 'amount' field must be a numeric value, not a string."
+
+  # ---------------------------------------------------------------------------
+  # 4. Decimal Precision Mismatches by Currency
+  # ---------------------------------------------------------------------------
+  decimal_precision:
+    # --- USD: 2 decimal places ---
+    - id: "DEC-001"
+      title: "USD with correct 2-decimal precision"
+      request:
+        amount: 19.99
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 19.99
+          currency: "USD"
+
+    - id: "DEC-002"
+      title: "USD with 3 decimal places (exceeds minor unit)"
+      request:
+        amount: 19.999
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_PRECISION"
+        error_message: "USD supports a maximum of 2 decimal places. Received 3 decimal places."
+
+    - id: "DEC-003"
+      title: "USD with no decimal places (should be accepted)"
+      request:
+        amount: 20
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 20.00
+          currency: "USD"
+
+    - id: "DEC-004"
+      title: "USD with 1 decimal place (should be accepted and padded)"
+      request:
+        amount: 19.9
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 19.90
+          currency: "USD"
+
+    # --- JPY: 0 decimal places ---
+    - id: "DEC-005"
+      title: "JPY with zero decimal places (correct)"
+      request:
+        amount: 1500
+        currency: "JPY"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 1500
+          currency: "JPY"
+
+    - id: "DEC-006"
+      title: "JPY with decimal places (invalid — JPY has 0 minor units)"
+      request:
+        amount: 1500.50
+        currency: "JPY"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_PRECISION"
+        error_message: "JPY does not support decimal places. Received a fractional amount."
+
+    - id: "DEC-007"
+      title: "JPY with trailing .00 (technically 0 fractional — should be accepted)"
+      request:
+        amount: 1500.00
+        currency: "JPY"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 1500
+          currency: "JPY"
+        note: >
+          The value 1500.00 has a zero fractional part, so the API may
+          choose to accept and truncate it. Alternatively, it may reject
+          strictly. This test documents the expected behavior.
+
+    # --- BHD: 3 decimal places ---
+    - id: "DEC-008"
+      title: "BHD (Bahraini Dinar) with correct 3-decimal precision"
+      request:
+        amount: 25.123
+        currency: "BHD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 25.123
+          currency: "BHD"
+
+    - id: "DEC-009"
+      title: "BHD with 4 decimal places (exceeds minor unit)"
+      request:
+        amount: 25.1234
+        currency: "BHD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_PRECISION"
+        error_message: "BHD supports a maximum of 3 decimal places. Received 4 decimal places."
+
+    - id: "DEC-010"
+      title: "BHD with 2 decimal places (fewer than max — should be accepted)"
+      request:
+        amount: 25.12
+        currency: "BHD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 25.120
+          currency: "BHD"
+
+    # --- KWD: 3 decimal places (Kuwaiti Dinar) ---
+    - id: "DEC-011"
+      title: "KWD with 3 decimal places (correct)"
+      request:
+        amount: 5.005
+        currency: "KWD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 5.005
+          currency: "KWD"
+
+    # --- CLF: 4 decimal places (Chilean UF) ---
+    - id: "DEC-012"
+      title: "CLF with 4 decimal places (correct for this rare unit)"
+      request:
+        amount: 1.2345
+        currency: "CLF"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 1.2345
+          currency: "CLF"
+
+    - id: "DEC-013"
+      title: "CLF with 5 decimal places (exceeds minor unit)"
+      request:
+        amount: 1.23456
+        currency: "CLF"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_PRECISION"
+        error_message: "CLF supports a maximum of 4 decimal places. Received 5 decimal places."
+
+  # ---------------------------------------------------------------------------
+  # 5. Integer Overflow / Extremely Large Amounts
+  # ---------------------------------------------------------------------------
+  overflow_amounts:
+    - id: "OVER-001"
+      title: "Extremely large amount exceeding typical 32-bit integer range"
+      request:
+        amount: 99999999999.99
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "AMOUNT_TOO_LARGE"
+        error_message: "Payment amount exceeds the maximum allowed value."
+
+    - id: "OVER-002"
+      title: "Amount at 64-bit integer boundary when converted to cents"
+      description: >
+        When converted to minor units (cents), this value would exceed
+        a 64-bit signed integer (9,223,372,036,854,775,807).
+      request:
+        amount: 92233720368547758.07
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "AMOUNT_TOO_LARGE"
+        error_message: "Payment amount exceeds the maximum allowed value."
+
+    - id: "OVER-003"
+      title: "Amount just below the platform maximum (boundary test)"
+      request:
+        amount: 999999.99
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 999999.99
+          currency: "USD"
+        note: >
+          The exact maximum depends on the platform's configured limit.
+          This test assumes a $999,999.99 cap; adjust accordingly.
+
+    - id: "OVER-004"
+      title: "Amount just above the platform maximum"
+      request:
+        amount: 1000000.00
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "AMOUNT_TOO_LARGE"
+        error_message: "Payment amount exceeds the maximum allowed value of 999999.99 USD."
+
+    - id: "OVER-005"
+      title: "Very large JPY amount (zero-decimal, common for JPY)"
+      description: >
+        JPY amounts are inherently large in nominal terms. 10,000,000 JPY
+        is roughly $67,000 USD and should be valid.
+      request:
+        amount: 10000000
+        currency: "JPY"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 10000000
+          currency: "JPY"
+
+    - id: "OVER-006"
+      title: "Scientific notation in amount field"
+      request:
+        amount: 1.0e+15
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "AMOUNT_TOO_LARGE"
+        error_message: "Payment amount exceeds the maximum allowed value."
+
+    - id: "OVER-007"
+      title: "Infinity as amount"
+      request:
+        amount: Infinity
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT"
+        error_message: "Payment amount must be a finite numeric value."
+
+    - id: "OVER-008"
+      title: "NaN as amount"
+      request:
+        amount: NaN
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT"
+        error_message: "Payment amount must be a finite numeric value."
+
+    - id: "OVER-009"
+      title: "Floating-point precision issue — 0.1 + 0.2 representation"
+      description: >
+        In IEEE 754, 0.1 + 0.2 = 0.30000000000000004. If the client
+        sends this, the API should either round to 0.30 or reject
+        for exceeding 2 decimal places.
+      request:
+        amount: 0.30000000000000004
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_PRECISION"
+        error_message: "USD supports a maximum of 2 decimal places. Received too many decimal places."
+        note: >
+          Alternatively, the API could accept this and round to 0.30.
+          The key requirement is deterministic, documented behavior.
+
+  # ---------------------------------------------------------------------------
+  # 6. Currency Conversion Rate Changes (Race Condition)
+  # ---------------------------------------------------------------------------
+  rate_change_scenarios:
+    - id: "RATE-001"
+      title: "Stale exchange rate — quoted rate expired"
+      description: >
+        The client obtained a rate quote at cart time and submits it with
+        the payment. The rate has since changed beyond the tolerance window.
+      request:
+        amount: 85.50
+        currency: "EUR"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          quoted_rate_id: "rate_abc123"
+          quoted_rate: 1.0850
+          quoted_at: "2026-03-14T10:00:00Z"
+          original_amount: 92.77
+          original_currency: "USD"
+      expected:
+        http_status: 409
+        error_code: "RATE_EXPIRED"
+        error_message: "The exchange rate quote 'rate_abc123' has expired. Please request a new quote."
+        response_body:
+          current_rate: 1.0920
+          quoted_rate: 1.0850
+          rate_difference_percent: 0.64
+          new_converted_amount: 93.37
+
+    - id: "RATE-002"
+      title: "Rate change within acceptable tolerance (e.g., < 0.5%)"
+      request:
+        amount: 85.50
+        currency: "EUR"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          quoted_rate_id: "rate_def456"
+          quoted_rate: 1.0850
+          quoted_at: "2026-03-14T11:58:00Z"
+          original_amount: 92.77
+          original_currency: "USD"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 85.50
+          currency: "EUR"
+          applied_rate: 1.0850
+          rate_locked: true
+        note: >
+          If the rate change is within the configured tolerance window
+          (e.g., 0.5%), the original quoted rate is honored.
+
+    - id: "RATE-003"
+      title: "No rate quote provided for cross-currency payment"
+      request:
+        amount: 85.50
+        currency: "EUR"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 85.50
+          currency: "EUR"
+          applied_rate: null
+          settlement_currency: "EUR"
+        note: >
+          If no rate quote is provided, the API charges in the requested
+          currency directly. The card-issuing bank handles conversion.
+
+    - id: "RATE-004"
+      title: "Expired rate quote ID that no longer exists"
+      request:
+        amount: 100.00
+        currency: "GBP"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          quoted_rate_id: "rate_nonexistent_999"
+      expected:
+        http_status: 404
+        error_code: "RATE_QUOTE_NOT_FOUND"
+        error_message: "The exchange rate quote 'rate_nonexistent_999' was not found. It may have expired. Please request a new quote."
+
+    - id: "RATE-005"
+      title: "Rate quote used for a different currency pair than submitted"
+      description: >
+        Client obtained a USD-to-EUR quote but submits a GBP payment.
+      request:
+        amount: 100.00
+        currency: "GBP"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          quoted_rate_id: "rate_usd_eur_789"
+          quoted_rate: 1.0850
+          original_currency: "USD"
+      expected:
+        http_status: 422
+        error_code: "RATE_CURRENCY_MISMATCH"
+        error_message: "The rate quote 'rate_usd_eur_789' is for USD/EUR but the payment currency is GBP."
+
+    - id: "RATE-006"
+      title: "Concurrent duplicate payment with same rate quote (idempotency)"
+      description: >
+        Two identical payment requests are sent simultaneously using
+        the same rate quote, testing idempotency behavior.
+      request:
+        amount: 50.00
+        currency: "EUR"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          quoted_rate_id: "rate_dup_001"
+          idempotency_key: "idem_key_abc123"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          idempotent: true
+        note: >
+          The second request should return the same response as the first
+          without creating a duplicate charge. The idempotency_key ensures
+          at-most-once processing.
+
+  # ---------------------------------------------------------------------------
+  # 7. Mixed-Currency Cart (Items in EUR, Payment in USD)
+  # ---------------------------------------------------------------------------
+  mixed_currency_cart:
+    - id: "MIX-001"
+      title: "Cart items in EUR, payment submitted in USD with valid conversion"
+      request:
+        amount: 115.50
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          cart_id: "cart_eur_001"
+          cart_currency: "EUR"
+          cart_total: 100.00
+          conversion_rate: 1.1550
+          conversion_quote_id: "rate_eur_usd_001"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 115.50
+          currency: "USD"
+          original_cart_total: 100.00
+          original_cart_currency: "EUR"
+          applied_rate: 1.1550
+
+    - id: "MIX-002"
+      title: "Cart items in EUR, payment amount does not match converted total"
+      description: >
+        The submitted USD amount does not match the EUR cart total
+        multiplied by the quoted rate. This could indicate tampering
+        or a client-side rounding error.
+      request:
+        amount: 120.00
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          cart_id: "cart_eur_002"
+          cart_currency: "EUR"
+          cart_total: 100.00
+          conversion_rate: 1.1550
+          conversion_quote_id: "rate_eur_usd_002"
+      expected:
+        http_status: 422
+        error_code: "AMOUNT_MISMATCH"
+        error_message: "The submitted amount 120.00 USD does not match the expected converted total of 115.50 USD (100.00 EUR at rate 1.1550)."
+
+    - id: "MIX-003"
+      title: "Cart with items in multiple currencies (EUR + GBP), payment in USD"
+      request:
+        amount: 250.00
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          cart_id: "cart_multi_001"
+          line_items:
+            - description: "Widget A"
+              amount: 50.00
+              currency: "EUR"
+            - description: "Widget B"
+              amount: 80.00
+              currency: "GBP"
+          conversion_quotes:
+            - pair: "EUR/USD"
+              rate: 1.1550
+              quote_id: "rate_eur_usd_003"
+            - pair: "GBP/USD"
+              rate: 1.2700
+              quote_id: "rate_gbp_usd_003"
+          expected_total_usd: 159.35
+      expected:
+        http_status: 422
+        error_code: "AMOUNT_MISMATCH"
+        error_message: "The submitted amount 250.00 USD does not match the expected converted total of 159.35 USD."
+
+    - id: "MIX-004"
+      title: "Cart in EUR, payment currency same as cart (no conversion needed)"
+      request:
+        amount: 100.00
+        currency: "EUR"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          cart_id: "cart_eur_003"
+          cart_currency: "EUR"
+          cart_total: 100.00
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 100.00
+          currency: "EUR"
+
+    - id: "MIX-005"
+      title: "Cart in JPY (0-decimal), payment in USD (2-decimal) with rounding"
+      description: >
+        Converting JPY to USD can produce sub-cent fractions. The API
+        must apply correct rounding for the target currency.
+      request:
+        amount: 66.89
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          cart_id: "cart_jpy_001"
+          cart_currency: "JPY"
+          cart_total: 10000
+          conversion_rate: 0.006689
+          conversion_quote_id: "rate_jpy_usd_001"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 66.89
+          currency: "USD"
+          original_cart_total: 10000
+          original_cart_currency: "JPY"
+        note: >
+          10000 JPY * 0.006689 = 66.89 USD. No rounding issue here, but
+          the API must handle cases where the product is something like
+          66.8945 and round to 66.89 (or 66.90 depending on policy).
+
+    - id: "MIX-006"
+      title: "Cart in BHD (3-decimal), payment in USD (2-decimal)"
+      description: >
+        Converting from a 3-decimal currency to a 2-decimal currency
+        can cause precision loss. Verify rounding is applied to match
+        the target currency's minor unit.
+      request:
+        amount: 132.58
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          cart_id: "cart_bhd_001"
+          cart_currency: "BHD"
+          cart_total: 50.000
+          conversion_rate: 2.6516
+          conversion_quote_id: "rate_bhd_usd_001"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 132.58
+          currency: "USD"
+          original_cart_total: 50.000
+          original_cart_currency: "BHD"
+
+    - id: "MIX-007"
+      title: "Payment currency not supported for settlement"
+      description: >
+        The merchant's account only supports settlement in USD and EUR,
+        but the payment is submitted in THB (Thai Baht).
+      request:
+        amount: 3500.00
+        currency: "THB"
+        card_token: "tok_visa_4242424242424242"
+        metadata:
+          cart_id: "cart_thb_001"
+      expected:
+        http_status: 422
+        error_code: "UNSUPPORTED_SETTLEMENT_CURRENCY"
+        error_message: "Your account does not support settlement in THB. Supported currencies: USD, EUR."
+
+  # ---------------------------------------------------------------------------
+  # Additional Edge Cases (Cross-Cutting)
+  # ---------------------------------------------------------------------------
+  additional_edge_cases:
+    - id: "EDGE-001"
+      title: "Missing amount field entirely"
+      request:
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "MISSING_AMOUNT"
+        error_message: "The 'amount' field is required."
+
+    - id: "EDGE-002"
+      title: "Missing card_token field entirely"
+      request:
+        amount: 10.00
+        currency: "USD"
+      expected:
+        http_status: 400
+        error_code: "MISSING_CARD_TOKEN"
+        error_message: "The 'card_token' field is required."
+
+    - id: "EDGE-003"
+      title: "String amount instead of numeric"
+      request:
+        amount: "ten dollars"
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT_TYPE"
+        error_message: "The 'amount' field must be a numeric value."
+
+    - id: "EDGE-004"
+      title: "Amount with trailing whitespace in string form"
+      request:
+        amount: "10.00 "
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT_TYPE"
+        error_message: "The 'amount' field must be a numeric value, not a string."
+
+    - id: "EDGE-005"
+      title: "Extremely small positive amount (sub-cent for USD)"
+      request:
+        amount: 0.001
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_PRECISION"
+        error_message: "USD supports a maximum of 2 decimal places. Received 3 decimal places."
+
+    - id: "EDGE-006"
+      title: "Minimum valid positive amount for USD"
+      request:
+        amount: 0.01
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 0.01
+          currency: "USD"
+
+    - id: "EDGE-007"
+      title: "Minimum valid positive amount for JPY"
+      request:
+        amount: 1
+        currency: "JPY"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 200
+        response_body:
+          status: "authorized"
+          amount: 1
+          currency: "JPY"
+
+    - id: "EDGE-008"
+      title: "Empty request body"
+      request: {}
+      expected:
+        http_status: 400
+        error_code: "MISSING_REQUIRED_FIELDS"
+        error_message: "The fields 'amount', 'currency', and 'card_token' are required."
+
+    - id: "EDGE-009"
+      title: "Malformed JSON body"
+      raw_body: "{amount: 10, currency: USD}"
+      expected:
+        http_status: 400
+        error_code: "INVALID_JSON"
+        error_message: "The request body is not valid JSON."
+
+    - id: "EDGE-010"
+      title: "Boolean value for amount"
+      request:
+        amount: true
+        currency: "USD"
+        card_token: "tok_visa_4242424242424242"
+      expected:
+        http_status: 400
+        error_code: "INVALID_AMOUNT_TYPE"
+        error_message: "The 'amount' field must be a numeric value."

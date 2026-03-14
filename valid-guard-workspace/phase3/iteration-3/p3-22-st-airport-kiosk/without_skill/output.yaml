@@ -1,0 +1,1273 @@
+test_plan:
+  title: "Airport Self-Service Check-In Kiosk - State Transition Test Plan"
+  system_under_test: "Self-Service Check-In Kiosk"
+  technique: "State Transition Testing"
+  version: "1.0"
+  created: "2026-03-14"
+
+  description: >
+    Comprehensive test plan for an airport self-service check-in kiosk covering
+    the complete workflow from start through boarding pass printing, including
+    all error paths, timeout guards, cancel behavior, and hardware failure scenarios.
+
+  # ---------------------------------------------------------------------------
+  # STATE MODEL
+  # ---------------------------------------------------------------------------
+  states:
+    - id: S0_START
+      name: "Start / Welcome Screen"
+      description: "Initial idle screen displayed when kiosk is not in use."
+      entry_action: "Display welcome message and language selection options."
+      is_initial: true
+
+    - id: S1_SELECT_AIRLINE
+      name: "Select Airline"
+      description: "Passenger selects their airline from the list."
+      entry_action: "Display airline logo grid; start 60-second inactivity timer."
+
+    - id: S2_ENTER_PNR
+      name: "Enter PNR / Booking Reference"
+      description: "Passenger enters their PNR or booking reference code."
+      entry_action: "Display alphanumeric keypad; reset attempt counter if first visit; start 60-second inactivity timer."
+      internal_data:
+        - name: "attempt_count"
+          type: "integer"
+          initial_value: 0
+          max_value: 3
+
+    - id: S3_RETRIEVING_BOOKING
+      name: "Retrieve Booking (Loading)"
+      description: "System queries the airline backend to retrieve the booking."
+      entry_action: "Show loading spinner; send PNR lookup request to airline system."
+
+    - id: S4_PNR_ERROR
+      name: "Invalid PNR Error"
+      description: "PNR was not found or is invalid. Passenger may retry."
+      entry_action: "Display error message with remaining attempts; start 60-second inactivity timer."
+
+    - id: S5_CONFIRM_DETAILS
+      name: "Confirm Passenger Details"
+      description: "Display retrieved passenger and flight details for confirmation."
+      entry_action: "Show passenger name, flight number, date, route; start 60-second inactivity timer."
+
+    - id: S6_SELECT_SEATS
+      name: "Select Seats (Optional)"
+      description: "Seat map displayed for optional seat selection or change."
+      entry_action: "Display aircraft seat map with available seats highlighted; start 60-second inactivity timer."
+
+    - id: S7_PRINTING
+      name: "Print Boarding Pass"
+      description: "System sends boarding pass data to the printer."
+      entry_action: "Display printing progress indicator; send print job to printer hardware."
+
+    - id: S8_PRINTER_ERROR
+      name: "Printer Error"
+      description: "Printer hardware failure detected (jam, out of paper, etc.)."
+      entry_action: "Display error message directing passenger to service counter; log hardware fault."
+
+    - id: S9_COMPLETE
+      name: "Exit / Completion"
+      description: "Boarding pass printed successfully. Brief thank-you screen before returning to start."
+      entry_action: "Display success message and collect boarding pass prompt; start 10-second auto-return timer."
+
+  # ---------------------------------------------------------------------------
+  # TRANSITIONS
+  # ---------------------------------------------------------------------------
+  transitions:
+    # --- Happy path ---
+    - id: T01
+      from: S0_START
+      to: S1_SELECT_AIRLINE
+      trigger: "Passenger taps the screen or presses Start"
+      guard: null
+      action: "Initialize session; start inactivity timer"
+
+    - id: T02
+      from: S1_SELECT_AIRLINE
+      to: S2_ENTER_PNR
+      trigger: "Passenger selects an airline"
+      guard: "Valid airline selected"
+      action: "Store selected airline; reset PNR attempt counter to 0"
+
+    - id: T03
+      from: S2_ENTER_PNR
+      to: S3_RETRIEVING_BOOKING
+      trigger: "Passenger submits PNR"
+      guard: "PNR format is valid (non-empty, correct length/characters)"
+      action: "Increment attempt_count; send lookup request"
+
+    - id: T04
+      from: S3_RETRIEVING_BOOKING
+      to: S5_CONFIRM_DETAILS
+      trigger: "Booking retrieved successfully"
+      guard: "Backend returns valid booking data"
+      action: "Parse and display passenger and flight details"
+
+    - id: T05
+      from: S5_CONFIRM_DETAILS
+      to: S6_SELECT_SEATS
+      trigger: "Passenger confirms details and chooses to select seats"
+      guard: null
+      action: "Load seat map for the flight"
+
+    - id: T06
+      from: S5_CONFIRM_DETAILS
+      to: S7_PRINTING
+      trigger: "Passenger confirms details and skips seat selection"
+      guard: null
+      action: "Prepare boarding pass data with pre-assigned seat"
+
+    - id: T07
+      from: S6_SELECT_SEATS
+      to: S7_PRINTING
+      trigger: "Passenger confirms seat selection or skips"
+      guard: null
+      action: "Finalize seat assignment; prepare boarding pass data"
+
+    - id: T08
+      from: S7_PRINTING
+      to: S9_COMPLETE
+      trigger: "Boarding pass printed successfully"
+      guard: "Printer reports success"
+      action: "Display success screen with boarding pass collection instructions"
+
+    - id: T09
+      from: S9_COMPLETE
+      to: S0_START
+      trigger: "Passenger collects boarding pass or 10-second auto-return timer expires"
+      guard: null
+      action: "Clear session data; reset kiosk to idle state"
+
+    # --- PNR error path ---
+    - id: T10
+      from: S3_RETRIEVING_BOOKING
+      to: S4_PNR_ERROR
+      trigger: "Backend returns PNR not found or invalid"
+      guard: "attempt_count < 3"
+      action: "Display error with remaining attempts count"
+
+    - id: T11
+      from: S4_PNR_ERROR
+      to: S2_ENTER_PNR
+      trigger: "Passenger acknowledges error and chooses to retry"
+      guard: "attempt_count < 3"
+      action: "Return to PNR entry screen preserving attempt_count"
+
+    - id: T12
+      from: S3_RETRIEVING_BOOKING
+      to: S0_START
+      trigger: "Backend returns PNR not found or invalid"
+      guard: "attempt_count >= 3"
+      action: "Display max attempts reached message; clear session after brief delay"
+
+    # --- Printer error path ---
+    - id: T13
+      from: S7_PRINTING
+      to: S8_PRINTER_ERROR
+      trigger: "Printer reports jam, out of paper, or hardware fault"
+      guard: null
+      action: "Display error directing passenger to service counter; log incident"
+
+    - id: T14
+      from: S8_PRINTER_ERROR
+      to: S0_START
+      trigger: "Passenger acknowledges printer error or 60-second timeout"
+      guard: null
+      action: "Clear session data; reset kiosk; send maintenance alert"
+
+    # --- Cancel transitions (from every interactive screen) ---
+    - id: T15
+      from: S1_SELECT_AIRLINE
+      to: S0_START
+      trigger: "Passenger presses Cancel button"
+      guard: null
+      action: "Clear session data; reset kiosk"
+
+    - id: T16
+      from: S2_ENTER_PNR
+      to: S0_START
+      trigger: "Passenger presses Cancel button"
+      guard: null
+      action: "Clear session data; reset kiosk"
+
+    - id: T17
+      from: S4_PNR_ERROR
+      to: S0_START
+      trigger: "Passenger presses Cancel button"
+      guard: null
+      action: "Clear session data; reset kiosk"
+
+    - id: T18
+      from: S5_CONFIRM_DETAILS
+      to: S0_START
+      trigger: "Passenger presses Cancel button"
+      guard: null
+      action: "Clear session data; reset kiosk"
+
+    - id: T19
+      from: S6_SELECT_SEATS
+      to: S0_START
+      trigger: "Passenger presses Cancel button"
+      guard: null
+      action: "Clear session data; reset kiosk"
+
+    # --- Inactivity timeout transitions (60-second guard) ---
+    - id: T20
+      from: S1_SELECT_AIRLINE
+      to: S0_START
+      trigger: "60-second inactivity timeout"
+      guard: "No user interaction for 60 seconds"
+      action: "Display timeout warning briefly; clear session data; reset kiosk"
+
+    - id: T21
+      from: S2_ENTER_PNR
+      to: S0_START
+      trigger: "60-second inactivity timeout"
+      guard: "No user interaction for 60 seconds"
+      action: "Display timeout warning briefly; clear session data; reset kiosk"
+
+    - id: T22
+      from: S4_PNR_ERROR
+      to: S0_START
+      trigger: "60-second inactivity timeout"
+      guard: "No user interaction for 60 seconds"
+      action: "Clear session data; reset kiosk"
+
+    - id: T23
+      from: S5_CONFIRM_DETAILS
+      to: S0_START
+      trigger: "60-second inactivity timeout"
+      guard: "No user interaction for 60 seconds"
+      action: "Clear session data; reset kiosk"
+
+    - id: T24
+      from: S6_SELECT_SEATS
+      to: S0_START
+      trigger: "60-second inactivity timeout"
+      guard: "No user interaction for 60 seconds"
+      action: "Clear session data; reset kiosk"
+
+  # ---------------------------------------------------------------------------
+  # STATE TRANSITION TABLE
+  # ---------------------------------------------------------------------------
+  state_transition_table:
+    description: >
+      Matrix showing all valid state-event combinations. Each cell references
+      the transition ID or indicates the event is not applicable in that state.
+    rows:
+      - current_state: S0_START
+        events:
+          tap_start: {next_state: S1_SELECT_AIRLINE, transition: T01}
+          select_airline: N/A
+          submit_pnr: N/A
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: N/A
+          print_success: N/A
+          print_failure: N/A
+          cancel: N/A
+          inactivity_timeout: N/A
+
+      - current_state: S1_SELECT_AIRLINE
+        events:
+          tap_start: N/A
+          select_airline: {next_state: S2_ENTER_PNR, transition: T02}
+          submit_pnr: N/A
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: N/A
+          print_success: N/A
+          print_failure: N/A
+          cancel: {next_state: S0_START, transition: T15}
+          inactivity_timeout: {next_state: S0_START, transition: T20}
+
+      - current_state: S2_ENTER_PNR
+        events:
+          tap_start: N/A
+          select_airline: N/A
+          submit_pnr: {next_state: S3_RETRIEVING_BOOKING, transition: T03}
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: N/A
+          print_success: N/A
+          print_failure: N/A
+          cancel: {next_state: S0_START, transition: T16}
+          inactivity_timeout: {next_state: S0_START, transition: T21}
+
+      - current_state: S3_RETRIEVING_BOOKING
+        events:
+          tap_start: N/A
+          select_airline: N/A
+          submit_pnr: N/A
+          booking_found: {next_state: S5_CONFIRM_DETAILS, transition: T04}
+          booking_not_found_under_limit: {next_state: S4_PNR_ERROR, transition: T10}
+          booking_not_found_at_limit: {next_state: S0_START, transition: T12}
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: N/A
+          print_success: N/A
+          print_failure: N/A
+          cancel: N/A
+          inactivity_timeout: N/A
+
+      - current_state: S4_PNR_ERROR
+        events:
+          tap_start: N/A
+          select_airline: N/A
+          retry_pnr: {next_state: S2_ENTER_PNR, transition: T11}
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: N/A
+          print_success: N/A
+          print_failure: N/A
+          cancel: {next_state: S0_START, transition: T17}
+          inactivity_timeout: {next_state: S0_START, transition: T22}
+
+      - current_state: S5_CONFIRM_DETAILS
+        events:
+          tap_start: N/A
+          select_airline: N/A
+          submit_pnr: N/A
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: {next_state: S6_SELECT_SEATS, transition: T05}
+          confirm_details_skip_seats: {next_state: S7_PRINTING, transition: T06}
+          confirm_seat: N/A
+          print_success: N/A
+          print_failure: N/A
+          cancel: {next_state: S0_START, transition: T18}
+          inactivity_timeout: {next_state: S0_START, transition: T23}
+
+      - current_state: S6_SELECT_SEATS
+        events:
+          tap_start: N/A
+          select_airline: N/A
+          submit_pnr: N/A
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: {next_state: S7_PRINTING, transition: T07}
+          print_success: N/A
+          print_failure: N/A
+          cancel: {next_state: S0_START, transition: T19}
+          inactivity_timeout: {next_state: S0_START, transition: T24}
+
+      - current_state: S7_PRINTING
+        events:
+          tap_start: N/A
+          select_airline: N/A
+          submit_pnr: N/A
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: N/A
+          print_success: {next_state: S9_COMPLETE, transition: T08}
+          print_failure: {next_state: S8_PRINTER_ERROR, transition: T13}
+          cancel: N/A
+          inactivity_timeout: N/A
+
+      - current_state: S8_PRINTER_ERROR
+        events:
+          tap_start: N/A
+          select_airline: N/A
+          submit_pnr: N/A
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: N/A
+          print_success: N/A
+          print_failure: N/A
+          acknowledge_error: {next_state: S0_START, transition: T14}
+          inactivity_timeout: {next_state: S0_START, transition: T14}
+
+      - current_state: S9_COMPLETE
+        events:
+          tap_start: N/A
+          select_airline: N/A
+          submit_pnr: N/A
+          booking_found: N/A
+          booking_not_found: N/A
+          confirm_details_with_seats: N/A
+          confirm_details_skip_seats: N/A
+          confirm_seat: N/A
+          print_success: N/A
+          print_failure: N/A
+          cancel: N/A
+          auto_return_timeout: {next_state: S0_START, transition: T09}
+
+  # ---------------------------------------------------------------------------
+  # TEST CASES
+  # ---------------------------------------------------------------------------
+  test_cases:
+    # =========================================================================
+    # SECTION 1: HAPPY PATH TESTS
+    # =========================================================================
+    - id: TC-001
+      title: "Happy path - complete check-in with seat selection"
+      category: "Happy Path"
+      priority: "Critical"
+      description: >
+        Verify the full end-to-end check-in flow where the passenger selects
+        an airline, enters a valid PNR, confirms details, selects a seat,
+        and prints a boarding pass.
+      preconditions:
+        - "Kiosk is at the Start screen (S0_START)"
+        - "Printer is operational with paper loaded"
+        - "Airline backend is reachable"
+        - "A valid booking exists with PNR 'ABC123'"
+      path: "S0 -> S1 -> S2 -> S3 -> S5 -> S6 -> S7 -> S9 -> S0"
+      transitions_covered: [T01, T02, T03, T04, T05, T07, T08, T09]
+      steps:
+        - step: 1
+          action: "Tap the screen to begin"
+          expected_state: S1_SELECT_AIRLINE
+          expected_result: "Airline selection grid is displayed"
+        - step: 2
+          action: "Select 'Demo Airlines' from the list"
+          expected_state: S2_ENTER_PNR
+          expected_result: "PNR entry screen with alphanumeric keypad is shown"
+        - step: 3
+          action: "Enter PNR 'ABC123' and press Submit"
+          expected_state: S3_RETRIEVING_BOOKING
+          expected_result: "Loading spinner is displayed while booking is retrieved"
+        - step: 4
+          action: "Wait for booking retrieval"
+          expected_state: S5_CONFIRM_DETAILS
+          expected_result: "Passenger name, flight number, date, and route are displayed correctly"
+        - step: 5
+          action: "Press 'Select Seats' button"
+          expected_state: S6_SELECT_SEATS
+          expected_result: "Aircraft seat map is displayed with available seats highlighted"
+        - step: 6
+          action: "Select seat 14A and confirm"
+          expected_state: S7_PRINTING
+          expected_result: "Printing progress indicator is displayed"
+        - step: 7
+          action: "Wait for print completion"
+          expected_state: S9_COMPLETE
+          expected_result: "Success message displayed; boarding pass dispensed"
+        - step: 8
+          action: "Collect boarding pass; wait for auto-return"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to welcome screen; session data cleared"
+
+    - id: TC-002
+      title: "Happy path - complete check-in without seat selection"
+      category: "Happy Path"
+      priority: "Critical"
+      description: >
+        Verify the check-in flow where the passenger skips the optional
+        seat selection step.
+      preconditions:
+        - "Kiosk is at the Start screen (S0_START)"
+        - "Printer is operational"
+        - "A valid booking exists with PNR 'XYZ789'"
+      path: "S0 -> S1 -> S2 -> S3 -> S5 -> S7 -> S9 -> S0"
+      transitions_covered: [T01, T02, T03, T04, T06, T08, T09]
+      steps:
+        - step: 1
+          action: "Tap the screen to begin"
+          expected_state: S1_SELECT_AIRLINE
+          expected_result: "Airline selection grid is displayed"
+        - step: 2
+          action: "Select airline"
+          expected_state: S2_ENTER_PNR
+          expected_result: "PNR entry screen is shown"
+        - step: 3
+          action: "Enter PNR 'XYZ789' and press Submit"
+          expected_state: S3_RETRIEVING_BOOKING
+          expected_result: "Loading spinner displayed"
+        - step: 4
+          action: "Wait for booking retrieval"
+          expected_state: S5_CONFIRM_DETAILS
+          expected_result: "Passenger and flight details displayed correctly"
+        - step: 5
+          action: "Press 'Skip Seat Selection' / 'Continue' button"
+          expected_state: S7_PRINTING
+          expected_result: "Boarding pass printed with pre-assigned seat"
+        - step: 6
+          action: "Wait for print completion"
+          expected_state: S9_COMPLETE
+          expected_result: "Success message; boarding pass dispensed"
+        - step: 7
+          action: "Wait for auto-return timer"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to idle"
+
+    # =========================================================================
+    # SECTION 2: PNR ERROR PATH TESTS
+    # =========================================================================
+    - id: TC-003
+      title: "Invalid PNR - single retry then success"
+      category: "Error Path - PNR"
+      priority: "High"
+      description: >
+        Verify that an invalid PNR shows an error, allows retry, and
+        the passenger successfully checks in on the second attempt.
+      preconditions:
+        - "Kiosk is at the Start screen"
+        - "PNR 'INVALID1' does not exist; PNR 'VALID01' exists"
+      path: "S0 -> S1 -> S2 -> S3 -> S4 -> S2 -> S3 -> S5 -> S7 -> S9 -> S0"
+      transitions_covered: [T01, T02, T03, T10, T11, T03, T04, T06, T08, T09]
+      steps:
+        - step: 1
+          action: "Navigate to PNR entry (tap start, select airline)"
+          expected_state: S2_ENTER_PNR
+          expected_result: "PNR entry screen displayed; attempt_count = 0"
+        - step: 2
+          action: "Enter invalid PNR 'INVALID1' and submit"
+          expected_state: S3_RETRIEVING_BOOKING
+          expected_result: "System attempts to retrieve booking"
+        - step: 3
+          action: "Wait for backend response"
+          expected_state: S4_PNR_ERROR
+          expected_result: "Error message displayed: 'PNR not found. 2 attempts remaining.'"
+        - step: 4
+          action: "Press 'Try Again' button"
+          expected_state: S2_ENTER_PNR
+          expected_result: "PNR entry screen displayed; attempt_count preserved at 1"
+        - step: 5
+          action: "Enter valid PNR 'VALID01' and submit"
+          expected_state: S3_RETRIEVING_BOOKING
+          expected_result: "System retrieves booking"
+        - step: 6
+          action: "Wait for backend response"
+          expected_state: S5_CONFIRM_DETAILS
+          expected_result: "Passenger details displayed correctly"
+        - step: 7
+          action: "Confirm and skip seats; print boarding pass"
+          expected_state: S9_COMPLETE
+          expected_result: "Boarding pass printed successfully"
+
+    - id: TC-004
+      title: "Invalid PNR - two retries then success on third attempt"
+      category: "Error Path - PNR"
+      priority: "High"
+      description: >
+        Verify the passenger can fail twice and succeed on the third (final) attempt.
+      preconditions:
+        - "PNR 'BAD001' and 'BAD002' do not exist; 'GOOD01' exists"
+      path: "S0 -> S1 -> S2 -> S3 -> S4 -> S2 -> S3 -> S4 -> S2 -> S3 -> S5 -> ..."
+      transitions_covered: [T01, T02, T03, T10, T11, T03, T10, T11, T03, T04]
+      steps:
+        - step: 1
+          action: "Navigate to PNR entry screen"
+          expected_state: S2_ENTER_PNR
+          expected_result: "PNR entry displayed; attempt_count = 0"
+        - step: 2
+          action: "Enter 'BAD001' and submit"
+          expected_state: S4_PNR_ERROR
+          expected_result: "Error: '2 attempts remaining'"
+        - step: 3
+          action: "Press 'Try Again'; enter 'BAD002' and submit"
+          expected_state: S4_PNR_ERROR
+          expected_result: "Error: '1 attempt remaining'"
+        - step: 4
+          action: "Press 'Try Again'; enter 'GOOD01' and submit"
+          expected_state: S5_CONFIRM_DETAILS
+          expected_result: "Booking retrieved and details displayed"
+
+    - id: TC-005
+      title: "Invalid PNR - maximum 3 failed attempts forces return to start"
+      category: "Error Path - PNR"
+      priority: "Critical"
+      description: >
+        Verify that after 3 consecutive invalid PNR entries, the kiosk
+        automatically returns to the start screen.
+      preconditions:
+        - "PNR 'WRONG1', 'WRONG2', 'WRONG3' all do not exist"
+      path: "S0 -> S1 -> S2 -> S3 -> S4 -> S2 -> S3 -> S4 -> S2 -> S3 -> S0"
+      transitions_covered: [T01, T02, T03, T10, T11, T03, T10, T11, T03, T12]
+      steps:
+        - step: 1
+          action: "Navigate to PNR entry"
+          expected_state: S2_ENTER_PNR
+          expected_result: "PNR entry displayed"
+        - step: 2
+          action: "Enter 'WRONG1' and submit"
+          expected_state: S4_PNR_ERROR
+          expected_result: "Error shown; 2 attempts remaining"
+        - step: 3
+          action: "Retry with 'WRONG2'"
+          expected_state: S4_PNR_ERROR
+          expected_result: "Error shown; 1 attempt remaining"
+        - step: 4
+          action: "Retry with 'WRONG3'"
+          expected_state: S0_START
+          expected_result: "Maximum attempts reached message shown briefly; kiosk returns to start; session cleared"
+
+    - id: TC-006
+      title: "Invalid PNR format rejected at entry screen"
+      category: "Error Path - PNR"
+      priority: "Medium"
+      description: >
+        Verify that a PNR with invalid format (e.g., special characters,
+        too short, too long) is rejected before sending to the backend.
+      preconditions:
+        - "Kiosk is at the PNR entry screen"
+      path: "S2 -> S2 (no state change)"
+      transitions_covered: []
+      steps:
+        - step: 1
+          action: "Enter empty PNR and press Submit"
+          expected_state: S2_ENTER_PNR
+          expected_result: "Inline validation error: 'Please enter a valid booking reference'"
+        - step: 2
+          action: "Enter '@#$%^' and press Submit"
+          expected_state: S2_ENTER_PNR
+          expected_result: "Inline validation error; submit is not processed; attempt_count not incremented"
+        - step: 3
+          action: "Enter a single character 'A' and press Submit"
+          expected_state: S2_ENTER_PNR
+          expected_result: "Validation error for length requirement"
+
+    # =========================================================================
+    # SECTION 3: CANCEL BUTTON TESTS
+    # =========================================================================
+    - id: TC-007
+      title: "Cancel from Airline Selection screen"
+      category: "Cancel Path"
+      priority: "High"
+      description: "Verify Cancel button on airline selection returns to start."
+      preconditions:
+        - "Kiosk is at S1_SELECT_AIRLINE"
+      path: "S1 -> S0"
+      transitions_covered: [T15]
+      steps:
+        - step: 1
+          action: "Press Cancel button on airline selection screen"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to welcome screen; session data cleared"
+
+    - id: TC-008
+      title: "Cancel from PNR Entry screen"
+      category: "Cancel Path"
+      priority: "High"
+      description: "Verify Cancel button on PNR entry returns to start."
+      preconditions:
+        - "Kiosk is at S2_ENTER_PNR; passenger has partially typed a PNR"
+      path: "S2 -> S0"
+      transitions_covered: [T16]
+      steps:
+        - step: 1
+          action: "Press Cancel button while PNR is partially entered"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; partial PNR input discarded; session cleared"
+
+    - id: TC-009
+      title: "Cancel from PNR Error screen"
+      category: "Cancel Path"
+      priority: "High"
+      description: "Verify Cancel button on error screen returns to start."
+      preconditions:
+        - "Kiosk is at S4_PNR_ERROR after a failed PNR lookup"
+      path: "S4 -> S0"
+      transitions_covered: [T17]
+      steps:
+        - step: 1
+          action: "Press Cancel button on the PNR error screen"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; attempt counter reset; session cleared"
+
+    - id: TC-010
+      title: "Cancel from Confirm Passenger Details screen"
+      category: "Cancel Path"
+      priority: "High"
+      description: "Verify Cancel from the details confirmation screen returns to start."
+      preconditions:
+        - "Kiosk is at S5_CONFIRM_DETAILS with booking details displayed"
+      path: "S5 -> S0"
+      transitions_covered: [T18]
+      steps:
+        - step: 1
+          action: "Press Cancel button on the confirmation screen"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; booking data discarded; session cleared"
+        - step: 2
+          action: "Verify no check-in was recorded in the airline system"
+          expected_state: S0_START
+          expected_result: "Backend confirms no check-in was completed for this PNR"
+
+    - id: TC-011
+      title: "Cancel from Seat Selection screen"
+      category: "Cancel Path"
+      priority: "High"
+      description: "Verify Cancel from seat selection returns to start."
+      preconditions:
+        - "Kiosk is at S6_SELECT_SEATS with seat map displayed"
+      path: "S6 -> S0"
+      transitions_covered: [T19]
+      steps:
+        - step: 1
+          action: "Press Cancel button on the seat selection screen"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; no seat assignment saved; session cleared"
+
+    # =========================================================================
+    # SECTION 4: INACTIVITY TIMEOUT TESTS
+    # =========================================================================
+    - id: TC-012
+      title: "Inactivity timeout on Airline Selection screen"
+      category: "Timeout"
+      priority: "High"
+      description: "Verify 60-second inactivity timeout returns to start from airline selection."
+      preconditions:
+        - "Kiosk is at S1_SELECT_AIRLINE"
+      path: "S1 -> S0"
+      transitions_covered: [T20]
+      steps:
+        - step: 1
+          action: "Do not interact with the kiosk for 60 seconds"
+          expected_state: S0_START
+          expected_result: "Timeout warning is briefly displayed; kiosk returns to welcome screen; session cleared"
+
+    - id: TC-013
+      title: "Inactivity timeout on PNR Entry screen"
+      category: "Timeout"
+      priority: "High"
+      description: "Verify 60-second timeout on PNR entry screen."
+      preconditions:
+        - "Kiosk is at S2_ENTER_PNR with partial PNR typed"
+      path: "S2 -> S0"
+      transitions_covered: [T21]
+      steps:
+        - step: 1
+          action: "Stop all interaction for 60 seconds"
+          expected_state: S0_START
+          expected_result: "Timeout warning shown; kiosk returns to start; partial input discarded"
+
+    - id: TC-014
+      title: "Inactivity timeout on PNR Error screen"
+      category: "Timeout"
+      priority: "Medium"
+      description: "Verify timeout on error screen after failed PNR entry."
+      preconditions:
+        - "Kiosk is at S4_PNR_ERROR"
+      path: "S4 -> S0"
+      transitions_covered: [T22]
+      steps:
+        - step: 1
+          action: "Do not interact for 60 seconds on error screen"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; session cleared"
+
+    - id: TC-015
+      title: "Inactivity timeout on Confirm Details screen"
+      category: "Timeout"
+      priority: "High"
+      description: "Verify timeout on passenger detail confirmation screen."
+      preconditions:
+        - "Kiosk is at S5_CONFIRM_DETAILS"
+      path: "S5 -> S0"
+      transitions_covered: [T23]
+      steps:
+        - step: 1
+          action: "Do not interact for 60 seconds"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; booking confirmation abandoned; session cleared"
+
+    - id: TC-016
+      title: "Inactivity timeout on Seat Selection screen"
+      category: "Timeout"
+      priority: "High"
+      description: "Verify timeout on seat selection screen."
+      preconditions:
+        - "Kiosk is at S6_SELECT_SEATS"
+      path: "S6 -> S0"
+      transitions_covered: [T24]
+      steps:
+        - step: 1
+          action: "Do not interact for 60 seconds while seat map is displayed"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; no seat assignment saved; session cleared"
+
+    - id: TC-017
+      title: "Inactivity timer resets on user interaction"
+      category: "Timeout"
+      priority: "High"
+      description: >
+        Verify that the 60-second timer resets every time the user
+        interacts with the screen.
+      preconditions:
+        - "Kiosk is at S2_ENTER_PNR"
+      path: "S2 -> S2 (stays, timer resets)"
+      transitions_covered: []
+      steps:
+        - step: 1
+          action: "Wait 50 seconds without interaction"
+          expected_state: S2_ENTER_PNR
+          expected_result: "Kiosk remains on PNR entry (timeout not yet reached)"
+        - step: 2
+          action: "Type one character on the keypad"
+          expected_state: S2_ENTER_PNR
+          expected_result: "Inactivity timer resets to 60 seconds"
+        - step: 3
+          action: "Wait another 50 seconds without interaction"
+          expected_state: S2_ENTER_PNR
+          expected_result: "Kiosk still on PNR entry (only 50 of 60 seconds elapsed since last input)"
+        - step: 4
+          action: "Wait remaining 10+ seconds (total 61 since last input)"
+          expected_state: S0_START
+          expected_result: "Timeout triggers; kiosk returns to start"
+
+    # =========================================================================
+    # SECTION 5: PRINTER ERROR TESTS
+    # =========================================================================
+    - id: TC-018
+      title: "Printer jam during boarding pass printing"
+      category: "Hardware Error"
+      priority: "Critical"
+      description: >
+        Verify that a printer jam during printing shows an error message
+        directing the passenger to the service counter.
+      preconditions:
+        - "Kiosk is at S7_PRINTING"
+        - "Printer hardware is configured to simulate a paper jam"
+      path: "S7 -> S8 -> S0"
+      transitions_covered: [T13, T14]
+      steps:
+        - step: 1
+          action: "Trigger print job (system attempts to print boarding pass)"
+          expected_state: S8_PRINTER_ERROR
+          expected_result: >
+            Error message displayed: 'Printer error. Please collect your boarding
+            pass at the airline service counter.' Service counter location shown.
+        - step: 2
+          action: "Passenger presses 'OK' to acknowledge"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; maintenance alert logged; session cleared"
+
+    - id: TC-019
+      title: "Printer out of paper during printing"
+      category: "Hardware Error"
+      priority: "High"
+      description: "Verify kiosk handles out-of-paper condition."
+      preconditions:
+        - "Printer paper tray is empty"
+        - "Kiosk reaches S7_PRINTING state"
+      path: "S7 -> S8 -> S0"
+      transitions_covered: [T13, T14]
+      steps:
+        - step: 1
+          action: "System attempts to print boarding pass"
+          expected_state: S8_PRINTER_ERROR
+          expected_result: "Error message directs passenger to service counter"
+        - step: 2
+          action: "Passenger acknowledges error"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start; maintenance notification sent"
+
+    - id: TC-020
+      title: "Printer error screen timeout"
+      category: "Hardware Error"
+      priority: "Medium"
+      description: >
+        Verify that if the passenger walks away from the printer error screen
+        without acknowledging, the kiosk returns to start after timeout.
+      preconditions:
+        - "Kiosk is at S8_PRINTER_ERROR"
+      path: "S8 -> S0"
+      transitions_covered: [T14]
+      steps:
+        - step: 1
+          action: "Do not interact with the printer error screen for 60 seconds"
+          expected_state: S0_START
+          expected_result: "Kiosk auto-returns to start after timeout; session cleared"
+
+    # =========================================================================
+    # SECTION 6: BOUNDARY AND EDGE CASE TESTS
+    # =========================================================================
+    - id: TC-021
+      title: "Completion screen auto-return after 10 seconds"
+      category: "Boundary"
+      priority: "High"
+      description: "Verify the completion screen auto-returns to start after 10 seconds."
+      preconditions:
+        - "Kiosk is at S9_COMPLETE; boarding pass has been printed"
+      path: "S9 -> S0"
+      transitions_covered: [T09]
+      steps:
+        - step: 1
+          action: "Do not interact after boarding pass is printed"
+          expected_state: S0_START
+          expected_result: "After exactly 10 seconds, kiosk returns to welcome screen"
+
+    - id: TC-022
+      title: "Rapid repeated taps on Start screen"
+      category: "Edge Case"
+      priority: "Medium"
+      description: "Verify kiosk handles rapid multiple taps on the start screen gracefully."
+      preconditions:
+        - "Kiosk is at S0_START"
+      path: "S0 -> S1"
+      transitions_covered: [T01]
+      steps:
+        - step: 1
+          action: "Rapidly tap the screen 10 times in quick succession"
+          expected_state: S1_SELECT_AIRLINE
+          expected_result: "Only one session is initialized; airline selection displays correctly"
+
+    - id: TC-023
+      title: "Backend timeout during booking retrieval"
+      category: "Edge Case"
+      priority: "High"
+      description: >
+        Verify kiosk behavior when the airline backend does not respond
+        within the expected timeframe during PNR lookup.
+      preconditions:
+        - "Kiosk is at S3_RETRIEVING_BOOKING"
+        - "Backend is configured to not respond (simulate network timeout)"
+      path: "S3 -> S4"
+      transitions_covered: [T10]
+      steps:
+        - step: 1
+          action: "Submit a valid PNR while backend is unreachable"
+          expected_state: S3_RETRIEVING_BOOKING
+          expected_result: "Loading spinner displayed for backend timeout period"
+        - step: 2
+          action: "Wait for backend timeout to expire"
+          expected_state: S4_PNR_ERROR
+          expected_result: "Error message: 'Unable to retrieve booking. Please try again.' Attempt counted."
+
+    - id: TC-024
+      title: "Multiple passengers in one booking - PNR with group"
+      category: "Edge Case"
+      priority: "Medium"
+      description: "Verify handling when a PNR has multiple passengers."
+      preconditions:
+        - "PNR 'GRP456' contains 3 passengers"
+      path: "S0 -> S1 -> S2 -> S3 -> S5"
+      transitions_covered: [T01, T02, T03, T04]
+      steps:
+        - step: 1
+          action: "Enter PNR 'GRP456' for a group booking"
+          expected_state: S5_CONFIRM_DETAILS
+          expected_result: "All 3 passengers listed; option to select which passenger(s) to check in"
+
+    - id: TC-025
+      title: "Cancel button not present on printing and loading screens"
+      category: "Negative"
+      priority: "Medium"
+      description: >
+        Verify that non-interactive states (loading, printing) do not
+        show the Cancel button.
+      preconditions:
+        - "Kiosk transitions through S3_RETRIEVING_BOOKING and S7_PRINTING"
+      path: "N/A (UI verification at specific states)"
+      transitions_covered: []
+      steps:
+        - step: 1
+          action: "Observe UI during S3_RETRIEVING_BOOKING"
+          expected_state: S3_RETRIEVING_BOOKING
+          expected_result: "No Cancel button visible; only loading spinner shown"
+        - step: 2
+          action: "Observe UI during S7_PRINTING"
+          expected_state: S7_PRINTING
+          expected_result: "No Cancel button visible; only printing progress indicator shown"
+
+    - id: TC-026
+      title: "Session data isolation between consecutive users"
+      category: "Security"
+      priority: "Critical"
+      description: >
+        Verify that after one passenger completes check-in (or cancels/times out),
+        no personal data from the previous session is visible to the next user.
+      preconditions:
+        - "First passenger completes full check-in successfully"
+      path: "S9 -> S0 -> S1 -> S2"
+      transitions_covered: [T09, T01, T02]
+      steps:
+        - step: 1
+          action: "Complete a full check-in for passenger 'John Doe'"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start after completion"
+        - step: 2
+          action: "Start a new session; navigate to PNR entry"
+          expected_state: S2_ENTER_PNR
+          expected_result: >
+            PNR field is empty; no previous passenger data visible;
+            airline selection was not pre-filled from previous session
+        - step: 3
+          action: "Verify memory/logs do not expose previous passenger's PNR or details"
+          expected_state: S2_ENTER_PNR
+          expected_result: "No residual data from previous session accessible"
+
+    - id: TC-027
+      title: "Session data cleared after cancel"
+      category: "Security"
+      priority: "High"
+      description: >
+        Verify that cancellation at any point clears all session data including
+        PNR, passenger details, and selected seats.
+      preconditions:
+        - "Kiosk is at S6_SELECT_SEATS with a seat selected but not confirmed"
+      path: "S6 -> S0 -> S1 -> S2"
+      transitions_covered: [T19, T01, T02]
+      steps:
+        - step: 1
+          action: "Press Cancel on seat selection screen"
+          expected_state: S0_START
+          expected_result: "Kiosk returns to start"
+        - step: 2
+          action: "Begin new session and verify no data leakage"
+          expected_state: S2_ENTER_PNR
+          expected_result: "All fields are clean; no previous booking data accessible"
+
+    - id: TC-028
+      title: "Timeout at exactly 60 seconds boundary"
+      category: "Boundary"
+      priority: "Medium"
+      description: "Verify exact timing of the 60-second inactivity timeout."
+      preconditions:
+        - "Kiosk is at S5_CONFIRM_DETAILS"
+      path: "S5 -> S0"
+      transitions_covered: [T23]
+      steps:
+        - step: 1
+          action: "Wait exactly 59 seconds without interaction"
+          expected_state: S5_CONFIRM_DETAILS
+          expected_result: "Kiosk remains on confirmation screen (timeout not triggered)"
+        - step: 2
+          action: "Wait 1 more second (total 60 seconds)"
+          expected_state: S0_START
+          expected_result: "Timeout triggers at or after exactly 60 seconds; kiosk returns to start"
+
+    - id: TC-029
+      title: "PNR attempt counter resets on new session"
+      category: "State Management"
+      priority: "High"
+      description: >
+        Verify that after returning to start (via max attempts, cancel, or timeout),
+        a new session starts with a fresh attempt counter.
+      preconditions:
+        - "Passenger previously exhausted all 3 PNR attempts and was returned to start"
+      path: "S0 -> S1 -> S2 -> S3 -> S4 (verify attempt_count = 1)"
+      transitions_covered: [T01, T02, T03, T10]
+      steps:
+        - step: 1
+          action: "After being returned to start from 3 failed attempts, begin a new session"
+          expected_state: S1_SELECT_AIRLINE
+          expected_result: "New session started"
+        - step: 2
+          action: "Select airline and enter an invalid PNR"
+          expected_state: S4_PNR_ERROR
+          expected_result: "Error shows '2 attempts remaining' confirming counter reset to 0 for new session"
+
+    - id: TC-030
+      title: "Concurrent kiosk operation (independent sessions)"
+      category: "Edge Case"
+      priority: "Low"
+      description: >
+        Verify that multiple kiosks operating simultaneously do not
+        interfere with each other's sessions.
+      preconditions:
+        - "Two kiosks are available and both at S0_START"
+      path: "Kiosk A and Kiosk B follow independent paths simultaneously"
+      transitions_covered: [T01, T02, T03, T04, T05, T06, T07, T08]
+      steps:
+        - step: 1
+          action: "Kiosk A: start check-in for passenger A with PNR 'AAA111'"
+          expected_state: "Kiosk A at S3_RETRIEVING_BOOKING"
+          expected_result: "Kiosk A processes independently"
+        - step: 2
+          action: "Kiosk B: start check-in for passenger B with PNR 'BBB222'"
+          expected_state: "Kiosk B at S3_RETRIEVING_BOOKING"
+          expected_result: "Kiosk B processes independently; no cross-contamination"
+        - step: 3
+          action: "Both kiosks complete check-in"
+          expected_state: "Both at S9_COMPLETE"
+          expected_result: "Each prints correct boarding pass for their respective passenger"
+
+    # =========================================================================
+    # SECTION 7: N-SWITCH COVERAGE (0-SWITCH AND 1-SWITCH)
+    # =========================================================================
+    - id: TC-031
+      title: "0-switch: All individual transitions covered"
+      category: "Coverage Analysis"
+      priority: "High"
+      description: >
+        Meta test verifying that all 24 defined transitions (T01-T24) are
+        exercised by at least one test case in this plan.
+      coverage_matrix:
+        T01: [TC-001, TC-002, TC-003, TC-004, TC-005, TC-022, TC-026, TC-029]
+        T02: [TC-001, TC-002, TC-003, TC-004, TC-005, TC-026, TC-029]
+        T03: [TC-001, TC-002, TC-003, TC-004, TC-005, TC-023, TC-029]
+        T04: [TC-001, TC-002, TC-003, TC-004, TC-024]
+        T05: [TC-001]
+        T06: [TC-002, TC-003]
+        T07: [TC-001]
+        T08: [TC-001, TC-002, TC-003]
+        T09: [TC-001, TC-002, TC-021, TC-026]
+        T10: [TC-003, TC-004, TC-005, TC-023, TC-029]
+        T11: [TC-003, TC-004, TC-005]
+        T12: [TC-005]
+        T13: [TC-018, TC-019]
+        T14: [TC-018, TC-019, TC-020]
+        T15: [TC-007]
+        T16: [TC-008]
+        T17: [TC-009]
+        T18: [TC-010]
+        T19: [TC-011, TC-027]
+        T20: [TC-012]
+        T21: [TC-013]
+        T22: [TC-014]
+        T23: [TC-015, TC-028]
+        T24: [TC-016]
+
+    - id: TC-032
+      title: "1-switch: Happy path with seat selection (consecutive transition pairs)"
+      category: "N-Switch Coverage"
+      priority: "High"
+      description: >
+        Covers consecutive transition pairs along the primary happy path
+        with seat selection: T01-T02, T02-T03, T03-T04, T04-T05, T05-T07, T07-T08, T08-T09.
+      path: "S0 -> S1 -> S2 -> S3 -> S5 -> S6 -> S7 -> S9 -> S0"
+      transition_pairs_covered:
+        - [T01, T02]
+        - [T02, T03]
+        - [T03, T04]
+        - [T04, T05]
+        - [T05, T07]
+        - [T07, T08]
+        - [T08, T09]
+
+    - id: TC-033
+      title: "1-switch: Error-retry-success path (transition pairs through error loop)"
+      category: "N-Switch Coverage"
+      priority: "High"
+      description: >
+        Covers transition pairs through the PNR error and retry loop:
+        T03-T10, T10-T11, T11-T03, T03-T04.
+      path: "S2 -> S3 -> S4 -> S2 -> S3 -> S5"
+      transition_pairs_covered:
+        - [T03, T10]
+        - [T10, T11]
+        - [T11, T03]
+        - [T03, T04]
+
+    - id: TC-034
+      title: "1-switch: Error to max attempts (transition pair T10-T11 then T03-T12)"
+      category: "N-Switch Coverage"
+      priority: "High"
+      description: "Covers the transition pair leading to forced return after max attempts."
+      path: "S4 -> S2 -> S3 -> S0"
+      transition_pairs_covered:
+        - [T11, T03]
+        - [T03, T12]
+
+    - id: TC-035
+      title: "1-switch: Print failure path (transition pairs T04-T06, T06-T13, T13-T14)"
+      category: "N-Switch Coverage"
+      priority: "High"
+      description: "Covers transition pairs through the printer error path without seat selection."
+      path: "S5 -> S7 -> S8 -> S0"
+      transition_pairs_covered:
+        - [T04, T06]
+        - [T06, T13]
+        - [T13, T14]
+
+    - id: TC-036
+      title: "1-switch: Cancel after each forward step"
+      category: "N-Switch Coverage"
+      priority: "Medium"
+      description: "Covers transition pairs where each forward transition is followed by cancel."
+      transition_pairs_covered:
+        - [T01, T15]
+        - [T02, T16]
+        - [T10, T17]
+        - [T04, T18]
+        - [T05, T19]
+      steps:
+        - step: 1
+          action: "S0->S1, then cancel"
+          path: "S0 -> S1 -> S0"
+          transition_pair: [T01, T15]
+        - step: 2
+          action: "S0->S1->S2, then cancel"
+          path: "S0 -> S1 -> S2 -> S0"
+          transition_pair: [T02, T16]
+        - step: 3
+          action: "Navigate to S4 via invalid PNR, then cancel"
+          path: "... -> S3 -> S4 -> S0"
+          transition_pair: [T10, T17]
+        - step: 4
+          action: "Navigate to S5 via valid PNR, then cancel"
+          path: "... -> S3 -> S5 -> S0"
+          transition_pair: [T04, T18]
+        - step: 5
+          action: "Navigate to S6 via seat selection, then cancel"
+          path: "... -> S5 -> S6 -> S0"
+          transition_pair: [T05, T19]
+
+    - id: TC-037
+      title: "1-switch: Timeout after each forward step"
+      category: "N-Switch Coverage"
+      priority: "Medium"
+      description: "Covers transition pairs where each forward transition is followed by inactivity timeout."
+      transition_pairs_covered:
+        - [T01, T20]
+        - [T02, T21]
+        - [T10, T22]
+        - [T04, T23]
+        - [T05, T24]
+      steps:
+        - step: 1
+          action: "S0->S1, then wait 60 seconds"
+          transition_pair: [T01, T20]
+        - step: 2
+          action: "S0->S1->S2, then wait 60 seconds"
+          transition_pair: [T02, T21]
+        - step: 3
+          action: "Navigate to S4, then wait 60 seconds"
+          transition_pair: [T10, T22]
+        - step: 4
+          action: "Navigate to S5, then wait 60 seconds"
+          transition_pair: [T04, T23]
+        - step: 5
+          action: "Navigate to S6, then wait 60 seconds"
+          transition_pair: [T05, T24]
+
+  # ---------------------------------------------------------------------------
+  # COVERAGE SUMMARY
+  # ---------------------------------------------------------------------------
+  coverage_summary:
+    total_states: 10
+    total_transitions: 24
+    total_test_cases: 37
+    categories:
+      happy_path: 2
+      pnr_error_path: 4
+      cancel_path: 5
+      timeout: 6
+      hardware_error: 3
+      boundary_and_edge: 10
+      n_switch_coverage: 7
+    transition_coverage: "100% - All 24 transitions covered"
+    state_coverage: "100% - All 10 states visited"
+    key_risk_areas:
+      - area: "PNR retry counter"
+        risk: "Counter not resetting between sessions or miscounting attempts"
+        covered_by: [TC-003, TC-004, TC-005, TC-029]
+      - area: "Inactivity timeout"
+        risk: "Timer not resetting on user interaction; timer not firing at exact boundary"
+        covered_by: [TC-012, TC-013, TC-014, TC-015, TC-016, TC-017, TC-028]
+      - area: "Session data leakage"
+        risk: "Previous passenger's PNR or personal data visible to next user"
+        covered_by: [TC-026, TC-027]
+      - area: "Printer hardware failure"
+        risk: "Kiosk freezing on printer error instead of gracefully redirecting passenger"
+        covered_by: [TC-018, TC-019, TC-020]
+      - area: "Cancel from all states"
+        risk: "Cancel button missing or non-functional on a screen"
+        covered_by: [TC-007, TC-008, TC-009, TC-010, TC-011, TC-025]

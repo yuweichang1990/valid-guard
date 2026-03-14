@@ -1,0 +1,2283 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T00:00:00Z
+# Source: natural language
+# FMEA (Failure Mode and Effects Analysis) for Insurance Claims Processing System
+
+feature: "Insurance Claims Processing System FMEA"
+
+feature_description: >
+  Failure Mode and Effects Analysis for a 5-component insurance claims processing
+  system. Components: (1) Claim Calculation Engine — computes payout amounts based
+  on policy type, deductible, coverage limits, and depreciation; (2) Document Upload
+  Service — accepts photos, PDFs, and medical records as claim evidence;
+  (3) Fraud Detection Algorithm — flags suspicious patterns including duplicate
+  claims, known fraud rings, and inflated amounts; (4) Claims Dashboard — shows
+  claim status with filters by date, type, and status; (5) Notification Service —
+  sends email/SMS updates on claim status changes. For each component, failure modes
+  are identified, rated by FMEA dimensions (Severity 1-10, Occurrence 1-10,
+  Detection 1-10), RPN computed, and test priority recommended.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ===========================================================================
+  # COMPONENT 1: CLAIM CALCULATION ENGINE
+  # Failure Modes: Incorrect payout, rounding errors, depreciation miscalculation,
+  #   coverage limit bypass, deductible not applied, policy type mismatch
+  # ===========================================================================
+
+  # FM-1.1: Incorrect Payout Computation (Severity=9, Occurrence=5, Detection=4, RPN=180)
+  - name: "FM-1.1 Incorrect payout computation due to wrong formula application"
+    description: >
+      The claim calculation engine applies an incorrect formula for the policy type,
+      resulting in overpayment or underpayment. This is the highest-severity failure
+      mode for the calculation engine because it directly causes financial loss.
+      FMEA: Severity=9, Occurrence=5, Detection=4, RPN=180.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 (core business logic — financial calculation directly affects payouts).
+      Frequency: 3 (every claim submission triggers this logic).
+      Consequence: 3 (financial loss — overpayment hurts insurer, underpayment causes disputes/litigation).
+      Detectability: 2 (incorrect amounts may not be noticed until audit or customer complaint).
+      Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - decision_table
+      - cause_effect
+      - error_guessing
+    technique_rationale: >
+      EP partitions by policy type (auto, home, health, life). BVA tests boundary
+      values of coverage limits and deductibles. DT covers the combinatorial matrix
+      of policy type x deductible x coverage limit x depreciation. CE maps the
+      logical dependencies between these inputs and the computed payout. EG anticipates
+      floating-point rounding errors and off-by-one in depreciation schedules.
+    preconditions:
+      - "Active policy exists in the system"
+      - "Claim has been submitted with valid loss amount"
+      - "Policy type, deductible, coverage limit, and depreciation schedule are configured"
+    examples:
+      - input:
+          policy_type: "auto"
+          loss_amount: 15000
+          deductible: 500
+          coverage_limit: 50000
+          depreciation_rate: 0.10
+          asset_age_years: 3
+        expected:
+          payout: 10050
+          formula_applied: "(loss_amount - deductible) * (1 - depreciation_rate * asset_age_years)"
+        description: "Auto policy with standard deductible and 30% cumulative depreciation"
+      - input:
+          policy_type: "home"
+          loss_amount: 200000
+          deductible: 1000
+          coverage_limit: 150000
+          depreciation_rate: 0.05
+          asset_age_years: 10
+        expected:
+          payout: 75000
+          formula_applied: "min(loss_amount - deductible, coverage_limit) * (1 - depreciation_rate * asset_age_years)"
+          capped_at_coverage_limit: true
+        description: "Home policy where loss exceeds coverage limit; payout capped then depreciated"
+      - input:
+          policy_type: "health"
+          loss_amount: 5000
+          deductible: 5000
+          coverage_limit: 100000
+          depreciation_rate: 0.0
+          asset_age_years: 0
+        expected:
+          payout: 0
+          reason: "Loss amount equals deductible"
+        description: "Health policy where loss exactly equals deductible — zero payout boundary"
+      - input:
+          policy_type: "unknown_type"
+          loss_amount: 10000
+          deductible: 500
+          coverage_limit: 50000
+          depreciation_rate: 0.05
+          asset_age_years: 2
+        expected:
+          error: "InvalidPolicyTypeError"
+          payout: null
+        description: "Invalid policy type triggers error — no payout should be computed"
+    decision_table:
+      conditions:
+        - "policy_type"
+        - "loss_amount > deductible"
+        - "net_amount > coverage_limit"
+        - "depreciation_applicable"
+      actions:
+        - "compute_payout"
+        - "cap_at_coverage_limit"
+        - "apply_depreciation"
+        - "reject_claim"
+      rules:
+        - description: "Auto claim under limit with depreciation"
+          condition_values:
+            policy_type: "auto"
+            loss_amount_exceeds_deductible: true
+            net_amount_exceeds_coverage_limit: false
+            depreciation_applicable: true
+          expected_actions:
+            compute_payout: true
+            cap_at_coverage_limit: false
+            apply_depreciation: true
+            reject_claim: false
+        - description: "Home claim exceeding coverage limit"
+          condition_values:
+            policy_type: "home"
+            loss_amount_exceeds_deductible: true
+            net_amount_exceeds_coverage_limit: true
+            depreciation_applicable: true
+          expected_actions:
+            compute_payout: true
+            cap_at_coverage_limit: true
+            apply_depreciation: true
+            reject_claim: false
+        - description: "Health claim with loss equal to deductible"
+          condition_values:
+            policy_type: "health"
+            loss_amount_exceeds_deductible: false
+            net_amount_exceeds_coverage_limit: false
+            depreciation_applicable: false
+          expected_actions:
+            compute_payout: false
+            cap_at_coverage_limit: false
+            apply_depreciation: false
+            reject_claim: false
+        - description: "Invalid policy type"
+          condition_values:
+            policy_type: "invalid"
+            loss_amount_exceeds_deductible: true
+            net_amount_exceeds_coverage_limit: false
+            depreciation_applicable: false
+          expected_actions:
+            compute_payout: false
+            cap_at_coverage_limit: false
+            apply_depreciation: false
+            reject_claim: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "claim-calculation"
+      - "financial"
+      - "rpn-180"
+      - "severity-9"
+      - "component-1"
+
+  # FM-1.2: Rounding Errors in Currency Calculations (Severity=7, Occurrence=6, Detection=5, RPN=210)
+  - name: "FM-1.2 Rounding errors in currency calculations"
+    description: >
+      Floating-point arithmetic causes rounding errors in payout calculations,
+      leading to penny discrepancies that accumulate over thousands of claims
+      and cause financial reconciliation failures. FMEA: Severity=7, Occurrence=6,
+      Detection=5, RPN=210.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 (financial calculations — even small rounding errors compound at scale).
+      Frequency: 3 (every claim with non-integer amounts triggers this path).
+      Consequence: 2 (individual impact is small but aggregate impact causes audit failures).
+      Detectability: 3 (silent — rounding errors are not immediately visible and only found during reconciliation).
+      Average: 2.75 -> high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      BVA tests boundary values that trigger rounding (e.g., amounts ending in .005,
+      .995). EP partitions by currency precision requirements. EG anticipates
+      IEEE 754 floating-point issues with specific problematic values like 0.1 + 0.2.
+    preconditions:
+      - "Calculation engine is initialized"
+      - "Currency is configured (USD, EUR, etc.)"
+    examples:
+      - input:
+          loss_amount: 1000.005
+          deductible: 0.00
+          coverage_limit: 50000
+        expected:
+          payout: 1000.01
+          rounding_mode: "HALF_UP"
+        description: "Amount at half-cent boundary — should round up"
+      - input:
+          loss_amount: 0.01
+          deductible: 0.00
+          coverage_limit: 50000
+        expected:
+          payout: 0.01
+        description: "Minimum representable currency amount"
+      - input:
+          loss_amount: 99999.99
+          deductible: 0.01
+          coverage_limit: 100000
+        expected:
+          payout: 99999.98
+        description: "Near-maximum amount just under coverage limit"
+      - input:
+          loss_amount: 33.33
+          deductible: 0.00
+          coverage_limit: 50000
+          quantity: 3
+        expected:
+          total_payout: 99.99
+          note: "3 * 33.33 must equal 99.99, not 100.00 or 99.98"
+        description: "Repeating decimal multiplication — precision test"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "claim-calculation"
+      - "rounding"
+      - "rpn-210"
+      - "severity-7"
+      - "component-1"
+
+  # FM-1.3: Depreciation Miscalculation (Severity=8, Occurrence=4, Detection=5, RPN=160)
+  - name: "FM-1.3 Depreciation miscalculation produces negative or excessive payout"
+    description: >
+      The depreciation calculation produces a negative value (when cumulative
+      depreciation exceeds 100%) or fails to apply depreciation correctly for
+      different asset types and ages. FMEA: Severity=8, Occurrence=4, Detection=5,
+      RPN=160.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 (directly affects payout amount — core financial logic).
+      Frequency: 2 (occurs for property/auto claims, not all claim types).
+      Consequence: 3 (negative payout or excessive payout causes financial loss or legal issues).
+      Detectability: 2 (depreciation logic errors may pass basic validation but fail on edge cases).
+      Average: 2.50 -> high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      BVA tests boundaries of asset age (0 years, maximum age where depreciation
+      reaches 100%). EP partitions by asset type with different depreciation schedules.
+      EG anticipates negative payout from over-depreciation and division-by-zero
+      for zero-value assets.
+    preconditions:
+      - "Asset information is provided with the claim"
+      - "Depreciation schedule is configured for the policy type"
+    examples:
+      - input:
+          asset_value: 10000
+          depreciation_rate: 0.10
+          asset_age_years: 11
+        expected:
+          depreciation_factor: 0.0
+          payout_modifier: 0.0
+          note: "Cumulative depreciation exceeds 100% — should floor at 0, not go negative"
+        description: "Asset fully depreciated — payout modifier must not go negative"
+      - input:
+          asset_value: 10000
+          depreciation_rate: 0.10
+          asset_age_years: 10
+        expected:
+          depreciation_factor: 0.0
+          payout_modifier: 0.0
+        description: "Asset at exactly 100% depreciation boundary"
+      - input:
+          asset_value: 10000
+          depreciation_rate: 0.10
+          asset_age_years: 0
+        expected:
+          depreciation_factor: 1.0
+          payout_modifier: 1.0
+        description: "Brand new asset — no depreciation applied"
+      - input:
+          asset_value: 0
+          depreciation_rate: 0.10
+          asset_age_years: 5
+        expected:
+          error: "ZeroValueAssetError"
+        description: "Zero-value asset — edge case that may cause division errors"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "claim-calculation"
+      - "depreciation"
+      - "rpn-160"
+      - "severity-8"
+      - "component-1"
+
+  # FM-1.4: Coverage Limit Bypass (Severity=9, Occurrence=3, Detection=6, RPN=162)
+  - name: "FM-1.4 Coverage limit bypass allows payout exceeding policy maximum"
+    description: >
+      A defect in the cap-checking logic allows a payout that exceeds the policy's
+      coverage limit. This can occur through split claims, concurrent claim
+      submissions, or calculation ordering errors (applying depreciation before
+      capping instead of after). FMEA: Severity=9, Occurrence=3, Detection=6, RPN=162.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (coverage limit is a core financial safeguard).
+      Frequency: 2 (edge case but exploitable through split claims or race conditions).
+      Consequence: 3 (financial loss — paying beyond contractual limits).
+      Detectability: 2 (may not be detected until aggregate payout exceeds limit across multiple claims).
+      Average: 2.50 -> high.
+    techniques:
+      - boundary_value
+      - decision_table
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      BVA tests amounts at, just below, and just above coverage limits. DT covers
+      combinations of split claims and coverage remaining. EG anticipates race
+      conditions in concurrent claim submissions against the same policy. CE maps
+      the logical relationship between claim amount, prior payouts, and remaining
+      coverage.
+    preconditions:
+      - "Policy has a defined coverage limit"
+      - "Prior claim payouts may exist against the same policy"
+    examples:
+      - input:
+          coverage_limit: 50000
+          prior_payouts: 49000
+          current_claim: 5000
+          deductible: 0
+        expected:
+          payout: 1000
+          remaining_coverage: 0
+          note: "Payout capped at remaining coverage"
+        description: "Claim amount exceeds remaining coverage — must cap at remainder"
+      - input:
+          coverage_limit: 50000
+          concurrent_claims:
+            - claim_amount: 30000
+            - claim_amount: 30000
+          submission_timing: "simultaneous"
+        expected:
+          total_payout_max: 50000
+          note: "Concurrent claims must not exceed coverage limit in aggregate"
+        description: "Race condition — two simultaneous claims must not bypass limit"
+      - input:
+          coverage_limit: 50000
+          claim_amount: 50001
+          deductible: 0
+        expected:
+          payout: 50000
+          capped: true
+        description: "Single claim exceeding limit by $1 — boundary test"
+    decision_table:
+      conditions:
+        - "claim_amount > remaining_coverage"
+        - "prior_payouts_exist"
+        - "concurrent_claims_pending"
+      actions:
+        - "cap_payout_at_remaining"
+        - "lock_policy_for_concurrent_check"
+        - "pay_full_claim_amount"
+      rules:
+        - description: "Claim within remaining coverage, no concurrency"
+          condition_values:
+            claim_exceeds_remaining: false
+            prior_payouts_exist: false
+            concurrent_claims_pending: false
+          expected_actions:
+            cap_payout_at_remaining: false
+            lock_policy_for_concurrent_check: false
+            pay_full_claim_amount: true
+        - description: "Claim exceeds remaining coverage"
+          condition_values:
+            claim_exceeds_remaining: true
+            prior_payouts_exist: true
+            concurrent_claims_pending: false
+          expected_actions:
+            cap_payout_at_remaining: true
+            lock_policy_for_concurrent_check: false
+            pay_full_claim_amount: false
+        - description: "Concurrent claims detected"
+          condition_values:
+            claim_exceeds_remaining: false
+            prior_payouts_exist: false
+            concurrent_claims_pending: true
+          expected_actions:
+            cap_payout_at_remaining: false
+            lock_policy_for_concurrent_check: true
+            pay_full_claim_amount: false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "claim-calculation"
+      - "coverage-limit"
+      - "concurrency"
+      - "rpn-162"
+      - "severity-9"
+      - "component-1"
+
+  # FM-1.5: Deductible Not Applied (Severity=8, Occurrence=3, Detection=4, RPN=96)
+  - name: "FM-1.5 Deductible not applied or applied incorrectly"
+    description: >
+      The deductible is either skipped entirely (paying the full loss amount) or
+      applied multiple times (double-deducting). This may occur when deductible
+      type varies by policy (flat vs percentage-based). FMEA: Severity=8,
+      Occurrence=3, Detection=4, RPN=96.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 (deductible is a core financial component of every claim).
+      Frequency: 3 (every claim should have a deductible applied).
+      Consequence: 3 (financial loss — not applying deductible means overpayment).
+      Detectability: 2 (may slip through if only the final payout is validated, not the formula steps).
+      Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      EP partitions by deductible type (flat, percentage, zero, maximum). BVA tests
+      deductible at zero, at minimum, equal to loss, exceeding loss. DT covers
+      combinations of deductible type and policy type. EG anticipates double-deduction
+      bugs and negative result from percentage deductible exceeding 100%.
+    preconditions:
+      - "Policy with configured deductible exists"
+      - "Claim has been submitted"
+    examples:
+      - input:
+          loss_amount: 10000
+          deductible_type: "flat"
+          deductible_amount: 500
+        expected:
+          net_loss: 9500
+          deductible_applied: true
+        description: "Standard flat deductible applied correctly"
+      - input:
+          loss_amount: 10000
+          deductible_type: "percentage"
+          deductible_percentage: 20
+        expected:
+          net_loss: 8000
+          deductible_applied: true
+        description: "Percentage-based deductible (20% of loss)"
+      - input:
+          loss_amount: 300
+          deductible_type: "flat"
+          deductible_amount: 500
+        expected:
+          net_loss: 0
+          payout: 0
+          note: "Loss less than deductible — no payout"
+        description: "Loss amount less than deductible — boundary case"
+      - input:
+          loss_amount: 500
+          deductible_type: "flat"
+          deductible_amount: 500
+        expected:
+          net_loss: 0
+          payout: 0
+        description: "Loss exactly equals deductible — zero payout boundary"
+    decision_table:
+      conditions:
+        - "deductible_type"
+        - "loss_amount > deductible_effective"
+        - "deductible_amount == 0"
+      actions:
+        - "subtract_flat_deductible"
+        - "subtract_percentage_deductible"
+        - "skip_deductible"
+        - "zero_payout"
+      rules:
+        - description: "Flat deductible, loss exceeds deductible"
+          condition_values:
+            deductible_type: "flat"
+            loss_exceeds_deductible: true
+            deductible_is_zero: false
+          expected_actions:
+            subtract_flat_deductible: true
+            subtract_percentage_deductible: false
+            skip_deductible: false
+            zero_payout: false
+        - description: "Percentage deductible, loss exceeds deductible"
+          condition_values:
+            deductible_type: "percentage"
+            loss_exceeds_deductible: true
+            deductible_is_zero: false
+          expected_actions:
+            subtract_flat_deductible: false
+            subtract_percentage_deductible: true
+            skip_deductible: false
+            zero_payout: false
+        - description: "Zero deductible"
+          condition_values:
+            deductible_type: "flat"
+            loss_exceeds_deductible: true
+            deductible_is_zero: true
+          expected_actions:
+            subtract_flat_deductible: false
+            subtract_percentage_deductible: false
+            skip_deductible: true
+            zero_payout: false
+        - description: "Loss does not exceed deductible"
+          condition_values:
+            deductible_type: "flat"
+            loss_exceeds_deductible: false
+            deductible_is_zero: false
+          expected_actions:
+            subtract_flat_deductible: false
+            subtract_percentage_deductible: false
+            skip_deductible: false
+            zero_payout: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "claim-calculation"
+      - "deductible"
+      - "rpn-96"
+      - "severity-8"
+      - "component-1"
+
+  # ===========================================================================
+  # COMPONENT 2: DOCUMENT UPLOAD SERVICE
+  # Failure Modes: Upload corruption, malicious file, oversized file,
+  #   unsupported format, metadata loss, HIPAA violation
+  # ===========================================================================
+
+  # FM-2.1: Uploaded File Corruption (Severity=7, Occurrence=4, Detection=3, RPN=84)
+  - name: "FM-2.1 Uploaded file corruption — data lost or truncated during upload"
+    description: >
+      Files uploaded as claim evidence become corrupted during transfer or storage,
+      rendering them unreadable. This affects claim adjudication because evidence
+      cannot be reviewed. FMEA: Severity=7, Occurrence=4, Detection=3, RPN=84.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (data integrity — corrupted evidence affects claim adjudication).
+      Frequency: 2 (occurs on network issues, large files, or interrupted uploads).
+      Consequence: 3 (claim cannot be processed, potential data loss of irreplaceable documents).
+      Detectability: 2 (corruption may not be detected until adjuster tries to open the file).
+      Average: 2.50 -> high.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      EP partitions by file type (photo/JPEG, PDF, medical records/DICOM). BVA tests
+      file size boundaries (0 bytes, max allowed, just over max). EG anticipates
+      network interruption mid-upload, partial writes, and encoding corruption.
+    preconditions:
+      - "User is authenticated and has an active claim"
+      - "Document upload endpoint is available"
+    examples:
+      - input:
+          file_type: "application/pdf"
+          file_size_bytes: 10485760
+          network_condition: "stable"
+        expected:
+          upload_status: "success"
+          checksum_verified: true
+        description: "10 MB PDF upload under stable conditions — happy path"
+      - input:
+          file_type: "image/jpeg"
+          file_size_bytes: 5242880
+          network_condition: "interrupted_at_50_percent"
+        expected:
+          upload_status: "failed"
+          error: "UploadInterruptedError"
+          partial_file_cleaned_up: true
+        description: "Network interruption mid-upload — partial file must be cleaned up"
+      - input:
+          file_type: "application/pdf"
+          file_size_bytes: 0
+        expected:
+          upload_status: "rejected"
+          error: "EmptyFileError"
+        description: "Zero-byte file upload — should be rejected"
+      - input:
+          file_type: "image/jpeg"
+          file_size_bytes: 104857600
+        expected:
+          upload_status: "rejected"
+          error: "FileTooLargeError"
+          max_allowed_bytes: 52428800
+        description: "100 MB file exceeding 50 MB limit — rejected at boundary"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "fmea"
+      - "document-upload"
+      - "data-integrity"
+      - "rpn-84"
+      - "severity-7"
+      - "component-2"
+
+  # FM-2.2: Malicious File Upload (Severity=10, Occurrence=4, Detection=5, RPN=200)
+  - name: "FM-2.2 Malicious file upload — executable or malware disguised as document"
+    description: >
+      An attacker uploads a malicious file (e.g., executable disguised as PDF, file
+      with embedded scripts, polyglot file) that could compromise the server or
+      downstream systems when processed. FMEA: Severity=10, Occurrence=4,
+      Detection=5, RPN=200.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (security vulnerability — server compromise, data breach).
+      Frequency: 2 (targeted attacks occur; automated scanners probe upload endpoints).
+      Consequence: 3 (security breach, data exfiltration, ransomware, compliance violation).
+      Detectability: 3 (sophisticated attacks bypass basic extension checks; requires deep content inspection).
+      Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      EP partitions by file content type vs extension mismatch categories. EG anticipates
+      known attack vectors (path traversal in filename, zip bombs, polyglot files,
+      embedded JavaScript in PDFs). CE maps the logical chain from file characteristics
+      to detection and blocking actions.
+    preconditions:
+      - "Upload endpoint is publicly accessible to authenticated users"
+      - "File validation and antivirus scanning pipeline is configured"
+    examples:
+      - input:
+          filename: "claim_photo.jpg.exe"
+          content_type_header: "image/jpeg"
+          actual_content: "PE executable"
+        expected:
+          upload_status: "rejected"
+          error: "MaliciousFileDetected"
+          scan_result: "executable_content"
+        description: "Double-extension executable disguised as JPEG"
+      - input:
+          filename: "../../etc/passwd"
+          content_type_header: "text/plain"
+          actual_content: "text"
+        expected:
+          upload_status: "rejected"
+          error: "InvalidFilenameError"
+          sanitized_filename: true
+        description: "Path traversal attack in filename"
+      - input:
+          filename: "medical_record.pdf"
+          content_type_header: "application/pdf"
+          actual_content: "PDF with embedded JavaScript"
+        expected:
+          upload_status: "quarantined"
+          warning: "EmbeddedScriptDetected"
+          script_stripped: true
+        description: "PDF with embedded JavaScript — should be sanitized or quarantined"
+      - input:
+          filename: "evidence.zip"
+          content_type_header: "application/zip"
+          actual_content: "zip bomb (42.zip pattern)"
+          decompressed_size: 4503599627370496
+        expected:
+          upload_status: "rejected"
+          error: "ZipBombDetected"
+        description: "Zip bomb attack — decompression ratio check"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "document-upload"
+      - "security"
+      - "rpn-200"
+      - "severity-10"
+      - "component-2"
+
+  # FM-2.3: Medical Records HIPAA Violation (Severity=10, Occurrence=3, Detection=6, RPN=180)
+  - name: "FM-2.3 Medical records exposed without proper access control — HIPAA violation"
+    description: >
+      Medical records uploaded as claim evidence are stored or transmitted without
+      proper encryption, access controls, or audit logging, violating HIPAA
+      regulations. Unauthorized personnel can access PHI (Protected Health
+      Information). FMEA: Severity=10, Occurrence=3, Detection=6, RPN=180.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (security and compliance — PHI exposure violates federal regulations).
+      Frequency: 2 (health claims are a significant portion of claims; access controls are checked on every access).
+      Consequence: 3 (HIPAA violations carry massive fines, lawsuits, and reputational damage).
+      Detectability: 3 (unauthorized access may go undetected without proper audit logging).
+      Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      EP partitions by user role (adjuster, admin, claimant, unauthorized). DT covers
+      role x document-type x action permission matrix. EG anticipates missing
+      encryption at rest, audit log gaps, and IDOR (Insecure Direct Object Reference)
+      vulnerabilities.
+    preconditions:
+      - "Medical records have been uploaded to a claim"
+      - "Access control and audit logging systems are deployed"
+    examples:
+      - input:
+          user_role: "claims_adjuster"
+          document_type: "medical_record"
+          action: "view"
+          assigned_to_claim: true
+        expected:
+          access_granted: true
+          audit_log_entry_created: true
+          document_served_encrypted: true
+        description: "Authorized adjuster views assigned claim's medical record"
+      - input:
+          user_role: "claims_adjuster"
+          document_type: "medical_record"
+          action: "view"
+          assigned_to_claim: false
+        expected:
+          access_granted: false
+          error: "UnauthorizedAccessError"
+          audit_log_entry_created: true
+          security_alert_raised: true
+        description: "Adjuster attempts to view medical record from unassigned claim — IDOR test"
+      - input:
+          user_role: "customer_service"
+          document_type: "medical_record"
+          action: "download"
+        expected:
+          access_granted: false
+          error: "InsufficientPrivilegesError"
+        description: "Non-privileged role cannot access medical records"
+      - input:
+          user_role: "system"
+          document_type: "medical_record"
+          action: "store"
+          encryption_at_rest: false
+        expected:
+          storage_status: "rejected"
+          error: "EncryptionRequiredError"
+        description: "System must reject unencrypted storage of medical records"
+    decision_table:
+      conditions:
+        - "user_role"
+        - "document_type"
+        - "assigned_to_claim"
+      actions:
+        - "grant_access"
+        - "deny_access"
+        - "create_audit_log"
+        - "raise_security_alert"
+      rules:
+        - description: "Authorized adjuster, medical record, assigned claim"
+          condition_values:
+            user_role: "claims_adjuster"
+            document_type: "medical_record"
+            assigned_to_claim: true
+          expected_actions:
+            grant_access: true
+            deny_access: false
+            create_audit_log: true
+            raise_security_alert: false
+        - description: "Unauthorized adjuster, medical record, unassigned claim"
+          condition_values:
+            user_role: "claims_adjuster"
+            document_type: "medical_record"
+            assigned_to_claim: false
+          expected_actions:
+            grant_access: false
+            deny_access: true
+            create_audit_log: true
+            raise_security_alert: true
+        - description: "Customer service, medical record"
+          condition_values:
+            user_role: "customer_service"
+            document_type: "medical_record"
+            assigned_to_claim: false
+          expected_actions:
+            grant_access: false
+            deny_access: true
+            create_audit_log: true
+            raise_security_alert: false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "document-upload"
+      - "hipaa"
+      - "compliance"
+      - "security"
+      - "rpn-180"
+      - "severity-10"
+      - "component-2"
+
+  # FM-2.4: Unsupported File Format Accepted (Severity=5, Occurrence=5, Detection=3, RPN=75)
+  - name: "FM-2.4 Unsupported file format accepted without validation"
+    description: >
+      The upload service accepts file formats that are not in the allowed list
+      (e.g., .exe, .bat, .js, .html), either due to missing validation or
+      content-type spoofing. FMEA: Severity=5, Occurrence=5, Detection=3, RPN=75.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (secondary feature — file validation is not core business logic but supports integrity).
+      Frequency: 2 (users may accidentally upload wrong formats; attackers will probe).
+      Consequence: 2 (unsupported files cause downstream processing failures but no data loss).
+      Detectability: 1 (unsupported formats are typically caught quickly during adjudication).
+      Average: 1.75 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions by file extension and MIME type (valid: JPEG, PNG, PDF, DICOM;
+      invalid: EXE, BAT, JS, HTML). EG tests content-type mismatch where header
+      says PDF but content is executable.
+    preconditions:
+      - "Upload endpoint is available"
+      - "Allowed file type list is configured"
+    examples:
+      - input:
+          filename: "evidence.jpg"
+          content_type: "image/jpeg"
+          magic_bytes: "FFD8FF"
+        expected:
+          accepted: true
+        description: "Valid JPEG with matching magic bytes — accepted"
+      - input:
+          filename: "script.js"
+          content_type: "application/javascript"
+        expected:
+          accepted: false
+          error: "UnsupportedFileTypeError"
+        description: "JavaScript file — explicitly blocked"
+      - input:
+          filename: "report.pdf"
+          content_type: "application/pdf"
+          magic_bytes: "4D5A"
+        expected:
+          accepted: false
+          error: "ContentTypeMismatchError"
+        description: "File claims to be PDF but has EXE magic bytes — content-type spoofing"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "fmea"
+      - "document-upload"
+      - "file-validation"
+      - "rpn-75"
+      - "severity-5"
+      - "component-2"
+
+  # ===========================================================================
+  # COMPONENT 3: FRAUD DETECTION ALGORITHM
+  # Failure Modes: False negative (missed fraud), false positive, fraud ring
+  #   detection failure, amount inflation not detected, algorithm bias
+  # ===========================================================================
+
+  # FM-3.1: False Negative — Fraudulent Claim Not Detected (Severity=10, Occurrence=4, Detection=7, RPN=280)
+  - name: "FM-3.1 False negative — fraudulent claim passes without detection"
+    description: >
+      The fraud detection algorithm fails to flag a genuinely fraudulent claim,
+      allowing it to be processed and paid. This is the highest-RPN failure mode
+      in the entire system. FMEA: Severity=10, Occurrence=4, Detection=7, RPN=280.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (core business logic — fraud detection is the primary financial safeguard).
+      Frequency: 2 (fraud attempts are ongoing; detection runs on every claim).
+      Consequence: 3 (direct financial loss from paying fraudulent claims; enables fraud rings).
+      Detectability: 3 (by definition, false negatives are the hardest to detect — silent failures).
+      Average: 2.75 -> high.
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+      - cause_effect
+      - error_guessing
+    technique_rationale: >
+      EP partitions fraud types (duplicate claims, inflated amounts, staged accidents,
+      fraud rings). DT covers combinations of fraud indicators and detection
+      thresholds. CE maps the logical relationships between fraud signals and
+      detection outcomes. EG anticipates evasion techniques (slightly-below-threshold
+      amounts, time-delayed duplicates, distributed fraud ring patterns).
+    preconditions:
+      - "Fraud detection algorithm is active"
+      - "Historical claim data and fraud patterns are loaded"
+      - "Known fraud ring database is current"
+    examples:
+      - input:
+          claim_type: "auto"
+          claim_amount: 49999
+          threshold: 50000
+          prior_claims_same_policy: 0
+          known_fraud_ring_member: false
+          claim_filed_days_after_incident: 1
+        expected:
+          fraud_flagged: false
+          note: "Just-below-threshold claim — may be evasion tactic but algorithm may miss"
+        description: "Amount just below fraud threshold — evasion pattern test"
+      - input:
+          claim_type: "auto"
+          claimant_id: "C123"
+          claim_amount: 15000
+          identical_claim_exists: true
+          identical_claim_filed_days_ago: 45
+        expected:
+          fraud_flagged: true
+          fraud_type: "duplicate_claim"
+          confidence: ">= 0.90"
+        description: "Duplicate claim filed 45 days apart — must be detected"
+      - input:
+          claim_type: "home"
+          claimant_id: "C456"
+          known_fraud_ring_member: true
+          claim_amount: 5000
+        expected:
+          fraud_flagged: true
+          fraud_type: "fraud_ring_association"
+          escalation: "special_investigations_unit"
+        description: "Low-amount claim from known fraud ring member — must still flag"
+      - input:
+          claim_type: "auto"
+          repair_estimate: 12000
+          market_value_vehicle: 8000
+          claim_amount: 12000
+        expected:
+          fraud_flagged: true
+          fraud_type: "inflated_amount"
+          reason: "Repair estimate exceeds vehicle market value by 50%"
+        description: "Inflated repair estimate exceeding vehicle value — amount inflation detection"
+    decision_table:
+      conditions:
+        - "duplicate_claim_detected"
+        - "known_fraud_ring_member"
+        - "amount_exceeds_threshold"
+        - "amount_exceeds_asset_value"
+      actions:
+        - "flag_as_fraud"
+        - "escalate_to_SIU"
+        - "auto_approve"
+        - "manual_review"
+      rules:
+        - description: "Duplicate claim from fraud ring member"
+          condition_values:
+            duplicate_claim_detected: true
+            known_fraud_ring_member: true
+            amount_exceeds_threshold: true
+            amount_exceeds_asset_value: false
+          expected_actions:
+            flag_as_fraud: true
+            escalate_to_SIU: true
+            auto_approve: false
+            manual_review: false
+        - description: "No fraud indicators"
+          condition_values:
+            duplicate_claim_detected: false
+            known_fraud_ring_member: false
+            amount_exceeds_threshold: false
+            amount_exceeds_asset_value: false
+          expected_actions:
+            flag_as_fraud: false
+            escalate_to_SIU: false
+            auto_approve: true
+            manual_review: false
+        - description: "Only amount exceeds threshold"
+          condition_values:
+            duplicate_claim_detected: false
+            known_fraud_ring_member: false
+            amount_exceeds_threshold: true
+            amount_exceeds_asset_value: false
+          expected_actions:
+            flag_as_fraud: false
+            escalate_to_SIU: false
+            auto_approve: false
+            manual_review: true
+        - description: "Amount exceeds asset value"
+          condition_values:
+            duplicate_claim_detected: false
+            known_fraud_ring_member: false
+            amount_exceeds_threshold: false
+            amount_exceeds_asset_value: true
+          expected_actions:
+            flag_as_fraud: true
+            escalate_to_SIU: false
+            auto_approve: false
+            manual_review: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "fraud-detection"
+      - "false-negative"
+      - "rpn-280"
+      - "severity-10"
+      - "component-3"
+
+  # FM-3.2: False Positive — Legitimate Claim Flagged as Fraud (Severity=6, Occurrence=5, Detection=3, RPN=90)
+  - name: "FM-3.2 False positive — legitimate claim incorrectly flagged as fraudulent"
+    description: >
+      The fraud detection algorithm incorrectly flags a legitimate claim, causing
+      delays in processing, customer dissatisfaction, and increased manual review
+      workload. FMEA: Severity=6, Occurrence=5, Detection=3, RPN=90.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (secondary impact — delays processing but does not cause financial loss directly).
+      Frequency: 3 (false positives are common in fraud detection; many legitimate claims trigger soft flags).
+      Consequence: 2 (customer frustration, delayed payouts, increased manual review costs).
+      Detectability: 1 (false positives are discovered during manual review — immediately visible).
+      Average: 2.00 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      EP partitions legitimate claim patterns that resemble fraud (high-value
+      legitimate claims, frequent claimants, new policies). BVA tests threshold
+      boundaries where legitimate amounts are just above fraud detection thresholds.
+      EG anticipates edge cases like legitimate multiple claims from natural disasters.
+    preconditions:
+      - "Fraud detection algorithm is active"
+      - "Claim is legitimately submitted"
+    examples:
+      - input:
+          claim_type: "home"
+          claim_amount: 50001
+          threshold: 50000
+          prior_claims_count: 0
+          known_fraud_ring_member: false
+        expected:
+          fraud_flagged: false
+          note: "Slightly above threshold but first claim with no other indicators — should not flag"
+        description: "Legitimate high-value claim just above threshold — should not auto-flag"
+      - input:
+          claim_type: "auto"
+          claimant_id: "C789"
+          claims_in_last_year: 3
+          all_claims_verified_legitimate: true
+          natural_disaster_declared: true
+        expected:
+          fraud_flagged: false
+          note: "Multiple claims due to declared natural disaster — legitimate pattern"
+        description: "Multiple claims during natural disaster — false positive prevention"
+      - input:
+          claim_type: "health"
+          claim_amount: 150000
+          procedure: "emergency_surgery"
+          hospital_verified: true
+        expected:
+          fraud_flagged: false
+        description: "High-amount health claim for verified emergency — should not flag"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "fmea"
+      - "fraud-detection"
+      - "false-positive"
+      - "rpn-90"
+      - "severity-6"
+      - "component-3"
+
+  # FM-3.3: Fraud Ring Detection Failure (Severity=9, Occurrence=3, Detection=8, RPN=216)
+  - name: "FM-3.3 Fraud ring detection failure — coordinated fraud network not identified"
+    description: >
+      The algorithm fails to detect coordinated fraud where multiple claimants,
+      providers, or adjusters are part of a fraud ring. Each individual claim may
+      appear legitimate, but the pattern across the network reveals fraud.
+      FMEA: Severity=9, Occurrence=3, Detection=8, RPN=216.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (core fraud prevention — fraud rings cause massive aggregate losses).
+      Frequency: 2 (fraud rings are less common than individual fraud but cause larger losses).
+      Consequence: 3 (cumulative financial loss from undetected ring can be millions of dollars).
+      Detectability: 3 (fraud rings are designed to evade detection; individual claims look normal).
+      Average: 2.75 -> high.
+    techniques:
+      - cause_effect
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      CE maps the graph relationships (shared addresses, phone numbers, providers,
+      attorneys) that indicate ring membership. DT covers combinations of ring
+      indicators. EG anticipates sophisticated evasion (using slightly different
+      addresses, VoIP numbers, nominee claimants).
+    preconditions:
+      - "Fraud ring database and graph analysis engine are operational"
+      - "Sufficient historical data exists for pattern matching"
+    examples:
+      - input:
+          claims:
+            - claimant: "A"
+              address: "123 Main St"
+              provider: "Dr. X"
+              attorney: "Law Firm Y"
+            - claimant: "B"
+              address: "125 Main St"
+              provider: "Dr. X"
+              attorney: "Law Firm Y"
+            - claimant: "C"
+              address: "127 Main St"
+              provider: "Dr. X"
+              attorney: "Law Firm Z"
+        expected:
+          ring_detected: true
+          ring_members: ["A", "B", "C"]
+          shared_indicators: ["proximity_address", "same_provider"]
+        description: "Three claimants at adjacent addresses with same provider — ring pattern"
+      - input:
+          claims:
+            - claimant: "D"
+              phone: "+1-555-0100"
+              incident_date: "2026-01-15"
+            - claimant: "E"
+              phone: "+1-555-0101"
+              incident_date: "2026-01-15"
+          phone_numbers_from_same_voip_provider: true
+        expected:
+          ring_detected: true
+          confidence: ">= 0.75"
+          indicators: ["sequential_phone_numbers", "same_incident_date", "voip_numbers"]
+        description: "Sequential VoIP phone numbers and same incident date — coordinated fraud"
+      - input:
+          claims:
+            - claimant: "F"
+              address: "456 Oak Ave"
+              provider: "Dr. Z"
+            - claimant: "G"
+              address: "789 Pine Rd"
+              provider: "Dr. W"
+        expected:
+          ring_detected: false
+          note: "No shared indicators — independent claims"
+        description: "Independent claims with no shared indicators — no ring"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "fraud-detection"
+      - "fraud-ring"
+      - "rpn-216"
+      - "severity-9"
+      - "component-3"
+
+  # FM-3.4: Algorithm Performance Degradation Under Load (Severity=7, Occurrence=3, Detection=4, RPN=84)
+  - name: "FM-3.4 Fraud detection algorithm timeout or degradation under high claim volume"
+    description: >
+      The fraud detection algorithm takes too long to process during peak periods
+      (e.g., after a natural disaster), causing claims to either bypass fraud
+      checks entirely or creating a massive processing backlog. FMEA: Severity=7,
+      Occurrence=3, Detection=4, RPN=84.
+    type: performance
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (algorithm still functions but too slowly — not a core logic failure).
+      Frequency: 2 (peak periods are seasonal/event-driven, not constant).
+      Consequence: 3 (if fraud checks are bypassed due to timeout, fraudulent claims may be paid).
+      Detectability: 1 (timeouts and backlogs are immediately visible in monitoring).
+      Average: 2.00 -> medium.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      BVA tests claim volume at capacity boundaries (normal load, 90% capacity,
+      100%, 150%). EG anticipates timeout handling behavior — does the system
+      bypass fraud checks or queue claims?
+    preconditions:
+      - "Fraud detection service is deployed with defined SLAs"
+      - "Load testing infrastructure is available"
+    examples:
+      - input:
+          concurrent_claims: 100
+          expected_processing_time_ms: 500
+        expected:
+          all_claims_processed: true
+          p99_latency_ms: "<= 500"
+        description: "Normal load — 100 concurrent claims within SLA"
+      - input:
+          concurrent_claims: 10000
+          expected_processing_time_ms: 500
+        expected:
+          graceful_degradation: true
+          claims_queued: true
+          fraud_check_bypassed: false
+          note: "Under extreme load, claims must be queued, not processed without fraud check"
+        description: "Extreme load — claims must queue, never bypass fraud detection"
+      - input:
+          concurrent_claims: 1000
+          fraud_check_timeout_ms: 5000
+          actual_processing_time_ms: 6000
+        expected:
+          timeout_handled: true
+          claim_status: "pending_fraud_review"
+          fraud_check_bypassed: false
+        description: "Fraud check timeout — claim must not proceed without fraud clearance"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "fmea"
+      - "fraud-detection"
+      - "performance"
+      - "rpn-84"
+      - "severity-7"
+      - "component-3"
+
+  # ===========================================================================
+  # COMPONENT 4: CLAIMS DASHBOARD
+  # Failure Modes: Incorrect status display, filter malfunction, data leakage,
+  #   stale data, pagination errors
+  # ===========================================================================
+
+  # FM-4.1: Incorrect Claim Status Displayed (Severity=7, Occurrence=4, Detection=2, RPN=56)
+  - name: "FM-4.1 Incorrect claim status displayed — dashboard shows stale or wrong state"
+    description: >
+      The claims dashboard displays an incorrect status for a claim (e.g., showing
+      "approved" when the claim is still "under review" or showing a previous
+      status after a state change). This misleads claimants and adjusters.
+      FMEA: Severity=7, Occurrence=4, Detection=2, RPN=56.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (dashboard is a secondary feature — actual claim processing is unaffected).
+      Frequency: 3 (every user views the dashboard; status updates happen frequently).
+      Consequence: 2 (misleading display causes confusion and support calls but no financial impact).
+      Detectability: 1 (users and adjusters notice wrong status quickly).
+      Average: 2.00 -> medium.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      ST models the claim lifecycle states and verifies dashboard reflects each
+      transition correctly. EP partitions by claim status categories. EG anticipates
+      caching issues, race conditions between status update and dashboard refresh,
+      and eventual consistency delays.
+    preconditions:
+      - "Dashboard is accessible to the user"
+      - "Claims exist in various statuses"
+    examples:
+      - input:
+          claim_id: "CLM-001"
+          actual_status: "approved"
+          last_status_change: "2026-03-14T10:00:00Z"
+          dashboard_query_time: "2026-03-14T10:00:05Z"
+        expected:
+          displayed_status: "approved"
+          status_matches_actual: true
+        description: "Dashboard reflects status change within 5 seconds"
+      - input:
+          claim_id: "CLM-002"
+          status_changed_from: "under_review"
+          status_changed_to: "approved"
+          cache_ttl_seconds: 60
+          dashboard_query_time: "30 seconds after change"
+        expected:
+          displayed_status: "approved"
+          note: "Cache should be invalidated on status change, not rely on TTL"
+        description: "Status change must invalidate cache — not wait for TTL expiry"
+      - input:
+          claim_id: "CLM-003"
+          concurrent_status_updates:
+            - update_1: "under_review -> approved"
+            - update_2: "under_review -> denied"
+          timing: "simultaneous"
+        expected:
+          final_status: "one of approved or denied"
+          no_stuck_state: true
+          note: "Concurrent updates must resolve deterministically"
+        description: "Race condition — concurrent status updates must resolve cleanly"
+    state_transition:
+      states:
+        - "submitted"
+        - "under_review"
+        - "additional_info_requested"
+        - "approved"
+        - "denied"
+        - "paid"
+        - "closed"
+        - "appealed"
+      transitions:
+        - from: "submitted"
+          to: "under_review"
+          trigger: "Adjuster picks up claim"
+          guard: "Claim has required documents"
+        - from: "under_review"
+          to: "additional_info_requested"
+          trigger: "Adjuster requests more information"
+          guard: "Missing evidence identified"
+        - from: "additional_info_requested"
+          to: "under_review"
+          trigger: "Claimant submits additional documents"
+          guard: "Documents uploaded successfully"
+        - from: "under_review"
+          to: "approved"
+          trigger: "Adjuster approves claim"
+          guard: "All evidence reviewed and valid"
+        - from: "under_review"
+          to: "denied"
+          trigger: "Adjuster denies claim"
+          guard: "Denial reason documented"
+        - from: "approved"
+          to: "paid"
+          trigger: "Payment processed"
+          guard: "Payment method verified"
+        - from: "paid"
+          to: "closed"
+          trigger: "Claim finalized"
+          guard: "No appeals within appeal window"
+        - from: "denied"
+          to: "appealed"
+          trigger: "Claimant files appeal"
+          guard: "Within appeal deadline"
+        - from: "appealed"
+          to: "under_review"
+          trigger: "Appeal accepted for review"
+          guard: "New evidence provided"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "fmea"
+      - "claims-dashboard"
+      - "status-display"
+      - "rpn-56"
+      - "severity-7"
+      - "component-4"
+
+  # FM-4.2: Filter Returns Incorrect Results (Severity=5, Occurrence=5, Detection=2, RPN=50)
+  - name: "FM-4.2 Dashboard filter returns incorrect or incomplete results"
+    description: >
+      Filtering claims by date, type, or status returns incorrect results — either
+      missing claims that match the filter criteria or including claims that do not.
+      FMEA: Severity=5, Occurrence=5, Detection=2, RPN=50.
+    type: combinatorial
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (secondary feature — filter is a UX convenience, not core logic).
+      Frequency: 2 (adjusters and claimants use filters regularly but not on every interaction).
+      Consequence: 1 (incorrect filter results are an inconvenience; data is still accessible via other means).
+      Detectability: 1 (users notice missing or extra results quickly).
+      Average: 1.50 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - pairwise
+      - decision_table
+    technique_rationale: >
+      EP partitions by filter field (date range, claim type, status). BVA tests date
+      boundaries (start of day, end of day, timezone transitions). PW covers
+      combinations of multiple active filters. DT covers the expected result set
+      for each filter combination.
+    preconditions:
+      - "Dashboard is accessible"
+      - "Claims exist across multiple dates, types, and statuses"
+    examples:
+      - input:
+          filter_date_from: "2026-01-01"
+          filter_date_to: "2026-01-31"
+          filter_type: "all"
+          filter_status: "all"
+          total_claims_in_range: 150
+        expected:
+          result_count: 150
+          all_claims_within_date_range: true
+        description: "Date range filter returns all claims within January 2026"
+      - input:
+          filter_date_from: "2026-01-01"
+          filter_date_to: "2026-01-01"
+          filter_type: "auto"
+          filter_status: "approved"
+        expected:
+          all_results_match_all_filters: true
+          note: "Combined filters must AND together, not OR"
+        description: "Multiple filters combined — must AND all criteria"
+      - input:
+          filter_date_from: "2026-03-14"
+          filter_date_to: "2026-03-13"
+        expected:
+          result_count: 0
+          error_or_warning: "InvalidDateRangeWarning"
+        description: "Invalid date range (from > to) — should warn or return empty"
+      - input:
+          filter_status: "approved"
+          claim_status_changed_during_query: true
+        expected:
+          result_consistent: true
+          note: "Query isolation — status changes during query must not cause inconsistent results"
+        description: "Filter consistency during concurrent status changes"
+    decision_table:
+      conditions:
+        - "date_filter_set"
+        - "type_filter_set"
+        - "status_filter_set"
+      actions:
+        - "filter_by_date"
+        - "filter_by_type"
+        - "filter_by_status"
+        - "return_all"
+      rules:
+        - description: "No filters applied"
+          condition_values:
+            date_filter_set: false
+            type_filter_set: false
+            status_filter_set: false
+          expected_actions:
+            filter_by_date: false
+            filter_by_type: false
+            filter_by_status: false
+            return_all: true
+        - description: "All filters applied"
+          condition_values:
+            date_filter_set: true
+            type_filter_set: true
+            status_filter_set: true
+          expected_actions:
+            filter_by_date: true
+            filter_by_type: true
+            filter_by_status: true
+            return_all: false
+        - description: "Only date filter"
+          condition_values:
+            date_filter_set: true
+            type_filter_set: false
+            status_filter_set: false
+          expected_actions:
+            filter_by_date: true
+            filter_by_type: false
+            filter_by_status: false
+            return_all: false
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "fmea"
+      - "claims-dashboard"
+      - "filter"
+      - "rpn-50"
+      - "severity-5"
+      - "component-4"
+
+  # FM-4.3: Data Leakage — User Sees Other Users' Claims (Severity=9, Occurrence=2, Detection=4, RPN=72)
+  - name: "FM-4.3 Data leakage — dashboard shows claims belonging to other users"
+    description: >
+      A claimant can see claims belonging to other claimants due to missing tenant
+      isolation, broken authorization checks, or IDOR vulnerabilities in the
+      dashboard query. FMEA: Severity=9, Occurrence=2, Detection=4, RPN=72.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (security — data leakage exposes PII and claim details).
+      Frequency: 1 (rare bug but exploitable if present).
+      Consequence: 3 (privacy violation, regulatory fines, loss of customer trust).
+      Detectability: 2 (may not be noticed by the unauthorized viewer; victim is unaware).
+      Average: 2.25 -> medium. Overridden to high due to security severity.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions by user role and tenant boundaries. EG anticipates IDOR
+      (incrementing claim IDs), missing WHERE clause in queries, broken tenant
+      isolation, and horizontal privilege escalation.
+    preconditions:
+      - "Multi-tenant system with multiple claimants"
+      - "Authorization middleware is deployed"
+    examples:
+      - input:
+          authenticated_user: "user_A"
+          requested_claim_id: "CLM-B-001"
+          claim_owner: "user_B"
+        expected:
+          access_granted: false
+          error: "ForbiddenError"
+          claim_data_returned: false
+        description: "User A attempts to access User B's claim via direct ID — must be blocked"
+      - input:
+          authenticated_user: "user_A"
+          query: "GET /api/claims"
+        expected:
+          results_contain_only: "user_A_claims"
+          no_other_user_data: true
+        description: "Claims list endpoint must filter by authenticated user's claims only"
+      - input:
+          authenticated_user: "user_A"
+          query: "GET /api/claims?user_id=user_B"
+        expected:
+          access_granted: false
+          error: "ForbiddenError"
+          note: "user_id parameter in query must not override session authentication"
+        description: "Query parameter manipulation — must not allow viewing other user's claims"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "claims-dashboard"
+      - "security"
+      - "data-leakage"
+      - "idor"
+      - "rpn-72"
+      - "severity-9"
+      - "component-4"
+
+  # FM-4.4: Pagination Errors — Missing or Duplicate Claims in Paginated View (Severity=4, Occurrence=4, Detection=2, RPN=32)
+  - name: "FM-4.4 Pagination errors — claims missing or duplicated across pages"
+    description: >
+      When paginating through claims, some claims are skipped or appear on multiple
+      pages due to offset-based pagination issues with concurrent inserts/deletes
+      or sorting instability. FMEA: Severity=4, Occurrence=4, Detection=2, RPN=32.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1 (display-only issue — no data is lost, just displayed incorrectly in pagination).
+      Frequency: 2 (pagination is used regularly but issues only manifest with concurrent changes).
+      Consequence: 1 (minor inconvenience — user can refresh or adjust page size).
+      Detectability: 1 (users notice missing or duplicate items quickly).
+      Average: 1.25 -> low.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      BVA tests page boundaries (first page, last page, page with exactly page_size
+      items, empty page). EG anticipates offset drift from concurrent inserts and
+      cursor-based vs offset-based pagination issues.
+    preconditions:
+      - "Dashboard has paginated claim list"
+      - "More claims exist than fit on one page"
+    examples:
+      - input:
+          total_claims: 105
+          page_size: 10
+          requested_page: 11
+        expected:
+          result_count: 5
+          is_last_page: true
+        description: "Last page with fewer items than page size"
+      - input:
+          total_claims: 100
+          page_size: 10
+          requested_page: 11
+        expected:
+          result_count: 0
+          is_last_page: true
+          error: null
+        description: "Request page beyond last page — should return empty, not error"
+      - input:
+          total_claims: 0
+          page_size: 10
+          requested_page: 1
+        expected:
+          result_count: 0
+          is_last_page: true
+        description: "No claims — first page should be empty"
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - "fmea"
+      - "claims-dashboard"
+      - "pagination"
+      - "rpn-32"
+      - "severity-4"
+      - "component-4"
+
+  # ===========================================================================
+  # COMPONENT 5: NOTIFICATION SERVICE
+  # Failure Modes: Notification not sent, sent to wrong recipient, duplicate
+  #   notifications, notification content mismatch, channel failure
+  # ===========================================================================
+
+  # FM-5.1: Notification Not Sent on Status Change (Severity=6, Occurrence=4, Detection=4, RPN=96)
+  - name: "FM-5.1 Notification not sent when claim status changes"
+    description: >
+      A claim status change occurs but the notification service fails to send the
+      corresponding email or SMS update. The claimant is unaware of the status
+      change. FMEA: Severity=6, Occurrence=4, Detection=4, RPN=96.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (secondary feature — notification is informational, not transactional).
+      Frequency: 3 (every status change should trigger a notification).
+      Consequence: 2 (claimant misses update, calls support, but claim processing is unaffected).
+      Detectability: 2 (claimant notices absence of notification eventually, but may not report it immediately).
+      Average: 2.25 -> medium.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      ST verifies that each claim state transition triggers the correct notification.
+      EP partitions by notification channel (email, SMS) and status change type.
+      EG anticipates message queue failures, dead letter queue scenarios, and
+      notification service downtime during status changes.
+    preconditions:
+      - "Notification service is configured with email and SMS providers"
+      - "Claimant has valid contact information on file"
+      - "Claim exists and undergoes a status change"
+    examples:
+      - input:
+          claim_id: "CLM-001"
+          status_change: "submitted -> under_review"
+          notification_channels: ["email", "sms"]
+          claimant_email: "user@example.com"
+          claimant_phone: "+1-555-0123"
+        expected:
+          email_sent: true
+          sms_sent: true
+          notification_content_includes: "Your claim CLM-001 is now under review"
+        description: "Both email and SMS sent on status change — happy path"
+      - input:
+          claim_id: "CLM-002"
+          status_change: "under_review -> approved"
+          notification_channels: ["email"]
+          email_provider_status: "down"
+        expected:
+          email_sent: false
+          retry_scheduled: true
+          retry_count_max: 3
+          dead_letter_after_retries: true
+        description: "Email provider down — notification must be retried, not silently dropped"
+      - input:
+          claim_id: "CLM-003"
+          status_change: "approved -> paid"
+          notification_channels: ["sms"]
+          claimant_phone: null
+        expected:
+          sms_sent: false
+          fallback_channel: "email"
+          notification_sent_via_fallback: true
+        description: "SMS channel unavailable (no phone) — should fall back to email"
+    state_transition:
+      states:
+        - "notification_pending"
+        - "notification_sending"
+        - "notification_sent"
+        - "notification_failed"
+        - "notification_retrying"
+        - "notification_dead_lettered"
+      transitions:
+        - from: "notification_pending"
+          to: "notification_sending"
+          trigger: "Notification service picks up message from queue"
+          guard: "Provider is available"
+        - from: "notification_sending"
+          to: "notification_sent"
+          trigger: "Provider confirms delivery"
+          guard: "Delivery acknowledgment received"
+        - from: "notification_sending"
+          to: "notification_failed"
+          trigger: "Provider returns error"
+          guard: "Error response received"
+        - from: "notification_failed"
+          to: "notification_retrying"
+          trigger: "Retry policy triggered"
+          guard: "Retry count < max retries"
+        - from: "notification_retrying"
+          to: "notification_sending"
+          trigger: "Retry timer expires"
+          guard: "Backoff period elapsed"
+        - from: "notification_failed"
+          to: "notification_dead_lettered"
+          trigger: "Max retries exceeded"
+          guard: "Retry count >= max retries"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "fmea"
+      - "notification-service"
+      - "delivery-failure"
+      - "rpn-96"
+      - "severity-6"
+      - "component-5"
+
+  # FM-5.2: Notification Sent to Wrong Recipient (Severity=9, Occurrence=2, Detection=5, RPN=90)
+  - name: "FM-5.2 Notification sent to wrong recipient — privacy breach"
+    description: >
+      A notification about a claim is sent to the wrong person, disclosing claim
+      details (amount, status, policy information) to an unauthorized recipient.
+      FMEA: Severity=9, Occurrence=2, Detection=5, RPN=90.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (security — sending claim details to wrong person is a data breach).
+      Frequency: 1 (rare but possible through data mapping errors or race conditions).
+      Consequence: 3 (privacy violation, regulatory fines, loss of trust).
+      Detectability: 2 (wrong recipient may not report it; actual claimant may not know).
+      Average: 2.25 -> medium. Overridden to high due to security severity.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      EP partitions by recipient lookup method (claim-to-contact mapping, batch
+      notifications). EG anticipates race conditions where contact info changes
+      between lookup and send, batch notification ordering errors, and template
+      variable injection. CE maps the causal chain from claim event to recipient
+      resolution.
+    preconditions:
+      - "Notification service has access to claimant contact database"
+      - "Multiple claimants exist in the system"
+    examples:
+      - input:
+          claim_id: "CLM-001"
+          claimant_id: "C-100"
+          claimant_email: "alice@example.com"
+          notification_type: "status_update"
+        expected:
+          recipient_email: "alice@example.com"
+          notification_contains_claim_id: "CLM-001"
+          no_cross_contamination: true
+        description: "Correct recipient receives notification for their claim"
+      - input:
+          batch_notifications:
+            - claim_id: "CLM-001"
+              claimant_email: "alice@example.com"
+            - claim_id: "CLM-002"
+              claimant_email: "bob@example.com"
+          processing: "parallel"
+        expected:
+          alice_receives_only: "CLM-001 details"
+          bob_receives_only: "CLM-002 details"
+          no_cross_contamination: true
+        description: "Batch notifications — each recipient gets only their own claim details"
+      - input:
+          claim_id: "CLM-001"
+          claimant_email_changed_during_send: true
+          old_email: "alice@old.com"
+          new_email: "alice@new.com"
+          change_timing: "between lookup and send"
+        expected:
+          sent_to: "alice@new.com"
+          note: "Contact update must be atomic with notification send"
+        description: "Contact info changes between lookup and send — race condition"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "notification-service"
+      - "wrong-recipient"
+      - "security"
+      - "privacy"
+      - "rpn-90"
+      - "severity-9"
+      - "component-5"
+
+  # FM-5.3: Duplicate Notifications Sent (Severity=4, Occurrence=5, Detection=2, RPN=40)
+  - name: "FM-5.3 Duplicate notifications sent for the same status change"
+    description: >
+      The same notification is sent multiple times for a single status change event,
+      causing claimant confusion and potentially alarm (e.g., receiving "claim
+      denied" twice makes them think it was denied again). FMEA: Severity=4,
+      Occurrence=5, Detection=2, RPN=40.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 1 (display/communication issue — no functional impact on claim processing).
+      Frequency: 2 (can occur with message queue redelivery, retry storms, or event duplication).
+      Consequence: 2 (customer confusion and support calls, but no financial or data impact).
+      Detectability: 1 (claimant notices duplicate messages immediately).
+      Average: 1.50 -> medium.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      EG anticipates idempotency failures in message queue processing, retry
+      mechanisms that do not check if notification was already sent, and event
+      sourcing systems that replay events. ST models the notification delivery
+      state to ensure deduplication.
+    preconditions:
+      - "Notification service processes events from a message queue"
+      - "Idempotency mechanism is expected to be in place"
+    examples:
+      - input:
+          event_id: "EVT-001"
+          status_change: "submitted -> under_review"
+          event_delivered_times: 3
+        expected:
+          notifications_sent: 1
+          duplicates_suppressed: 2
+          idempotency_key_used: "EVT-001"
+        description: "Same event delivered 3 times — only 1 notification should be sent"
+      - input:
+          claim_id: "CLM-001"
+          status_change: "under_review -> approved"
+          concurrent_status_update_events: 2
+        expected:
+          notifications_sent: 1
+          note: "Concurrent identical events must be deduplicated"
+        description: "Concurrent duplicate events — deduplication required"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "fmea"
+      - "notification-service"
+      - "duplicate"
+      - "idempotency"
+      - "rpn-40"
+      - "severity-4"
+      - "component-5"
+
+  # FM-5.4: Notification Content Does Not Match Actual Status (Severity=7, Occurrence=3, Detection=3, RPN=63)
+  - name: "FM-5.4 Notification content does not match actual claim status"
+    description: >
+      The notification message body contains incorrect information — e.g., says
+      "approved" when the claim was actually denied, or shows the wrong payout
+      amount. This occurs due to template rendering errors, stale data reads, or
+      race conditions between status update and notification content generation.
+      FMEA: Severity=7, Occurrence=3, Detection=3, RPN=63.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (secondary feature — notification content is informational).
+      Frequency: 2 (every notification has content that must match; moderate frequency).
+      Consequence: 2 (claimant makes decisions based on wrong information; support calls).
+      Detectability: 2 (claimant may or may not notice discrepancy with dashboard).
+      Average: 2.00 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      EP partitions by notification template type (approval, denial, payment,
+      request for info). EG anticipates template variable injection, missing
+      template variables defaulting to empty, and stale cache reads. CE maps
+      the data flow from claim state to notification content.
+    preconditions:
+      - "Notification templates exist for each status change type"
+      - "Claim data is accessible to the notification service"
+    examples:
+      - input:
+          claim_id: "CLM-001"
+          actual_status: "approved"
+          actual_payout: 15000
+          template: "claim_approved"
+        expected:
+          notification_body_contains: "approved"
+          notification_body_contains_amount: 15000
+          status_in_notification_matches_actual: true
+        description: "Notification content matches actual claim status and amount"
+      - input:
+          claim_id: "CLM-002"
+          status_sequence: ["under_review", "denied"]
+          notification_generated_at: "during under_review"
+          notification_sent_at: "after denied"
+        expected:
+          notification_status: "denied"
+          note: "Notification content must reflect status at time of send, not at time of generation"
+        description: "Race condition — status changes between notification generation and send"
+      - input:
+          claim_id: "CLM-003"
+          template: "claim_approved"
+          template_variable_payout_amount: null
+        expected:
+          notification_sent: false
+          error: "MissingTemplateVariableError"
+          note: "Missing template variables must prevent send, not render blank"
+        description: "Missing template variable — notification must not be sent with blank fields"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "fmea"
+      - "notification-service"
+      - "content-mismatch"
+      - "rpn-63"
+      - "severity-7"
+      - "component-5"
+
+  # FM-5.5: Channel Failure — Email/SMS Provider Outage (Severity=5, Occurrence=4, Detection=2, RPN=40)
+  - name: "FM-5.5 Channel failure — email or SMS provider outage causes notification loss"
+    description: >
+      The email or SMS provider experiences an outage, and the notification service
+      does not handle the failure gracefully — notifications are lost instead of
+      being queued for retry. FMEA: Severity=5, Occurrence=4, Detection=2, RPN=40.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (notification delivery is secondary to core claim processing).
+      Frequency: 2 (provider outages happen periodically; not constant).
+      Consequence: 2 (missed notifications cause delays and support calls but no data loss).
+      Detectability: 1 (provider outages are monitored; health checks detect quickly).
+      Average: 1.75 -> medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions by provider failure mode (timeout, 5xx error, rate limit,
+      complete outage). EG anticipates partial provider failures (email works
+      but SMS does not), provider returning success but not delivering, and
+      retry storms overwhelming the provider on recovery.
+    preconditions:
+      - "Notification service is integrated with email and SMS providers"
+      - "Retry and dead letter queue mechanisms are configured"
+    examples:
+      - input:
+          provider: "email"
+          provider_status: "500 Internal Server Error"
+          retry_policy: "exponential_backoff"
+          max_retries: 5
+        expected:
+          immediate_send: false
+          retry_scheduled: true
+          backoff_intervals_seconds: [1, 2, 4, 8, 16]
+        description: "Email provider returns 500 — exponential backoff retry"
+      - input:
+          provider: "sms"
+          provider_status: "429 Too Many Requests"
+          rate_limit_reset_seconds: 60
+        expected:
+          retry_after_seconds: 60
+          respects_rate_limit: true
+        description: "SMS provider rate limited — must respect retry-after header"
+      - input:
+          provider: "email"
+          provider_status: "timeout after 30 seconds"
+          fallback_provider: "secondary_email_provider"
+        expected:
+          primary_failed: true
+          fallback_attempted: true
+        description: "Primary provider timeout — failover to secondary provider"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "fmea"
+      - "notification-service"
+      - "channel-failure"
+      - "resilience"
+      - "rpn-40"
+      - "severity-5"
+      - "component-5"
+
+  # ===========================================================================
+  # CROSS-COMPONENT FAILURE MODES
+  # ===========================================================================
+
+  # FM-X.1: End-to-End Claim Processing Failure (Severity=9, Occurrence=3, Detection=4, RPN=108)
+  - name: "FM-X.1 End-to-end claim processing failure — component integration breakdown"
+    description: >
+      A failure at the integration boundary between components causes the entire
+      claim processing pipeline to break. For example: calculation engine computes
+      payout but fraud detection is not invoked, or status changes but notification
+      service is not triggered, or documents are uploaded but not linked to the
+      claim in the calculation engine. FMEA: Severity=9, Occurrence=3, Detection=4,
+      RPN=108.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (core business process — end-to-end claim processing is the primary system function).
+      Frequency: 2 (integration issues may surface under specific conditions or race conditions).
+      Consequence: 3 (claim is stuck, incorrectly processed, or approved without fraud check).
+      Detectability: 2 (integration failures may be silent — each component thinks it succeeded).
+      Average: 2.50 -> high.
+    techniques:
+      - state_transition
+      - cause_effect
+      - error_guessing
+    technique_rationale: >
+      ST models the end-to-end claim lifecycle across all 5 components. CE maps
+      the causal dependencies between components (calculation depends on documents,
+      notification depends on status change, fraud detection must precede approval).
+      EG anticipates message bus failures, distributed transaction issues, and
+      partial completions.
+    preconditions:
+      - "All 5 components are deployed and integrated"
+      - "Message bus or integration layer is operational"
+    examples:
+      - input:
+          claim_submitted: true
+          documents_uploaded: true
+          fraud_check_completed: false
+          fraud_service_status: "down"
+          calculation_engine_status: "ready"
+        expected:
+          claim_approved: false
+          claim_status: "pending_fraud_review"
+          note: "Claim must not be approved if fraud check was not completed"
+        description: "Fraud service down — claim must not bypass fraud detection"
+      - input:
+          claim_approved: true
+          payout_calculated: true
+          notification_service_status: "down"
+        expected:
+          payout_processed: true
+          notification_queued: true
+          note: "Payout should proceed even if notification fails — notification is async"
+        description: "Notification service down — payout should not be blocked"
+      - input:
+          documents_uploaded: true
+          document_linked_to_claim: false
+          calculation_triggered: true
+        expected:
+          calculation_halted: true
+          error: "MissingDocumentLinkError"
+        description: "Documents uploaded but not linked to claim — calculation should not proceed"
+    state_transition:
+      states:
+        - "claim_submitted"
+        - "documents_attached"
+        - "fraud_check_in_progress"
+        - "fraud_check_passed"
+        - "fraud_check_failed"
+        - "calculation_in_progress"
+        - "payout_determined"
+        - "approved"
+        - "denied"
+        - "payment_processing"
+        - "paid"
+        - "notification_sent"
+      transitions:
+        - from: "claim_submitted"
+          to: "documents_attached"
+          trigger: "Required documents uploaded and linked"
+          guard: "All required document types present"
+        - from: "documents_attached"
+          to: "fraud_check_in_progress"
+          trigger: "Fraud detection triggered automatically"
+          guard: "Fraud service is available"
+        - from: "fraud_check_in_progress"
+          to: "fraud_check_passed"
+          trigger: "Fraud algorithm returns clear"
+          guard: "No fraud indicators detected"
+        - from: "fraud_check_in_progress"
+          to: "fraud_check_failed"
+          trigger: "Fraud algorithm flags claim"
+          guard: "Fraud indicators detected"
+        - from: "fraud_check_passed"
+          to: "calculation_in_progress"
+          trigger: "Calculation engine invoked"
+          guard: "All inputs available"
+        - from: "calculation_in_progress"
+          to: "payout_determined"
+          trigger: "Calculation completes"
+          guard: "No calculation errors"
+        - from: "payout_determined"
+          to: "approved"
+          trigger: "Adjuster approves"
+          guard: "Payout within authority limits"
+        - from: "approved"
+          to: "payment_processing"
+          trigger: "Payment initiated"
+          guard: "Payment method valid"
+        - from: "payment_processing"
+          to: "paid"
+          trigger: "Payment confirmed"
+          guard: "Funds transferred"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "integration"
+      - "end-to-end"
+      - "cross-component"
+      - "rpn-108"
+      - "severity-9"
+
+  # FM-X.2: Data Consistency Across Components (Severity=8, Occurrence=3, Detection=5, RPN=120)
+  - name: "FM-X.2 Data consistency failure — components have conflicting claim data"
+    description: >
+      Different components hold different versions of claim data due to eventual
+      consistency, failed synchronization, or partial updates. For example, the
+      dashboard shows "approved" but the calculation engine has a different payout
+      amount than what was displayed, or notification service sends the old amount.
+      FMEA: Severity=8, Occurrence=3, Detection=5, RPN=120.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 (data integrity — inconsistent data across components undermines trust).
+      Frequency: 2 (eventual consistency issues surface under load or during failures).
+      Consequence: 3 (conflicting data leads to incorrect payouts, wrong notifications, compliance issues).
+      Detectability: 3 (inconsistencies may not be detected until reconciliation or audit).
+      Average: 2.75 -> high.
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      EG anticipates distributed system failure modes (network partitions, partial
+      writes, message ordering issues, stale caches). CE maps the data flow
+      dependencies between components to identify consistency requirements.
+    preconditions:
+      - "All components share claim data through a data store or event bus"
+      - "System operates with eventual consistency model"
+    examples:
+      - input:
+          claim_id: "CLM-001"
+          calculation_engine_payout: 15000
+          dashboard_displayed_payout: 14500
+          notification_sent_payout: 15000
+        expected:
+          all_components_agree: true
+          discrepancy_detected: true
+          reconciliation_triggered: true
+        description: "Payout amount differs between dashboard and calculation engine — must reconcile"
+      - input:
+          claim_id: "CLM-002"
+          status_in_database: "approved"
+          status_in_cache: "under_review"
+          cache_invalidation_failed: true
+        expected:
+          dashboard_shows: "approved"
+          note: "Cache must be invalidated or bypassed when source of truth differs"
+        description: "Cache invalidation failure — stale status in cache"
+      - input:
+          claim_id: "CLM-003"
+          event_1: "payout_calculated"
+          event_2: "status_approved"
+          event_order_received: ["status_approved", "payout_calculated"]
+        expected:
+          system_handles_out_of_order: true
+          final_state_consistent: true
+        description: "Out-of-order event processing — system must handle reordered events"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "fmea"
+      - "integration"
+      - "data-consistency"
+      - "cross-component"
+      - "rpn-120"
+      - "severity-8"
+
+# ===========================================================================
+# FMEA SUMMARY TABLE
+# ===========================================================================
+# | ID     | Component                | Failure Mode                              | Sev | Occ | Det | RPN | Priority |
+# |--------|--------------------------|-------------------------------------------|-----|-----|-----|-----|----------|
+# | FM-3.1 | Fraud Detection          | False negative (missed fraud)             | 10  |  4  |  7  | 280 | 1        |
+# | FM-3.3 | Fraud Detection          | Fraud ring detection failure              |  9  |  3  |  8  | 216 | 1        |
+# | FM-1.2 | Claim Calculation        | Rounding errors in currency               |  7  |  6  |  5  | 210 | 1        |
+# | FM-2.2 | Document Upload          | Malicious file upload                     | 10  |  4  |  5  | 200 | 1        |
+# | FM-1.1 | Claim Calculation        | Incorrect payout computation              |  9  |  5  |  4  | 180 | 1        |
+# | FM-2.3 | Document Upload          | Medical records HIPAA violation            | 10  |  3  |  6  | 180 | 1        |
+# | FM-1.4 | Claim Calculation        | Coverage limit bypass                     |  9  |  3  |  6  | 162 | 1        |
+# | FM-1.3 | Claim Calculation        | Depreciation miscalculation               |  8  |  4  |  5  | 160 | 1        |
+# | FM-X.2 | Cross-Component          | Data consistency failure                  |  8  |  3  |  5  | 120 | 1        |
+# | FM-X.1 | Cross-Component          | End-to-end integration breakdown          |  9  |  3  |  4  | 108 | 1        |
+# | FM-1.5 | Claim Calculation        | Deductible not applied                    |  8  |  3  |  4  |  96 | 1        |
+# | FM-5.1 | Notification Service     | Notification not sent                     |  6  |  4  |  4  |  96 | 2        |
+# | FM-3.2 | Fraud Detection          | False positive (legitimate flagged)       |  6  |  5  |  3  |  90 | 2        |
+# | FM-5.2 | Notification Service     | Notification to wrong recipient           |  9  |  2  |  5  |  90 | 1        |
+# | FM-2.1 | Document Upload          | Upload file corruption                    |  7  |  4  |  3  |  84 | 2        |
+# | FM-3.4 | Fraud Detection          | Algorithm performance degradation         |  7  |  3  |  4  |  84 | 2        |
+# | FM-2.4 | Document Upload          | Unsupported file format accepted          |  5  |  5  |  3  |  75 | 2        |
+# | FM-4.3 | Claims Dashboard         | Data leakage (other users' claims)        |  9  |  2  |  4  |  72 | 1        |
+# | FM-5.4 | Notification Service     | Notification content mismatch             |  7  |  3  |  3  |  63 | 2        |
+# | FM-4.1 | Claims Dashboard         | Incorrect status displayed                |  7  |  4  |  2  |  56 | 2        |
+# | FM-4.2 | Claims Dashboard         | Filter returns incorrect results          |  5  |  5  |  2  |  50 | 3        |
+# | FM-5.3 | Notification Service     | Duplicate notifications                   |  4  |  5  |  2  |  40 | 3        |
+# | FM-5.5 | Notification Service     | Channel failure (provider outage)         |  5  |  4  |  2  |  40 | 3        |
+# | FM-4.4 | Claims Dashboard         | Pagination errors                         |  4  |  4  |  2  |  32 | 4        |
+
+example_mapping:
+  story: >
+    As an insurance company, I need a claims processing system that accurately
+    calculates payouts, securely handles documents, detects fraud, provides
+    transparent status visibility, and notifies claimants of changes — so that
+    claims are processed correctly, efficiently, and compliantly.
+  rules:
+    - rule_name: "Payout Calculation Accuracy"
+      examples:
+        - "Auto policy claim with $500 deductible and 10% annual depreciation over 3 years yields correct payout"
+        - "Home policy claim exceeding coverage limit is capped at limit before depreciation"
+        - "Health claim where loss equals deductible produces zero payout"
+        - "Claim with invalid policy type returns InvalidPolicyTypeError"
+        - "Currency calculations use banker's rounding (HALF_UP) to avoid penny discrepancies"
+        - "Cumulative depreciation exceeding 100% floors at zero, never goes negative"
+        - "Concurrent claims against same policy cannot exceed aggregate coverage limit"
+    - rule_name: "Deductible Application"
+      examples:
+        - "Flat deductible is subtracted from loss amount once"
+        - "Percentage deductible computes correct percentage of loss amount"
+        - "Loss amount less than flat deductible results in zero payout"
+        - "Loss amount exactly equal to deductible results in zero payout"
+        - "Zero deductible policy skips deduction step entirely"
+    - rule_name: "Document Upload Security"
+      examples:
+        - "Valid JPEG, PNG, and PDF files are accepted with checksum verification"
+        - "Files with mismatched content-type header and magic bytes are rejected"
+        - "Executable files disguised with double extensions (.jpg.exe) are blocked"
+        - "Path traversal in filenames (../../etc/passwd) is sanitized"
+        - "Zip bombs detected by decompression ratio check"
+        - "Zero-byte files are rejected"
+        - "Files exceeding 50 MB limit are rejected"
+    - rule_name: "Medical Records HIPAA Compliance"
+      examples:
+        - "Only authorized adjusters assigned to a claim can view its medical records"
+        - "Unauthorized access attempts are logged and trigger security alerts"
+        - "Medical records must be encrypted at rest"
+        - "All access to medical records creates audit log entries"
+    - rule_name: "Fraud Detection Effectiveness"
+      examples:
+        - "Duplicate claims filed within 90 days are flagged with >= 90% confidence"
+        - "Claims from known fraud ring members are always flagged regardless of amount"
+        - "Repair estimates exceeding vehicle market value by > 40% are flagged as inflated"
+        - "Just-below-threshold amounts are monitored as potential evasion"
+        - "Legitimate high-value claims with no other indicators are not flagged (false positive prevention)"
+        - "Multiple claims during declared natural disasters are treated as legitimate"
+    - rule_name: "Fraud Ring Network Detection"
+      examples:
+        - "Claimants at adjacent addresses with same provider are identified as potential ring"
+        - "Sequential VoIP phone numbers with same incident date trigger ring detection"
+        - "Independent claims with no shared indicators do not trigger ring alert"
+    - rule_name: "Dashboard Status Accuracy"
+      examples:
+        - "Dashboard reflects status changes within 5 seconds"
+        - "Cache is invalidated on status change, not relying on TTL expiry"
+        - "Each claimant sees only their own claims — no data leakage"
+        - "IDOR attacks via direct claim ID manipulation are blocked"
+        - "Query parameter manipulation (user_id override) is rejected"
+    - rule_name: "Dashboard Filtering"
+      examples:
+        - "Date range filter returns all claims within specified range"
+        - "Multiple filters AND together (not OR)"
+        - "Invalid date range (from > to) returns warning or empty result"
+        - "Filter results are consistent during concurrent status changes"
+    - rule_name: "Notification Delivery Reliability"
+      examples:
+        - "Both email and SMS are sent on every status change for configured channels"
+        - "Provider failures trigger exponential backoff retry (up to 5 retries)"
+        - "Failed notifications are dead-lettered after max retries, not silently dropped"
+        - "SMS unavailable (no phone) falls back to email"
+        - "Rate-limited requests respect retry-after header"
+    - rule_name: "Notification Recipient Integrity"
+      examples:
+        - "Notification is sent only to the claimant who owns the claim"
+        - "Batch notifications do not cross-contaminate recipient data"
+        - "Contact info changes during send are handled atomically"
+    - rule_name: "Notification Content Correctness"
+      examples:
+        - "Notification status matches actual claim status at time of send"
+        - "Missing template variables prevent notification send (not render blank)"
+        - "Payout amount in notification matches calculation engine output"
+    - rule_name: "Notification Idempotency"
+      examples:
+        - "Duplicate events are deduplicated — only one notification per event"
+        - "Concurrent identical events produce only one notification"
+    - rule_name: "End-to-End Integration Integrity"
+      examples:
+        - "Claim cannot be approved if fraud check was not completed"
+        - "Payment proceeds even if notification service is down (async notification)"
+        - "Documents must be linked to claim before calculation can proceed"
+        - "Out-of-order events are handled correctly with consistent final state"
+        - "All components agree on claim data (payout, status) — no discrepancies"
+
+metadata:
+  created_at: "2026-03-14T00:00:00Z"
+  updated_at: "2026-03-14T00:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

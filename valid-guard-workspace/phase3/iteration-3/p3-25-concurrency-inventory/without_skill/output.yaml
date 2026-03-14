@@ -1,0 +1,872 @@
+test_plan:
+  title: "Inventory Race Condition Prevention - E-Commerce Checkout System"
+  description: >
+    Comprehensive test plan for preventing inventory race conditions when
+    multiple users attempt to purchase the last remaining unit of a product
+    simultaneously. Validates that exactly one order succeeds and the other
+    receives an out-of-stock error, with no overselling under any circumstance.
+  system_under_test: "E-Commerce Checkout Service (Inventory + Order Pipeline)"
+  preconditions:
+    - "Product SKU-001 exists with exactly 1 unit in stock"
+    - "User A and User B each have valid accounts and active sessions"
+    - "Both users have SKU-001 in their respective carts with quantity 1"
+    - "Payment processing is mocked to always succeed (isolate inventory logic)"
+    - "All tests run against a transactional database (PostgreSQL or equivalent)"
+    - "System clock synchronization is available for coordinated timing"
+
+  # ---------------------------------------------------------------------------
+  # SECTION 1: Core Race Condition on the Last Unit
+  # ---------------------------------------------------------------------------
+  section_1_race_condition_on_last_unit:
+    title: "Race Condition on the Last Unit"
+    description: >
+      Tests that directly exercise the critical window where two concurrent
+      checkout requests compete for the single remaining inventory unit.
+
+    test_cases:
+      - id: RC-001
+        title: "Simultaneous checkout - exactly one order succeeds"
+        description: >
+          Two users submit Place Order at the same instant for the last unit.
+          The system must grant the unit to exactly one user and reject the other.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "User A cart contains SKU-001 x1"
+          - "User B cart contains SKU-001 x1"
+        steps:
+          - "Launch two concurrent threads (Thread-A for User A, Thread-B for User B)"
+          - "Use a CountDownLatch / barrier so both threads call placeOrder() at the exact same instant"
+          - "Collect the HTTP response or service result from each thread"
+        expected_outcome:
+          successful_orders: 1
+          failed_orders: 1
+          success_response: "HTTP 201 Created with order confirmation and order_id"
+          failure_response: "HTTP 409 Conflict with error code INVENTORY_INSUFFICIENT"
+          final_inventory: 0
+          invariant: "orders_table row count for SKU-001 = 1"
+
+      - id: RC-002
+        title: "Simultaneous checkout - inventory never goes negative"
+        description: >
+          Regardless of concurrency timing, the inventory count must never
+          drop below zero at any point during or after the race.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+        steps:
+          - "Spawn 10 concurrent threads, each attempting to place an order for SKU-001 x1"
+          - "All threads release simultaneously via a shared barrier"
+          - "After all threads complete, query inventory.quantity"
+        expected_outcome:
+          successful_orders: 1
+          failed_orders: 9
+          final_inventory: 0
+          invariant: "SELECT quantity FROM inventory WHERE sku = 'SKU-001' >= 0 is always true"
+          database_check: "No row in inventory has quantity < 0 at any isolation snapshot"
+
+      - id: RC-003
+        title: "Sequential rapid-fire orders on last unit"
+        description: >
+          Two orders arrive within microseconds but are technically sequential.
+          Validates that even near-simultaneous sequential processing is safe.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+        steps:
+          - "User A submits placeOrder() for SKU-001"
+          - "Within 1ms, User B submits placeOrder() for SKU-001"
+          - "Wait for both to complete"
+        expected_outcome:
+          first_order: "succeeds with HTTP 201"
+          second_order: "fails with HTTP 409 INVENTORY_INSUFFICIENT"
+          final_inventory: 0
+
+      - id: RC-004
+        title: "Race condition with network-delayed acknowledgment"
+        description: >
+          User A's order succeeds but the success response is delayed. User B's
+          request arrives during A's commit phase. B must still be rejected.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Inject artificial 500ms delay on User A's response (after commit, before HTTP response)"
+        steps:
+          - "User A submits placeOrder()"
+          - "After 100ms (during A's response delay), User B submits placeOrder()"
+          - "Collect both responses"
+        expected_outcome:
+          user_a: "succeeds (delayed HTTP 201)"
+          user_b: "fails with HTTP 409 INVENTORY_INSUFFICIENT"
+          final_inventory: 0
+
+      - id: RC-005
+        title: "Three-way race on the last unit"
+        description: >
+          Three users simultaneously attempt to purchase the last unit.
+          Exactly one must succeed, the other two must fail.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Users A, B, C each have SKU-001 x1 in cart"
+        steps:
+          - "Launch three concurrent threads with a shared barrier"
+          - "Each thread calls placeOrder() for SKU-001"
+          - "Collect all three results"
+        expected_outcome:
+          successful_orders: 1
+          failed_orders: 2
+          final_inventory: 0
+          invariant: "Exactly one order_id is generated for SKU-001"
+
+  # ---------------------------------------------------------------------------
+  # SECTION 2: Overselling Prevention Mechanisms
+  # ---------------------------------------------------------------------------
+  section_2_overselling_prevention:
+    title: "Overselling Prevention Mechanisms"
+    description: >
+      Validates that the system's guardrails prevent selling more units than
+      physically exist, including edge cases around boundary conditions,
+      partial failures, and retry storms.
+
+    test_cases:
+      - id: OP-001
+        title: "Atomic decrement guard prevents overselling"
+        description: >
+          The inventory decrement must be atomic. Verify that the system uses
+          UPDATE ... SET quantity = quantity - 1 WHERE quantity >= 1 (or
+          equivalent CAS operation) rather than read-then-write.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+        steps:
+          - "Execute 50 concurrent placeOrder() calls via thread pool"
+          - "All threads release at the same barrier"
+          - "Count successful vs failed responses"
+        expected_outcome:
+          successful_orders: 1
+          failed_orders: 49
+          final_inventory: 0
+          verification: >
+            Query: SELECT quantity FROM inventory WHERE sku = 'SKU-001'
+            must return exactly 0, never negative.
+
+      - id: OP-002
+        title: "Database CHECK constraint as last-resort guard"
+        description: >
+          Even if application logic fails, a CHECK (quantity >= 0) constraint
+          on the inventory table must prevent negative stock.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "CHECK constraint: quantity >= 0 exists on inventory table"
+        steps:
+          - "Bypass application logic and execute raw SQL:
+             UPDATE inventory SET quantity = quantity - 2 WHERE sku = 'SKU-001'"
+        expected_outcome:
+          result: "SQL error - CHECK constraint violation"
+          inventory_unchanged: true
+          quantity_remains: 1
+
+      - id: OP-003
+        title: "Idempotent order submission prevents double-purchase"
+        description: >
+          If a user clicks Place Order twice rapidly (client retry), the system
+          must not create two orders or decrement inventory twice.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 5"
+          - "User A cart contains SKU-001 x1"
+          - "Client sends idempotency_key: 'idem-123' with both requests"
+        steps:
+          - "User A submits placeOrder() with idempotency_key 'idem-123'"
+          - "Within 10ms, User A submits placeOrder() again with same idempotency_key 'idem-123'"
+          - "Wait for both to complete"
+        expected_outcome:
+          orders_created: 1
+          final_inventory: 4
+          second_response: "HTTP 200 with the same order_id as the first (idempotent replay)"
+
+      - id: OP-004
+        title: "Quantity validation rejects order exceeding available stock"
+        description: >
+          A user attempts to order 3 units when only 2 remain.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 2"
+          - "User A cart contains SKU-001 x3"
+        steps:
+          - "User A submits placeOrder() for SKU-001 x3"
+        expected_outcome:
+          result: "HTTP 409 Conflict"
+          error_code: "INVENTORY_INSUFFICIENT"
+          error_detail: "Requested 3, available 2"
+          final_inventory: 2
+          orders_created: 0
+
+      - id: OP-005
+        title: "Overselling prevention under sustained load"
+        description: >
+          High concurrency stress test with limited stock to verify no
+          overselling occurs under realistic production-like load.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 10"
+        steps:
+          - "Launch 500 concurrent placeOrder() requests for SKU-001 x1 over 2 seconds"
+          - "Collect all responses"
+          - "Query final inventory and total successful orders"
+        expected_outcome:
+          successful_orders: 10
+          failed_orders: 490
+          final_inventory: 0
+          invariant: "successful_orders == initial_stock (10)"
+          no_negative_inventory: true
+
+      - id: OP-006
+        title: "Multi-item cart with partial stock availability"
+        description: >
+          A cart contains two products. One has sufficient stock, the other does
+          not. The entire order must be rejected atomically (no partial fulfillment).
+        preconditions:
+          - "inventory.quantity for SKU-001 = 0"
+          - "inventory.quantity for SKU-002 = 50"
+          - "User A cart contains SKU-001 x1 and SKU-002 x1"
+        steps:
+          - "User A submits placeOrder() for entire cart"
+        expected_outcome:
+          result: "HTTP 409 Conflict"
+          error_code: "INVENTORY_INSUFFICIENT"
+          error_detail: "SKU-001 out of stock"
+          sku_001_inventory: 0
+          sku_002_inventory: 50
+          orders_created: 0
+          note: "SKU-002 inventory must NOT be decremented (atomic rollback)"
+
+  # ---------------------------------------------------------------------------
+  # SECTION 3: Locking Strategies (Pessimistic vs Optimistic)
+  # ---------------------------------------------------------------------------
+  section_3_locking_strategies:
+    title: "Locking Strategies - Pessimistic vs Optimistic"
+    description: >
+      Tests covering both pessimistic locking (SELECT ... FOR UPDATE) and
+      optimistic locking (version column / CAS) to verify correctness and
+      understand tradeoff behavior.
+
+    test_cases:
+      # -- Pessimistic Locking --
+      - id: PL-001
+        title: "Pessimistic lock (SELECT FOR UPDATE) serializes concurrent access"
+        description: >
+          When using SELECT ... FOR UPDATE, the second transaction must block
+          until the first completes, then see the updated inventory.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Locking strategy: pessimistic (SELECT ... FOR UPDATE)"
+        steps:
+          - "Transaction A: BEGIN; SELECT quantity FROM inventory WHERE sku = 'SKU-001' FOR UPDATE"
+          - "Transaction B: BEGIN; SELECT quantity FROM inventory WHERE sku = 'SKU-001' FOR UPDATE (blocks)"
+          - "Transaction A: UPDATE inventory SET quantity = 0; INSERT INTO orders ...; COMMIT"
+          - "Transaction B: unblocks, reads quantity = 0, aborts with INVENTORY_INSUFFICIENT; ROLLBACK"
+        expected_outcome:
+          transaction_a: "COMMIT succeeds, order created"
+          transaction_b: "ROLLBACK, no order created"
+          final_inventory: 0
+          ordering_guarantee: "Transaction B sees the committed state of Transaction A"
+
+      - id: PL-002
+        title: "Pessimistic lock with deadlock detection"
+        description: >
+          Two transactions lock rows in different order, causing a deadlock.
+          The database must detect it and abort one transaction.
+        preconditions:
+          - "inventory for SKU-001 = 5, SKU-002 = 5"
+          - "Locking strategy: pessimistic"
+        steps:
+          - "Transaction A: BEGIN; SELECT ... FOR UPDATE WHERE sku = 'SKU-001'"
+          - "Transaction B: BEGIN; SELECT ... FOR UPDATE WHERE sku = 'SKU-002'"
+          - "Transaction A: SELECT ... FOR UPDATE WHERE sku = 'SKU-002' (blocks on B)"
+          - "Transaction B: SELECT ... FOR UPDATE WHERE sku = 'SKU-001' (blocks on A -> deadlock)"
+        expected_outcome:
+          deadlock_detected: true
+          one_transaction_aborted: true
+          aborted_transaction_error: "ERROR: deadlock detected"
+          surviving_transaction: "completes successfully"
+          data_integrity: "No inventory corruption; both SKUs remain consistent"
+
+      - id: PL-003
+        title: "Pessimistic lock timeout prevents indefinite blocking"
+        description: >
+          If a transaction holds a lock too long, the waiting transaction
+          must time out rather than block indefinitely.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Lock wait timeout configured to 5 seconds"
+        steps:
+          - "Transaction A: BEGIN; SELECT ... FOR UPDATE WHERE sku = 'SKU-001'; then sleep 10 seconds (simulating slow processing)"
+          - "Transaction B: BEGIN; SELECT ... FOR UPDATE WHERE sku = 'SKU-001' NOWAIT (or with 5s timeout)"
+        expected_outcome:
+          transaction_b: "fails with lock_timeout or NOWAIT error after configured timeout"
+          transaction_b_error: "ERROR: could not obtain lock on row / lock timeout"
+          transaction_a: "eventually succeeds if it commits"
+          user_experience: "User B receives HTTP 503 Service Unavailable with retry-after header"
+
+      - id: PL-004
+        title: "Row-level pessimistic lock does not block unrelated products"
+        description: >
+          A lock on SKU-001 must not prevent concurrent transactions on SKU-002.
+        preconditions:
+          - "inventory for SKU-001 = 1, SKU-002 = 1"
+        steps:
+          - "Transaction A: BEGIN; SELECT ... FOR UPDATE WHERE sku = 'SKU-001' (holds lock)"
+          - "Transaction B: BEGIN; SELECT ... FOR UPDATE WHERE sku = 'SKU-002' (should NOT block)"
+          - "Transaction B: UPDATE and COMMIT for SKU-002"
+          - "Transaction A: UPDATE and COMMIT for SKU-001"
+        expected_outcome:
+          transaction_b_blocked: false
+          both_transactions_succeed: true
+          sku_001_inventory: 0
+          sku_002_inventory: 0
+
+      # -- Optimistic Locking --
+      - id: OL-001
+        title: "Optimistic lock (version column) detects stale read"
+        description: >
+          Using a version column, the second updater discovers the row was
+          modified and must retry or fail.
+        preconditions:
+          - "inventory: sku=SKU-001, quantity=1, version=1"
+          - "Locking strategy: optimistic (version column)"
+        steps:
+          - "Transaction A: SELECT quantity, version FROM inventory WHERE sku = 'SKU-001' -> (1, 1)"
+          - "Transaction B: SELECT quantity, version FROM inventory WHERE sku = 'SKU-001' -> (1, 1)"
+          - "Transaction A: UPDATE inventory SET quantity = 0, version = 2 WHERE sku = 'SKU-001' AND version = 1 -> rows_affected = 1"
+          - "Transaction B: UPDATE inventory SET quantity = 0, version = 2 WHERE sku = 'SKU-001' AND version = 1 -> rows_affected = 0"
+        expected_outcome:
+          transaction_a: "succeeds (rows_affected = 1), order created"
+          transaction_b: "fails (rows_affected = 0), detects conflict"
+          transaction_b_behavior: "Retry or return HTTP 409 INVENTORY_INSUFFICIENT"
+          final_inventory: 0
+          final_version: 2
+
+      - id: OL-002
+        title: "Optimistic lock retry succeeds when stock is replenished"
+        description: >
+          After an optimistic lock conflict, the system retries. If stock
+          has been replenished (e.g., another order was cancelled), the
+          retry succeeds.
+        preconditions:
+          - "inventory: sku=SKU-001, quantity=1, version=1"
+        steps:
+          - "User A and User B both read (quantity=1, version=1)"
+          - "User A commits: quantity=0, version=2"
+          - "User B's update fails (version mismatch)"
+          - "Meanwhile, a cancellation restores: quantity=1, version=3"
+          - "User B retries: reads (quantity=1, version=3), updates to (quantity=0, version=4) -> succeeds"
+        expected_outcome:
+          user_a_order: "created successfully"
+          user_b_first_attempt: "conflict detected, triggers retry"
+          user_b_retry: "succeeds after reading replenished stock"
+          final_inventory: 0
+          final_version: 4
+          total_orders: 2
+
+      - id: OL-003
+        title: "Optimistic lock retry limit prevents infinite retry loops"
+        description: >
+          Under extreme contention, optimistic locking must cap retries to
+          avoid livelock or excessive latency.
+        preconditions:
+          - "inventory: sku=SKU-001, quantity=1, version=1"
+          - "Max retry limit: 3"
+        steps:
+          - "Simulate a scenario where every retry encounters a version conflict"
+          - "Use a mock/stub to force version mismatch on each attempt"
+          - "User B attempts placeOrder() which internally retries up to 3 times"
+        expected_outcome:
+          retries_attempted: 3
+          final_result: "HTTP 503 Service Unavailable or HTTP 409 Conflict"
+          error_message: "Unable to complete order due to high contention. Please try again."
+          order_created: false
+
+      - id: OL-004
+        title: "Optimistic locking with compare-and-swap (CAS) atomic update"
+        description: >
+          Tests the atomic CAS pattern: UPDATE inventory SET quantity = quantity - 1
+          WHERE sku = ? AND quantity >= 1. This combines the read-check-update
+          into a single atomic statement.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+        steps:
+          - "Thread A executes: UPDATE inventory SET quantity = quantity - 1 WHERE sku = 'SKU-001' AND quantity >= 1"
+          - "Thread B executes the same statement concurrently"
+          - "Check rows_affected for each thread"
+        expected_outcome:
+          thread_a_rows_affected: 1
+          thread_b_rows_affected: 0
+          final_inventory: 0
+          note: "One thread gets rows_affected=1 (success), the other gets 0 (failure). No version column needed."
+
+      # -- Comparison --
+      - id: LS-001
+        title: "Pessimistic vs Optimistic throughput under low contention"
+        description: >
+          Compare performance characteristics when contention is low
+          (many products, few conflicts).
+        preconditions:
+          - "100 distinct SKUs, each with quantity = 100"
+          - "200 concurrent users ordering random SKUs"
+        steps:
+          - "Run the scenario with pessimistic locking, measure total throughput and p99 latency"
+          - "Run the same scenario with optimistic locking, measure total throughput and p99 latency"
+        expected_outcome:
+          correctness: "Both strategies produce identical final inventory counts"
+          optimistic_throughput: "Expected to be higher under low contention (no lock waiting)"
+          pessimistic_latency: "Expected to have more consistent latency (no retries)"
+          data_integrity: "Both must have zero overselling"
+
+      - id: LS-002
+        title: "Pessimistic vs Optimistic throughput under high contention"
+        description: >
+          Compare performance when many users compete for the same single SKU.
+        preconditions:
+          - "1 SKU (SKU-001) with quantity = 50"
+          - "500 concurrent users all ordering SKU-001"
+        steps:
+          - "Run with pessimistic locking, measure throughput, p99 latency, and error rate"
+          - "Run with optimistic locking, measure throughput, p99 latency, retry count, and error rate"
+        expected_outcome:
+          correctness: "Both strategies yield exactly 50 successful orders"
+          pessimistic_behavior: "Lower throughput but guaranteed progress (no retries)"
+          optimistic_behavior: "Higher retry rate, potential for retry storms"
+          final_inventory: 0
+          data_integrity: "Both must have zero overselling"
+
+  # ---------------------------------------------------------------------------
+  # SECTION 4: Cart-to-Inventory Consistency Validation
+  # ---------------------------------------------------------------------------
+  section_4_cart_inventory_consistency:
+    title: "Cart-to-Inventory Consistency Validation"
+    description: >
+      Tests validating that the system properly reconciles cart contents
+      against real-time inventory at the moment of checkout, handling stale
+      cart data and time-of-check-to-time-of-use (TOCTOU) vulnerabilities.
+
+    test_cases:
+      - id: CI-001
+        title: "Cart shows available but inventory depleted before checkout"
+        description: >
+          User adds item to cart when stock = 1, then another user purchases
+          it. When the first user clicks Place Order, the system must reject.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "User A adds SKU-001 to cart (cart reflects quantity=1 available)"
+        steps:
+          - "User B purchases SKU-001 (inventory drops to 0)"
+          - "User A clicks Place Order with stale cart data"
+        expected_outcome:
+          user_a_result: "HTTP 409 Conflict"
+          error_code: "INVENTORY_INSUFFICIENT"
+          error_message: "SKU-001 is no longer available"
+          cart_updated: true
+          cart_item_marked: "out_of_stock"
+          order_created: false
+
+      - id: CI-002
+        title: "TOCTOU gap between inventory check and decrement"
+        description: >
+          Validates that there is no exploitable gap between checking inventory
+          and decrementing it. If the system does SELECT then UPDATE as separate
+          non-atomic steps, a race can cause overselling.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Inject a 500ms delay between the inventory check (SELECT) and the decrement (UPDATE)"
+        steps:
+          - "User A triggers placeOrder(); the system reads quantity=1, then pauses 500ms before UPDATE"
+          - "During A's pause, User B triggers placeOrder(); B also reads quantity=1"
+          - "Both attempt UPDATE simultaneously"
+        expected_outcome:
+          with_proper_locking:
+            successful_orders: 1
+            failed_orders: 1
+            final_inventory: 0
+          without_proper_locking:
+            note: "Both could succeed -> OVERSELLING BUG. This scenario must fail in CI."
+          test_assertion: >
+            Assert that exactly 1 order succeeds. If both succeed, the
+            TOCTOU vulnerability exists and must be fixed.
+
+      - id: CI-003
+        title: "Cart quantity exceeds inventory after partial selldown"
+        description: >
+          User adds 5 units to cart, but by checkout time only 3 remain.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 5"
+          - "User A adds SKU-001 x5 to cart"
+          - "Other users purchase 2 units (inventory drops to 3)"
+        steps:
+          - "User A clicks Place Order for SKU-001 x5"
+        expected_outcome:
+          result: "HTTP 409 Conflict"
+          error_code: "INVENTORY_INSUFFICIENT"
+          error_detail: "Requested 5, available 3"
+          suggested_action: "Reduce quantity to 3 or remove item"
+          order_created: false
+          inventory_unchanged: 3
+
+      - id: CI-004
+        title: "Product removed from catalog while in cart"
+        description: >
+          A product is discontinued/delisted while a user still has it in cart.
+        preconditions:
+          - "SKU-001 is active, inventory=5"
+          - "User A has SKU-001 in cart"
+        steps:
+          - "Admin marks SKU-001 as discontinued (is_active = false)"
+          - "User A clicks Place Order"
+        expected_outcome:
+          result: "HTTP 410 Gone"
+          error_code: "PRODUCT_UNAVAILABLE"
+          error_message: "SKU-001 is no longer available for purchase"
+          order_created: false
+          inventory_not_decremented: true
+
+      - id: CI-005
+        title: "Price change between cart-add and checkout"
+        description: >
+          The product price changes after the user adds it to cart.
+          The system must use the current price and notify the user.
+        preconditions:
+          - "SKU-001 price = $49.99, inventory = 10"
+          - "User A adds SKU-001 to cart at $49.99"
+        steps:
+          - "Admin updates SKU-001 price to $59.99"
+          - "User A clicks Place Order"
+        expected_outcome:
+          behavior_option_a:
+            description: "Block and notify"
+            result: "HTTP 409 Conflict"
+            error_code: "PRICE_CHANGED"
+            error_detail: "Price changed from $49.99 to $59.99. Please review and confirm."
+          behavior_option_b:
+            description: "Proceed with current price (user sees updated total before confirming)"
+            result: "HTTP 200 with price_changed warning in pre-confirmation step"
+          note: "Either behavior is acceptable; the test validates the system does NOT silently charge the old or new price without disclosure."
+
+      - id: CI-006
+        title: "Cart reservation expiry releases held inventory"
+        description: >
+          If the system uses cart reservations (soft-locks), expired
+          reservations must release inventory back to the available pool.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Cart reservation TTL = 10 minutes"
+          - "User A adds SKU-001 to cart (reservation created at T=0)"
+        steps:
+          - "Wait 11 minutes (reservation expires)"
+          - "Background job or lazy check releases reservation"
+          - "User B adds SKU-001 to cart and places order"
+        expected_outcome:
+          user_a_reservation: "expired and released"
+          user_b_order: "succeeds with HTTP 201"
+          final_inventory: 0
+          user_a_subsequent_checkout: "fails with INVENTORY_INSUFFICIENT"
+
+      - id: CI-007
+        title: "Concurrent cart reservation and checkout for last unit"
+        description: >
+          User A has an active cart reservation on the last unit. User B
+          attempts to add the same item to cart. The system must prevent
+          User B from reserving it.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "inventory.reserved for SKU-001 = 0"
+          - "Cart reservation system is enabled"
+        steps:
+          - "User A adds SKU-001 to cart (reservation: reserved = 1, available = 0)"
+          - "User B attempts to add SKU-001 to cart"
+        expected_outcome:
+          user_b_add_to_cart: "fails or shows out-of-stock"
+          available_quantity: 0
+          reserved_quantity: 1
+          user_a_can_checkout: true
+
+  # ---------------------------------------------------------------------------
+  # SECTION 5: Database Transaction Isolation Levels
+  # ---------------------------------------------------------------------------
+  section_5_transaction_isolation_levels:
+    title: "Database Transaction Isolation Levels"
+    description: >
+      Tests verifying how different transaction isolation levels affect
+      the inventory race condition behavior. Each test documents the
+      expected behavior at each isolation level and identifies which
+      levels are safe for inventory management.
+
+    test_cases:
+      - id: TI-001
+        title: "READ UNCOMMITTED allows dirty reads - UNSAFE for inventory"
+        description: >
+          At READ UNCOMMITTED, Transaction B can read Transaction A's
+          uncommitted inventory decrement. If A rolls back, B made a
+          decision on phantom data.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Transaction isolation: READ UNCOMMITTED"
+        steps:
+          - "Transaction A: BEGIN; UPDATE inventory SET quantity = 0 WHERE sku = 'SKU-001' (not yet committed)"
+          - "Transaction B: BEGIN; SELECT quantity FROM inventory WHERE sku = 'SKU-001' -> reads 0 (dirty read)"
+          - "Transaction A: ROLLBACK (quantity restored to 1)"
+          - "Transaction B sees quantity = 0 and rejects order"
+        expected_outcome:
+          dirty_read_occurred: true
+          user_b_incorrectly_rejected: true
+          actual_inventory: 1
+          safety_assessment: "UNSAFE - dirty reads cause false rejections and potential data corruption"
+          recommendation: "Never use READ UNCOMMITTED for inventory operations"
+
+      - id: TI-002
+        title: "READ COMMITTED prevents dirty reads but allows non-repeatable reads"
+        description: >
+          At READ COMMITTED, each read sees only committed data, but
+          successive reads within the same transaction may return different
+          values if another transaction commits between reads.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Transaction isolation: READ COMMITTED"
+        steps:
+          - "Transaction A: BEGIN; SELECT quantity FROM inventory WHERE sku = 'SKU-001' -> 1"
+          - "Transaction B: BEGIN; UPDATE inventory SET quantity = 0 WHERE sku = 'SKU-001'; COMMIT"
+          - "Transaction A: SELECT quantity FROM inventory WHERE sku = 'SKU-001' -> 0 (non-repeatable read)"
+          - "Transaction A: attempts UPDATE based on first read (quantity was 1)"
+        expected_outcome:
+          non_repeatable_read_occurred: true
+          safety_assessment: "CONDITIONALLY SAFE - safe if using atomic CAS pattern (UPDATE ... WHERE quantity >= 1)"
+          unsafe_pattern: "Read-then-write without WHERE guard is vulnerable"
+          safe_pattern: "UPDATE inventory SET quantity = quantity - 1 WHERE sku = 'SKU-001' AND quantity >= 1"
+          recommendation: "Use READ COMMITTED with atomic CAS updates for best performance/safety tradeoff"
+
+      - id: TI-003
+        title: "REPEATABLE READ prevents non-repeatable reads but allows phantom behavior"
+        description: >
+          At REPEATABLE READ, a transaction sees a consistent snapshot from
+          its start. However, write conflicts may cause serialization failures.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Transaction isolation: REPEATABLE READ"
+        steps:
+          - "Transaction A: BEGIN; SELECT quantity FROM inventory WHERE sku = 'SKU-001' -> 1"
+          - "Transaction B: BEGIN; SELECT quantity FROM inventory WHERE sku = 'SKU-001' -> 1"
+          - "Transaction A: UPDATE inventory SET quantity = 0 WHERE sku = 'SKU-001'; COMMIT"
+          - "Transaction B: UPDATE inventory SET quantity = 0 WHERE sku = 'SKU-001'"
+        expected_outcome:
+          postgres_behavior:
+            transaction_b: "ERROR: could not serialize access due to concurrent update"
+            safety: "SAFE - PostgreSQL detects the conflict and aborts Transaction B"
+          mysql_innodb_behavior:
+            transaction_b: "Succeeds but with the committed value (re-evaluates WHERE clause)"
+            safety: "DEPENDS on WHERE clause - must include quantity >= 1 guard"
+          recommendation: "Safe with proper error handling for serialization failures"
+
+      - id: TI-004
+        title: "SERIALIZABLE provides full isolation - strictest safety"
+        description: >
+          At SERIALIZABLE, the database guarantees that concurrent
+          transactions produce results equivalent to some serial execution
+          order.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Transaction isolation: SERIALIZABLE"
+        steps:
+          - "Transaction A: BEGIN ISOLATION LEVEL SERIALIZABLE"
+          - "Transaction B: BEGIN ISOLATION LEVEL SERIALIZABLE"
+          - "Transaction A: SELECT quantity -> 1; UPDATE quantity = 0; COMMIT"
+          - "Transaction B: SELECT quantity -> 1; UPDATE quantity = 0"
+        expected_outcome:
+          transaction_a: "COMMIT succeeds"
+          transaction_b: "ERROR: could not serialize access (serialization failure)"
+          final_inventory: 0
+          orders_created: 1
+          safety_assessment: "SAFEST - full serializability prevents all anomalies"
+          tradeoff: "Higher overhead and more frequent transaction aborts under contention"
+          recommendation: "Use when correctness is paramount and throughput requirements are moderate"
+
+      - id: TI-005
+        title: "Isolation level impact on throughput - benchmark comparison"
+        description: >
+          Measures the performance impact of each isolation level under
+          the inventory race condition workload.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 100"
+          - "Each isolation level tested independently with identical workload"
+        steps:
+          - "For each level [READ_COMMITTED, REPEATABLE_READ, SERIALIZABLE]:"
+          - "  Launch 200 concurrent placeOrder() requests"
+          - "  Measure: throughput (orders/sec), p50/p95/p99 latency, error/retry rate"
+          - "  Verify final inventory = 0 and orders_created = 100"
+        expected_outcome:
+          all_levels_correct: "Final inventory = 0, orders = 100 for each level"
+          read_committed_throughput: "Highest throughput, lowest latency"
+          repeatable_read_throughput: "Moderate throughput, some serialization failures"
+          serializable_throughput: "Lowest throughput, highest serialization failure rate"
+          recommendation: >
+            READ COMMITTED with atomic CAS (UPDATE ... WHERE quantity >= 1)
+            offers the best balance of correctness and performance for most
+            e-commerce workloads.
+
+      - id: TI-006
+        title: "Mixed isolation levels across microservices"
+        description: >
+          If the inventory service and order service use different isolation
+          levels, verify that cross-service consistency is maintained.
+        preconditions:
+          - "Inventory service uses SERIALIZABLE"
+          - "Order service uses READ COMMITTED"
+          - "Communication is via synchronous HTTP calls within a saga"
+        steps:
+          - "User A places order: Order service calls Inventory service to reserve"
+          - "Inventory service succeeds (SERIALIZABLE tx commits)"
+          - "Order service creates order record (READ COMMITTED tx)"
+          - "Simulate: Order service crashes after inventory reserved but before order committed"
+        expected_outcome:
+          inventory_state: "quantity decremented (reservation committed)"
+          order_state: "not created (crash before commit)"
+          inconsistency_detected: true
+          recovery_mechanism: >
+            Saga compensation: Inventory service must expose a
+            releaseReservation() endpoint. A background reconciliation
+            job detects orphaned reservations and releases them.
+          final_after_compensation: "inventory restored, no order exists"
+
+  # ---------------------------------------------------------------------------
+  # SECTION 6: Edge Cases and Failure Scenarios
+  # ---------------------------------------------------------------------------
+  section_6_edge_cases:
+    title: "Edge Cases and Failure Scenarios"
+    description: >
+      Additional edge cases covering system failures, distributed system
+      concerns, and unusual input scenarios.
+
+    test_cases:
+      - id: EC-001
+        title: "Database connection lost mid-transaction"
+        description: >
+          The database connection drops after inventory is decremented but
+          before the order is inserted. The transaction must roll back.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+        steps:
+          - "Begin transaction"
+          - "UPDATE inventory SET quantity = 0 WHERE sku = 'SKU-001'"
+          - "Simulate network failure (kill DB connection)"
+          - "Attempt INSERT INTO orders ..."
+        expected_outcome:
+          transaction: "automatically rolled back by database"
+          inventory_restored: true
+          final_inventory: 1
+          order_created: false
+          user_response: "HTTP 503 Service Unavailable - please retry"
+
+      - id: EC-002
+        title: "Application crash between inventory decrement and order creation"
+        description: >
+          The application process crashes after committing the inventory
+          decrement but before creating the order record (if not in same tx).
+        preconditions:
+          - "inventory.quantity for SKU-001 = 1"
+          - "Inventory decrement and order creation are in the SAME database transaction"
+        steps:
+          - "Begin transaction"
+          - "Decrement inventory"
+          - "Kill application process before COMMIT"
+        expected_outcome:
+          with_single_transaction:
+            inventory: "rolled back to 1 (uncommitted changes discarded)"
+            order: "not created"
+            data_consistent: true
+          note: >
+            If inventory and orders are in separate databases, a distributed
+            transaction or saga pattern is required to maintain consistency.
+
+      - id: EC-003
+        title: "Zero quantity in inventory"
+        description: >
+          A user attempts to order a product with quantity already at 0.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 0"
+        steps:
+          - "User A submits placeOrder() for SKU-001 x1"
+        expected_outcome:
+          result: "HTTP 409 Conflict"
+          error_code: "INVENTORY_INSUFFICIENT"
+          order_created: false
+          inventory_unchanged: 0
+
+      - id: EC-004
+        title: "Negative quantity attempt via API manipulation"
+        description: >
+          A malicious user sends a negative quantity in the order request
+          to try to increase inventory or create a refund exploit.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 5"
+        steps:
+          - "User sends POST /orders with body: {sku: 'SKU-001', quantity: -1}"
+        expected_outcome:
+          result: "HTTP 400 Bad Request"
+          error_code: "INVALID_QUANTITY"
+          error_message: "Quantity must be a positive integer"
+          inventory_unchanged: 5
+          order_created: false
+
+      - id: EC-005
+        title: "Order cancellation restores inventory atomically"
+        description: >
+          When an order is cancelled, inventory must be restored and
+          immediately available for other customers.
+        preconditions:
+          - "inventory.quantity for SKU-001 = 0"
+          - "Order ORD-100 exists for SKU-001 x1, status = CONFIRMED"
+        steps:
+          - "User A cancels ORD-100"
+          - "System increments inventory for SKU-001"
+          - "Concurrently, User B attempts to order SKU-001"
+        expected_outcome:
+          cancellation: "succeeds, ORD-100 status = CANCELLED"
+          inventory_restored: 1
+          user_b_order: "may succeed if timed after restoration"
+          atomicity: "Cancellation and inventory increment are in the same transaction"
+
+      - id: EC-006
+        title: "Distributed cache inconsistency with database"
+        description: >
+          A Redis cache shows quantity = 1 but the database has quantity = 0
+          (cache invalidation lag). The system must trust the database.
+        preconditions:
+          - "Database: inventory.quantity for SKU-001 = 0"
+          - "Redis cache: inventory:SKU-001:quantity = 1 (stale)"
+        steps:
+          - "User A sees 'In Stock' on the product page (served from cache)"
+          - "User A clicks Place Order"
+          - "System checks database (not cache) during checkout"
+        expected_outcome:
+          result: "HTTP 409 Conflict"
+          error_code: "INVENTORY_INSUFFICIENT"
+          order_created: false
+          cache_invalidated: true
+          lesson: >
+            Product pages may use cache for display, but checkout must always
+            validate against the database as the source of truth.
+
+  # ---------------------------------------------------------------------------
+  # Summary and Recommendations
+  # ---------------------------------------------------------------------------
+  summary:
+    total_test_cases: 35
+    critical_invariants:
+      - "Inventory quantity must NEVER go below zero"
+      - "Total successful orders must NEVER exceed initial inventory"
+      - "Every inventory decrement must be paired with an order creation in the same atomic transaction"
+      - "Stale cart data must be re-validated at checkout time against current inventory"
+      - "Idempotent submissions must not create duplicate orders or decrement inventory twice"
+    recommended_implementation:
+      locking_strategy: "Atomic CAS pattern: UPDATE inventory SET quantity = quantity - 1 WHERE sku = ? AND quantity >= 1"
+      isolation_level: "READ COMMITTED (with atomic CAS, this provides sufficient safety with optimal throughput)"
+      defense_in_depth:
+        - "Application layer: atomic CAS update (primary guard)"
+        - "Database layer: CHECK (quantity >= 0) constraint (secondary guard)"
+        - "API layer: idempotency keys to prevent duplicate submissions"
+        - "Monitoring: alert on any inventory row where quantity < 0 (should never fire)"
+    testing_approach:
+      unit_tests: "Mock database to verify application logic branches (success/failure paths)"
+      integration_tests: "Real database with concurrent threads to verify race condition handling"
+      load_tests: "High-concurrency scenarios (500+ threads) to verify no overselling under stress"
+      chaos_tests: "Connection drops, process crashes, cache inconsistencies"

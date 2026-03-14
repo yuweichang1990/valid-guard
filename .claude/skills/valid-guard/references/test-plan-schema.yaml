@@ -1,0 +1,349 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://valid-guard.dev/schemas/test-plan/v1"
+title: "Valid Guard Test Plan"
+description: >
+  Schema for Valid Guard test plan YAML files. Defines scenario-level test
+  coverage plans with risk assessment, testing technique selection, example
+  mapping, and decision table support.
+type: object
+
+required:
+  - feature
+  - scenarios
+
+properties:
+  feature:
+    type: string
+    description: "Name of the feature under test."
+    minLength: 1
+
+  feature_description:
+    type: string
+    description: "Brief description of the feature's purpose and scope."
+
+  risk_level:
+    type: string
+    description: "Overall risk level for this feature."
+    enum:
+      - high
+      - medium
+      - low
+
+  entry_point:
+    type: string
+    description: "How this test plan was created."
+    enum:
+      - greenfield
+      - brownfield
+
+  source:
+    type: object
+    description: "Origin of the test plan — PRD file, natural language input, or code analysis."
+    required:
+      - type
+    properties:
+      type:
+        type: string
+        enum:
+          - prd
+          - natural_language
+          - code_analysis
+      path:
+        type: string
+        description: "File path to the source document or code entry point."
+    additionalProperties: false
+
+  scenarios:
+    type: array
+    description: "List of test scenarios for this feature."
+    minItems: 1
+    items:
+      $ref: "#/$defs/scenario"
+
+  example_mapping:
+    $ref: "#/$defs/example_mapping"
+
+  metadata:
+    $ref: "#/$defs/metadata"
+
+additionalProperties: false
+
+# ---------------------------------------------------------------------------
+# Reusable definitions
+# ---------------------------------------------------------------------------
+$defs:
+  risk_enum:
+    type: string
+    enum:
+      - high
+      - medium
+      - low
+
+  scenario_type_enum:
+    type: string
+    enum:
+      - happy_path
+      - edge_case
+      - boundary
+      - error_handling
+      - state_transition
+      - combinatorial
+      - security
+      - performance
+
+  technique_enum:
+    type: string
+    enum:
+      - equivalence_partitioning
+      - boundary_value
+      - decision_table
+      - state_transition
+      - pairwise
+      - cause_effect
+      - error_guessing
+
+  status_enum:
+    type: string
+    enum:
+      - uncovered
+      - covered
+      - failing
+      - skipped
+
+  # ---- Scenario -----------------------------------------------------------
+  scenario:
+    type: object
+    required:
+      - name
+      - risk
+    properties:
+      name:
+        type: string
+        description: "Human-readable scenario name."
+        minLength: 1
+
+      description:
+        type: string
+        description: "Detailed explanation of what this scenario verifies."
+
+      type:
+        $ref: "#/$defs/scenario_type_enum"
+
+      risk:
+        $ref: "#/$defs/risk_enum"
+
+      risk_rationale:
+        type: string
+        description: "Justification for the assigned risk level."
+
+      techniques:
+        type: array
+        description: "Testing techniques applied to this scenario."
+        items:
+          $ref: "#/$defs/technique_enum"
+        minItems: 1
+        uniqueItems: true
+
+      technique_rationale:
+        type: string
+        description: "Why these specific techniques were chosen for this scenario."
+
+      preconditions:
+        type: array
+        description: "Conditions that must be true before the scenario runs."
+        items:
+          type: string
+
+      examples:
+        type: array
+        description: "Concrete input/expected-output pairs."
+        items:
+          $ref: "#/$defs/example"
+
+      state_transition:
+        $ref: "#/$defs/state_transition_def"
+
+      decision_table:
+        $ref: "#/$defs/decision_table_def"
+
+      test_ref:
+        type: string
+        description: "Path to test file and test name, e.g. tests/auth/test_login.py::test_successful_login"
+        pattern: "^.+::.+$"
+
+      status:
+        $ref: "#/$defs/status_enum"
+
+      priority:
+        type: integer
+        description: "Execution priority (1 = highest, 5 = lowest)."
+        minimum: 1
+        maximum: 5
+
+      tags:
+        type: array
+        description: "Freeform labels for filtering and grouping."
+        items:
+          type: string
+        uniqueItems: true
+
+    additionalProperties: false
+
+  # ---- Example (input/expected) -------------------------------------------
+  example:
+    type: object
+    required:
+      - input
+      - expected
+    properties:
+      input:
+        description: "Input data for the example. Can be any type."
+      expected:
+        description: "Expected result. Can be any type."
+      description:
+        type: string
+        description: "Human-readable explanation of this example."
+    additionalProperties: false
+
+  # ---- State Transition ---------------------------------------------------
+  state_transition_def:
+    type: object
+    description: "State transition model — only relevant when type is state_transition."
+    required:
+      - states
+      - transitions
+    properties:
+      states:
+        type: array
+        description: "All possible states."
+        items:
+          type: string
+        minItems: 2
+        uniqueItems: true
+      transitions:
+        type: array
+        description: "Valid transitions between states."
+        items:
+          type: object
+          required:
+            - from
+            - to
+            - trigger
+          properties:
+            from:
+              type: string
+            to:
+              type: string
+            trigger:
+              type: string
+              description: "Event or action that causes the transition."
+            guard:
+              type: string
+              description: "Condition that must hold for the transition to fire."
+          additionalProperties: false
+        minItems: 1
+      trigger:
+        type: string
+        description: "Primary trigger description for the overall state machine."
+    additionalProperties: false
+
+  # ---- Decision Table -----------------------------------------------------
+  decision_table_def:
+    type: object
+    description: "Decision table — only relevant when type involves combinatorial logic."
+    required:
+      - conditions
+      - actions
+      - rules
+    properties:
+      conditions:
+        type: array
+        description: "List of condition names."
+        items:
+          type: string
+        minItems: 1
+      actions:
+        type: array
+        description: "List of action/outcome names."
+        items:
+          type: string
+        minItems: 1
+      rules:
+        type: array
+        description: "Each rule maps condition values to expected actions."
+        items:
+          type: object
+          required:
+            - condition_values
+            - expected_actions
+          properties:
+            description:
+              type: string
+            condition_values:
+              type: object
+              description: "Map of condition name to value (true/false/specific value)."
+              additionalProperties: true
+            expected_actions:
+              type: object
+              description: "Map of action name to expected outcome."
+              additionalProperties: true
+          additionalProperties: false
+        minItems: 1
+    additionalProperties: false
+
+  # ---- Example Mapping ----------------------------------------------------
+  example_mapping:
+    type: object
+    description: >
+      Example Mapping structure: a story broken into rules, each with concrete
+      examples. Derived from Matt Wynne's Example Mapping technique.
+    required:
+      - story
+      - rules
+    properties:
+      story:
+        type: string
+        description: "The user story being mapped."
+      rules:
+        type: array
+        description: "Business rules extracted from the story."
+        items:
+          type: object
+          required:
+            - rule_name
+            - examples
+          properties:
+            rule_name:
+              type: string
+            examples:
+              type: array
+              items:
+                type: string
+              minItems: 1
+          additionalProperties: false
+        minItems: 1
+    additionalProperties: false
+
+  # ---- Metadata -----------------------------------------------------------
+  metadata:
+    type: object
+    description: "Bookkeeping information about the test plan."
+    properties:
+      created_at:
+        type: string
+        format: date-time
+        description: "ISO-8601 timestamp of initial creation."
+      updated_at:
+        type: string
+        format: date-time
+        description: "ISO-8601 timestamp of last update."
+      created_by:
+        type: string
+        description: "Who or what created the plan (e.g. valid-guard/v0.1, human)."
+      language:
+        type: string
+        description: "Primary programming language of the codebase."
+      test_framework:
+        type: string
+        description: "Test framework used for generated tests (e.g. pytest, jest, go test)."
+    additionalProperties: false

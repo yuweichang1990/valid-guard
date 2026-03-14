@@ -1,0 +1,578 @@
+test_code: |
+  """Comprehensive pytest tests for the order_processor module."""
+
+  import pytest
+  from decimal import Decimal
+  from datetime import datetime, timedelta
+  from unittest.mock import patch
+  from order_processor import (
+      OrderProcessor,
+      OrderStatus,
+      InsufficientStockError,
+      InvalidTransitionError,
+  )
+
+
+  # ---------------------------------------------------------------------------
+  # Fixtures
+  # ---------------------------------------------------------------------------
+
+  @pytest.fixture
+  def inventory():
+      return {"widget": 10, "gadget": 5, "gizmo": 20}
+
+
+  @pytest.fixture
+  def pricing():
+      return {
+          "widget": Decimal("10.00"),
+          "gadget": Decimal("25.00"),
+          "gizmo": Decimal("3.50"),
+      }
+
+
+  @pytest.fixture
+  def processor(inventory, pricing):
+      return OrderProcessor(inventory, pricing)
+
+
+  @pytest.fixture
+  def pending_order(processor):
+      """Return a processor with a single pending order (ORD-1)."""
+      processor.create_order("ORD-1", {"widget": 2})
+      return processor
+
+
+  @pytest.fixture
+  def delivered_order(processor):
+      """Return a processor with a delivered order (ORD-1)."""
+      processor.create_order("ORD-1", {"gadget": 3})
+      processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+      processor.transition_status("ORD-1", OrderStatus.PROCESSING)
+      processor.transition_status("ORD-1", OrderStatus.SHIPPED)
+      processor.transition_status("ORD-1", OrderStatus.DELIVERED)
+      return processor
+
+
+  # =========================================================================
+  # TestCreateOrder
+  # =========================================================================
+
+  class TestCreateOrder:
+      """Tests for OrderProcessor.create_order."""
+
+      # --- happy path ---
+
+      def test_create_single_item_order(self, processor):
+          order = processor.create_order("ORD-1", {"widget": 2})
+          assert order["id"] == "ORD-1"
+          assert order["items"] == {"widget": 2}
+          assert order["subtotal"] == Decimal("20.00")
+          assert order["status"] == OrderStatus.PENDING
+
+      def test_create_multi_item_order(self, processor):
+          order = processor.create_order("ORD-2", {"widget": 1, "gadget": 1})
+          assert order["subtotal"] == Decimal("35.00")
+
+      def test_order_stored_in_processor(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          assert "ORD-1" in processor.orders
+
+      def test_inventory_decremented(self, processor):
+          processor.create_order("ORD-1", {"widget": 3, "gadget": 2})
+          assert processor.inventory["widget"] == 7
+          assert processor.inventory["gadget"] == 3
+
+      def test_created_at_and_updated_at_set(self, processor):
+          order = processor.create_order("ORD-1", {"widget": 1})
+          assert isinstance(order["created_at"], datetime)
+          assert isinstance(order["updated_at"], datetime)
+
+      # --- tax calculation ---
+
+      def test_tax_is_8_percent_of_subtotal(self, processor):
+          order = processor.create_order("ORD-1", {"gadget": 2})
+          expected_tax = Decimal("50.00") * Decimal("0.08")
+          assert order["tax"] == expected_tax
+
+      # --- shipping thresholds ---
+
+      def test_free_shipping_when_subtotal_equals_threshold(self, processor):
+          """Boundary: subtotal == FREE_SHIPPING_THRESHOLD -> free shipping."""
+          order = processor.create_order("ORD-1", {"gadget": 2})  # 25*2 = 50
+          assert order["subtotal"] == Decimal("50.00")
+          assert order["shipping"] == Decimal("0")
+
+      def test_free_shipping_when_subtotal_above_threshold(self, processor):
+          order = processor.create_order("ORD-1", {"gadget": 3})  # 75
+          assert order["shipping"] == Decimal("0")
+
+      def test_shipping_fee_when_subtotal_below_threshold(self, processor):
+          order = processor.create_order("ORD-1", {"gizmo": 1})  # 3.50
+          assert order["shipping"] == Decimal("5.99")
+
+      def test_shipping_fee_just_below_threshold(self, processor):
+          """Boundary: subtotal just below 50 -> shipping charged."""
+          # widget=10, so 4 widgets = 40, plus 2 gizmo=7 -> 47.00
+          order = processor.create_order("ORD-1", {"widget": 4, "gizmo": 2})
+          assert order["subtotal"] == Decimal("47.00")
+          assert order["shipping"] == Decimal("5.99")
+
+      # --- total calculation ---
+
+      def test_total_equals_subtotal_plus_tax_plus_shipping(self, processor):
+          order = processor.create_order("ORD-1", {"gizmo": 5})  # 17.50
+          expected = order["subtotal"] + order["tax"] + order["shipping"]
+          assert order["total"] == expected
+
+      def test_total_with_free_shipping(self, processor):
+          order = processor.create_order("ORD-1", {"gadget": 3})  # 75
+          expected = Decimal("75.00") + Decimal("75.00") * Decimal("0.08")
+          assert order["total"] == expected
+
+      # --- MAX_ITEMS_PER_ORDER boundary ---
+
+      def test_order_exactly_max_items(self, processor):
+          """Boundary: exactly 100 items should succeed."""
+          inventory = {"widget": 100}
+          pricing = {"widget": Decimal("1.00")}
+          proc = OrderProcessor(inventory, pricing)
+          order = proc.create_order("ORD-1", {"widget": 100})
+          assert sum(order["items"].values()) == 100
+
+      def test_order_exceeds_max_items(self, processor):
+          """Boundary: 101 items should raise ValueError."""
+          inventory = {"widget": 200}
+          pricing = {"widget": Decimal("1.00")}
+          proc = OrderProcessor(inventory, pricing)
+          with pytest.raises(ValueError, match="Cannot order more than 100 items"):
+              proc.create_order("ORD-1", {"widget": 101})
+
+      # --- error handling ---
+
+      def test_empty_items_raises_value_error(self, processor):
+          with pytest.raises(ValueError, match="at least one item"):
+              processor.create_order("ORD-1", {})
+
+      def test_zero_quantity_raises_value_error(self, processor):
+          with pytest.raises(ValueError, match="Quantity must be positive"):
+              processor.create_order("ORD-1", {"widget": 0})
+
+      def test_negative_quantity_raises_value_error(self, processor):
+          with pytest.raises(ValueError, match="Quantity must be positive"):
+              processor.create_order("ORD-1", {"widget": -1})
+
+      def test_unknown_item_raises_value_error(self, processor):
+          with pytest.raises(ValueError, match="Unknown item"):
+              processor.create_order("ORD-1", {"nonexistent": 1})
+
+      def test_insufficient_stock_raises(self, processor):
+          with pytest.raises(InsufficientStockError, match="Not enough stock"):
+              processor.create_order("ORD-1", {"widget": 11})
+
+      def test_insufficient_stock_for_item_not_in_inventory(self):
+          """Item exists in pricing but not in inventory at all."""
+          inventory = {}
+          pricing = {"widget": Decimal("10.00")}
+          proc = OrderProcessor(inventory, pricing)
+          with pytest.raises(InsufficientStockError):
+              proc.create_order("ORD-1", {"widget": 1})
+
+      def test_inventory_not_decremented_on_failure(self, processor):
+          """If a later item fails validation, earlier items should not have
+          been decremented yet (items are validated before reservation)."""
+          original_widget = processor.inventory["widget"]
+          with pytest.raises(InsufficientStockError):
+              processor.create_order("ORD-1", {"widget": 1, "gadget": 6})
+          # Inventory should remain untouched because validation happens
+          # before reservation in the current implementation.
+          assert processor.inventory["widget"] == original_widget
+
+
+  # =========================================================================
+  # TestTransitionStatus
+  # =========================================================================
+
+  class TestTransitionStatus:
+      """Tests for OrderProcessor.transition_status."""
+
+      # --- valid transitions ---
+
+      def test_pending_to_confirmed(self, pending_order):
+          order = pending_order.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          assert order["status"] == OrderStatus.CONFIRMED
+
+      def test_pending_to_cancelled(self, pending_order):
+          order = pending_order.transition_status("ORD-1", OrderStatus.CANCELLED)
+          assert order["status"] == OrderStatus.CANCELLED
+
+      def test_confirmed_to_processing(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          order = processor.transition_status("ORD-1", OrderStatus.PROCESSING)
+          assert order["status"] == OrderStatus.PROCESSING
+
+      def test_confirmed_to_cancelled(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          order = processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+          assert order["status"] == OrderStatus.CANCELLED
+
+      def test_processing_to_shipped(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          processor.transition_status("ORD-1", OrderStatus.PROCESSING)
+          order = processor.transition_status("ORD-1", OrderStatus.SHIPPED)
+          assert order["status"] == OrderStatus.SHIPPED
+
+      def test_processing_to_cancelled(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          processor.transition_status("ORD-1", OrderStatus.PROCESSING)
+          order = processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+          assert order["status"] == OrderStatus.CANCELLED
+
+      def test_shipped_to_delivered(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          processor.transition_status("ORD-1", OrderStatus.PROCESSING)
+          processor.transition_status("ORD-1", OrderStatus.SHIPPED)
+          order = processor.transition_status("ORD-1", OrderStatus.DELIVERED)
+          assert order["status"] == OrderStatus.DELIVERED
+
+      def test_delivered_to_refunded(self, delivered_order):
+          order = delivered_order.transition_status("ORD-1", OrderStatus.REFUNDED)
+          assert order["status"] == OrderStatus.REFUNDED
+
+      def test_full_happy_path(self, processor):
+          """Walk through the entire lifecycle: PENDING -> DELIVERED."""
+          processor.create_order("ORD-1", {"widget": 1})
+          for status in [
+              OrderStatus.CONFIRMED,
+              OrderStatus.PROCESSING,
+              OrderStatus.SHIPPED,
+              OrderStatus.DELIVERED,
+          ]:
+              processor.transition_status("ORD-1", status)
+          assert processor.orders["ORD-1"]["status"] == OrderStatus.DELIVERED
+
+      # --- updated_at changes on transition ---
+
+      def test_updated_at_changes_on_transition(self, pending_order):
+          old_updated = pending_order.orders["ORD-1"]["updated_at"]
+          order = pending_order.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          assert order["updated_at"] >= old_updated
+
+      # --- invalid transitions ---
+
+      def test_confirmed_to_shipped_invalid(self, processor):
+          """Skip PROCESSING step -> should fail."""
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          with pytest.raises(InvalidTransitionError):
+              processor.transition_status("ORD-1", OrderStatus.SHIPPED)
+
+      def test_pending_to_processing_invalid(self, pending_order):
+          with pytest.raises(InvalidTransitionError):
+              pending_order.transition_status("ORD-1", OrderStatus.PROCESSING)
+
+      def test_pending_to_shipped_invalid(self, pending_order):
+          with pytest.raises(InvalidTransitionError):
+              pending_order.transition_status("ORD-1", OrderStatus.SHIPPED)
+
+      def test_pending_to_delivered_invalid(self, pending_order):
+          with pytest.raises(InvalidTransitionError):
+              pending_order.transition_status("ORD-1", OrderStatus.DELIVERED)
+
+      def test_pending_to_refunded_invalid(self, pending_order):
+          with pytest.raises(InvalidTransitionError):
+              pending_order.transition_status("ORD-1", OrderStatus.REFUNDED)
+
+      def test_shipped_to_cancelled_invalid(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          processor.transition_status("ORD-1", OrderStatus.PROCESSING)
+          processor.transition_status("ORD-1", OrderStatus.SHIPPED)
+          with pytest.raises(InvalidTransitionError):
+              processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+
+      def test_cancelled_is_terminal(self, pending_order):
+          pending_order.transition_status("ORD-1", OrderStatus.CANCELLED)
+          with pytest.raises(InvalidTransitionError):
+              pending_order.transition_status("ORD-1", OrderStatus.CONFIRMED)
+
+      def test_refunded_is_terminal(self, delivered_order):
+          delivered_order.transition_status("ORD-1", OrderStatus.REFUNDED)
+          with pytest.raises(InvalidTransitionError):
+              delivered_order.transition_status("ORD-1", OrderStatus.PENDING)
+
+      # --- cancellation restores inventory ---
+
+      def test_cancellation_restores_inventory(self, processor):
+          original_widget = processor.inventory["widget"]
+          processor.create_order("ORD-1", {"widget": 3})
+          assert processor.inventory["widget"] == original_widget - 3
+          processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+          assert processor.inventory["widget"] == original_widget
+
+      def test_cancellation_restores_inventory_multiple_items(self, processor):
+          orig_w = processor.inventory["widget"]
+          orig_g = processor.inventory["gadget"]
+          processor.create_order("ORD-1", {"widget": 2, "gadget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+          assert processor.inventory["widget"] == orig_w
+          assert processor.inventory["gadget"] == orig_g
+
+      # --- order not found ---
+
+      def test_transition_nonexistent_order_raises(self, processor):
+          with pytest.raises(KeyError, match="not found"):
+              processor.transition_status("NOPE", OrderStatus.CONFIRMED)
+
+
+  # =========================================================================
+  # TestRequestRefund
+  # =========================================================================
+
+  class TestRequestRefund:
+      """Tests for OrderProcessor.request_refund."""
+
+      def test_refund_delivered_order_within_window(self, delivered_order):
+          order = delivered_order.request_refund("ORD-1")
+          assert order["status"] == OrderStatus.REFUNDED
+          assert order["refund_amount"] == order["total"]
+
+      def test_refund_restores_inventory(self, delivered_order):
+          orig_gadget = delivered_order.inventory.get("gadget", 0)
+          delivered_order.request_refund("ORD-1")
+          assert delivered_order.inventory["gadget"] == orig_gadget + 3
+
+      def test_refund_non_delivered_order_raises(self, pending_order):
+          with pytest.raises(InvalidTransitionError, match="only refund delivered"):
+              pending_order.request_refund("ORD-1")
+
+      def test_refund_confirmed_order_raises(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          with pytest.raises(InvalidTransitionError, match="only refund delivered"):
+              processor.request_refund("ORD-1")
+
+      def test_refund_cancelled_order_raises(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+          with pytest.raises(InvalidTransitionError, match="only refund delivered"):
+              processor.request_refund("ORD-1")
+
+      def test_refund_outside_window_raises(self, delivered_order):
+          """Boundary: order created more than 30 days ago -> refund refused."""
+          delivered_order.orders["ORD-1"]["created_at"] = datetime.now() - timedelta(days=31)
+          with pytest.raises(ValueError, match="Refund window expired"):
+              delivered_order.request_refund("ORD-1")
+
+      def test_refund_exactly_at_window_boundary(self, delivered_order):
+          """Boundary: exactly 30 days -> should succeed (30 is not > 30)."""
+          delivered_order.orders["ORD-1"]["created_at"] = datetime.now() - timedelta(days=30)
+          order = delivered_order.request_refund("ORD-1")
+          assert order["status"] == OrderStatus.REFUNDED
+
+      def test_refund_at_day_29_succeeds(self, delivered_order):
+          delivered_order.orders["ORD-1"]["created_at"] = datetime.now() - timedelta(days=29)
+          order = delivered_order.request_refund("ORD-1")
+          assert order["status"] == OrderStatus.REFUNDED
+
+      def test_refund_nonexistent_order_raises(self, processor):
+          with pytest.raises(KeyError, match="not found"):
+              processor.request_refund("NOPE")
+
+      def test_refund_sets_updated_at(self, delivered_order):
+          old_updated = delivered_order.orders["ORD-1"]["updated_at"]
+          order = delivered_order.request_refund("ORD-1")
+          assert order["updated_at"] >= old_updated
+
+
+  # =========================================================================
+  # TestApplyDiscount
+  # =========================================================================
+
+  class TestApplyDiscount:
+      """Tests for OrderProcessor.apply_discount."""
+
+      def test_apply_10_percent_discount(self, processor):
+          processor.create_order("ORD-1", {"gadget": 3})  # subtotal = 75
+          order = processor.apply_discount("ORD-1", Decimal("10"))
+          assert order["discount"] == Decimal("7.500")
+          assert order["subtotal"] == Decimal("67.500")
+
+      def test_apply_50_percent_discount(self, processor):
+          processor.create_order("ORD-1", {"gadget": 2})  # subtotal = 50
+          order = processor.apply_discount("ORD-1", Decimal("50"))
+          assert order["discount"] == Decimal("25.000")
+          assert order["subtotal"] == Decimal("25.000")
+
+      def test_apply_100_percent_discount(self, processor):
+          """Boundary: 100% discount should be allowed."""
+          processor.create_order("ORD-1", {"gadget": 2})  # subtotal = 50
+          order = processor.apply_discount("ORD-1", Decimal("100"))
+          assert order["subtotal"] == Decimal("0.000")
+          assert order["discount"] == Decimal("50.000")
+
+      def test_tax_recalculated_after_discount(self, processor):
+          processor.create_order("ORD-1", {"gadget": 3})  # subtotal = 75
+          order = processor.apply_discount("ORD-1", Decimal("10"))
+          expected_tax = Decimal("67.500") * Decimal("0.08")
+          assert order["tax"] == expected_tax
+
+      def test_shipping_recalculated_after_discount_drops_below_threshold(self, processor):
+          """Discount drops subtotal below FREE_SHIPPING_THRESHOLD -> shipping added."""
+          processor.create_order("ORD-1", {"gadget": 2})  # subtotal = 50, free shipping
+          order = processor.apply_discount("ORD-1", Decimal("10"))
+          # new subtotal = 45.00, below 50 threshold
+          assert order["subtotal"] == Decimal("45.000")
+          assert order["shipping"] == Decimal("5.99")
+
+      def test_shipping_remains_free_after_small_discount(self, processor):
+          processor.create_order("ORD-1", {"gadget": 3})  # subtotal = 75
+          order = processor.apply_discount("ORD-1", Decimal("10"))
+          # new subtotal = 67.50, still above 50
+          assert order["shipping"] == Decimal("0")
+
+      def test_total_recalculated_correctly(self, processor):
+          processor.create_order("ORD-1", {"gadget": 3})  # subtotal = 75
+          order = processor.apply_discount("ORD-1", Decimal("20"))
+          expected_total = order["subtotal"] + order["tax"] + order["shipping"]
+          assert order["total"] == expected_total
+
+      def test_updated_at_changes(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          old_updated = processor.orders["ORD-1"]["updated_at"]
+          order = processor.apply_discount("ORD-1", Decimal("5"))
+          assert order["updated_at"] >= old_updated
+
+      # --- error cases ---
+
+      def test_discount_zero_raises(self, pending_order):
+          """Boundary: 0% discount is exclusive -> should raise."""
+          with pytest.raises(ValueError, match="between 0"):
+              pending_order.apply_discount("ORD-1", Decimal("0"))
+
+      def test_discount_negative_raises(self, pending_order):
+          with pytest.raises(ValueError, match="between 0"):
+              pending_order.apply_discount("ORD-1", Decimal("-5"))
+
+      def test_discount_over_100_raises(self, pending_order):
+          with pytest.raises(ValueError, match="between 0"):
+              pending_order.apply_discount("ORD-1", Decimal("101"))
+
+      def test_discount_on_non_pending_order_raises(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CONFIRMED)
+          with pytest.raises(InvalidTransitionError, match="only apply discount to pending"):
+              processor.apply_discount("ORD-1", Decimal("10"))
+
+      def test_discount_on_cancelled_order_raises(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+          with pytest.raises(InvalidTransitionError, match="only apply discount to pending"):
+              processor.apply_discount("ORD-1", Decimal("10"))
+
+      def test_discount_nonexistent_order_raises(self, processor):
+          with pytest.raises(KeyError, match="not found"):
+              processor.apply_discount("NOPE", Decimal("10"))
+
+
+  # =========================================================================
+  # TestOrderStatusEnum
+  # =========================================================================
+
+  class TestOrderStatusEnum:
+      """Tests for the OrderStatus enum values."""
+
+      def test_all_statuses_exist(self):
+          expected = {
+              "PENDING", "CONFIRMED", "PROCESSING",
+              "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED",
+          }
+          actual = {s.name for s in OrderStatus}
+          assert actual == expected
+
+      def test_status_values(self):
+          assert OrderStatus.PENDING.value == "pending"
+          assert OrderStatus.CONFIRMED.value == "confirmed"
+          assert OrderStatus.PROCESSING.value == "processing"
+          assert OrderStatus.SHIPPED.value == "shipped"
+          assert OrderStatus.DELIVERED.value == "delivered"
+          assert OrderStatus.CANCELLED.value == "cancelled"
+          assert OrderStatus.REFUNDED.value == "refunded"
+
+
+  # =========================================================================
+  # TestConstants
+  # =========================================================================
+
+  class TestConstants:
+      """Verify module-level constants."""
+
+      def test_tax_rate(self):
+          assert OrderProcessor.TAX_RATE == Decimal("0.08")
+
+      def test_free_shipping_threshold(self):
+          assert OrderProcessor.FREE_SHIPPING_THRESHOLD == Decimal("50.00")
+
+      def test_shipping_fee(self):
+          assert OrderProcessor.SHIPPING_FEE == Decimal("5.99")
+
+      def test_max_items_per_order(self):
+          assert OrderProcessor.MAX_ITEMS_PER_ORDER == 100
+
+      def test_refund_window_days(self):
+          assert OrderProcessor.REFUND_WINDOW_DAYS == 30
+
+
+  # =========================================================================
+  # TestEdgeCases
+  # =========================================================================
+
+  class TestEdgeCases:
+      """Additional edge-case and integration scenarios."""
+
+      def test_multiple_orders_independent(self, processor):
+          processor.create_order("ORD-1", {"widget": 1})
+          processor.create_order("ORD-2", {"gadget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+          assert processor.orders["ORD-2"]["status"] == OrderStatus.PENDING
+
+      def test_create_order_depletes_then_restores_on_cancel(self, processor):
+          processor.create_order("ORD-1", {"widget": 10})
+          assert processor.inventory["widget"] == 0
+          with pytest.raises(InsufficientStockError):
+              processor.create_order("ORD-2", {"widget": 1})
+          processor.transition_status("ORD-1", OrderStatus.CANCELLED)
+          assert processor.inventory["widget"] == 10
+          # Now can create order again
+          order = processor.create_order("ORD-2", {"widget": 5})
+          assert order["status"] == OrderStatus.PENDING
+
+      def test_refund_restores_inventory_for_reuse(self, delivered_order):
+          orig = delivered_order.inventory.get("gadget", 0)
+          delivered_order.request_refund("ORD-1")
+          assert delivered_order.inventory["gadget"] == orig + 3
+          # Inventory is available for new orders
+          order = delivered_order.create_order("ORD-2", {"gadget": 1})
+          assert order["status"] == OrderStatus.PENDING
+
+      def test_order_with_single_item_quantity_one(self, processor):
+          order = processor.create_order("ORD-1", {"gizmo": 1})
+          assert order["subtotal"] == Decimal("3.50")
+          assert order["shipping"] == Decimal("5.99")
+          expected_total = Decimal("3.50") + Decimal("3.50") * Decimal("0.08") + Decimal("5.99")
+          assert order["total"] == expected_total
+
+      def test_discount_then_verify_total_with_shipping(self, processor):
+          """Apply a discount that drops subtotal below threshold, verify full recalc."""
+          processor.create_order("ORD-1", {"gadget": 2})  # subtotal=50, free shipping
+          order = processor.apply_discount("ORD-1", Decimal("50"))
+          # new subtotal = 25, below threshold
+          assert order["subtotal"] == Decimal("25.000")
+          assert order["shipping"] == Decimal("5.99")
+          expected = Decimal("25.000") + Decimal("25.000") * Decimal("0.08") + Decimal("5.99")
+          assert order["total"] == expected

@@ -1,0 +1,425 @@
+test_plan:
+  title: Loan Approval System - Decision Table Test Plan
+  description: >
+    Test plan for a loan approval system with three conditions (Credit Score,
+    Income Level, Existing Debts) and three possible outcomes (Approved, Rejected,
+    Further Review Required). Uses decision table testing to achieve exhaustive
+    coverage of all input combinations.
+
+  conditions:
+    - name: Credit Score
+      values: [Good, Poor]
+    - name: Income Level
+      values: [High, Low]
+    - name: Existing Debts
+      values: ["Yes", "No"]
+
+  outcomes:
+    - Approved
+    - Rejected
+    - Further Review Required
+
+  business_rules:
+    - id: BR-1
+      rule: "Good credit + High income + No debts = Approved"
+    - id: BR-2
+      rule: "Good credit + High income + debts = Approved (debts irrelevant with good credit and high income)"
+    - id: BR-3
+      rule: "Good credit + Low income + debts = Further Review Required"
+    - id: BR-4
+      rule: "Poor credit + anything = Rejected"
+
+  # =========================================================================
+  # FULL DECISION TABLE (all 2^3 = 8 combinations)
+  # =========================================================================
+  full_decision_table:
+    total_combinations: 8
+    note: >
+      Three binary conditions yield 2 x 2 x 2 = 8 rules. Each combination is
+      listed below with its outcome and derivation source.
+
+    matrix: |
+      +------+--------------+--------------+----------------+-------------------------+
+      | Rule | Credit Score | Income Level | Existing Debts | Outcome                 |
+      +------+--------------+--------------+----------------+-------------------------+
+      | R1   | Good         | High         | No             | Approved                |
+      | R2   | Good         | High         | Yes            | Approved                |
+      | R3   | Good         | Low          | No             | Further Review Required |
+      | R4   | Good         | Low          | Yes            | Further Review Required |
+      | R5   | Poor         | High         | No             | Rejected                |
+      | R6   | Poor         | High         | Yes            | Rejected                |
+      | R7   | Poor         | Low          | No             | Rejected                |
+      | R8   | Poor         | Low          | Yes            | Rejected                |
+      +------+--------------+--------------+----------------+-------------------------+
+
+    rules:
+      - id: R1
+        credit_score: Good
+        income_level: High
+        existing_debts: "No"
+        outcome: Approved
+        derivation: "Explicitly stated (BR-1)"
+
+      - id: R2
+        credit_score: Good
+        income_level: High
+        existing_debts: "Yes"
+        outcome: Approved
+        derivation: "Explicitly stated (BR-2) -- debts do not affect outcome when credit is Good and income is High"
+
+      - id: R3
+        credit_score: Good
+        income_level: Low
+        existing_debts: "No"
+        outcome: Further Review Required
+        derivation: >
+          Inferred. Not explicitly stated in the requirements. Good credit is
+          favorable but Low income is a risk factor. With no debts, the applicant
+          is not outright rejected, but the low income warrants further review.
+          This is consistent with R4 where Good credit + Low income also results
+          in Further Review. Should be confirmed with stakeholders.
+
+      - id: R4
+        credit_score: Good
+        income_level: Low
+        existing_debts: "Yes"
+        outcome: Further Review Required
+        derivation: "Explicitly stated (BR-3)"
+
+      - id: R5
+        credit_score: Poor
+        income_level: High
+        existing_debts: "No"
+        outcome: Rejected
+        derivation: "Derived from blanket rule (BR-4): Poor credit + anything = Rejected"
+
+      - id: R6
+        credit_score: Poor
+        income_level: High
+        existing_debts: "Yes"
+        outcome: Rejected
+        derivation: "Explicitly stated and also covered by blanket rule (BR-4)"
+
+      - id: R7
+        credit_score: Poor
+        income_level: Low
+        existing_debts: "No"
+        outcome: Rejected
+        derivation: "Derived from blanket rule (BR-4): Poor credit + anything = Rejected"
+
+      - id: R8
+        credit_score: Poor
+        income_level: Low
+        existing_debts: "Yes"
+        outcome: Rejected
+        derivation: "Derived from blanket rule (BR-4): Poor credit + anything = Rejected"
+
+  # =========================================================================
+  # RULE COLLAPSING ANALYSIS
+  # =========================================================================
+  rule_collapsing:
+    description: >
+      Rules that share the same outcome and differ in only one condition can be
+      collapsed by replacing that condition with a don't-care value (denoted '-').
+      This reduces the table while preserving identical logical behavior.
+
+    collapsible_groups:
+
+      - group_id: 1
+        name: "Good Credit + High Income group"
+        original_rules: [R1, R2]
+        differing_condition: Existing Debts
+        collapsed_rule:
+          credit_score: Good
+          income_level: High
+          existing_debts: "-"
+          outcome: Approved
+        rationale: >
+          R1 (No debts) and R2 (Yes debts) both yield Approved. They differ only
+          in the Existing Debts condition, which is therefore irrelevant. This
+          directly matches business rule BR-2: debts do not matter when credit is
+          Good and income is High.
+
+      - group_id: 2
+        name: "Good Credit + Low Income group"
+        original_rules: [R3, R4]
+        differing_condition: Existing Debts
+        collapsed_rule:
+          credit_score: Good
+          income_level: Low
+          existing_debts: "-"
+          outcome: Further Review Required
+        rationale: >
+          R3 (No debts) and R4 (Yes debts) both yield Further Review Required.
+          They differ only in Existing Debts. When credit is Good and income is
+          Low, debts are irrelevant to the outcome. Note: R3 was inferred, not
+          explicitly stated. If stakeholders assign a different outcome to R3,
+          this collapse would be invalid and both rules would need separate treatment.
+
+      - group_id: 3
+        name: "Poor Credit group"
+        original_rules: [R5, R6, R7, R8]
+        differing_conditions: [Income Level, Existing Debts]
+        collapsed_rule:
+          credit_score: Poor
+          income_level: "-"
+          existing_debts: "-"
+          outcome: Rejected
+        rationale: >
+          All four Poor-credit rules yield Rejected. Both Income Level and
+          Existing Debts are irrelevant. This is the most aggressive collapse,
+          reducing four rules to one, and directly implements BR-4: Poor credit +
+          anything = Rejected.
+        collapse_steps:
+          - step: 1
+            action: "Collapse R5 + R6 (differ only in Existing Debts) -> Poor / High / - / Rejected"
+          - step: 2
+            action: "Collapse R7 + R8 (differ only in Existing Debts) -> Poor / Low / - / Rejected"
+          - step: 3
+            action: "Collapse the two intermediate rules (differ only in Income Level) -> Poor / - / - / Rejected"
+
+    # Additional collapse attempt across groups
+    further_collapse_analysis:
+      - attempt: "Collapse Group 1 + Group 2 (both have Good credit)"
+        result: Not possible
+        reason: >
+          Groups 1 and 2 both have Good credit but produce different outcomes
+          (Approved vs Further Review Required). Rules can only be collapsed when
+          they share the same outcome.
+
+      - attempt: "Collapse Group 1 + Group 3 (Approved vs Rejected)"
+        result: Not possible
+        reason: "Different outcomes prevent collapsing."
+
+    # =========================================================================
+    # COLLAPSED DECISION TABLE (final reduced form)
+    # =========================================================================
+    collapsed_decision_table:
+      total_rules: 3
+      reduction: "8 rules reduced to 3 rules (62.5% reduction)"
+
+      matrix: |
+        +------+--------------+--------------+----------------+-------------------------+
+        | Rule | Credit Score | Income Level | Existing Debts | Outcome                 |
+        +------+--------------+--------------+----------------+-------------------------+
+        | CR1  | Good         | High         | -              | Approved                |
+        | CR2  | Good         | Low          | -              | Further Review Required |
+        | CR3  | Poor         | -            | -              | Rejected                |
+        +------+--------------+--------------+----------------+-------------------------+
+
+        Legend: '-' = don't-care (condition is irrelevant to the outcome)
+
+      rules:
+        - id: CR1
+          credit_score: Good
+          income_level: High
+          existing_debts: "-"
+          outcome: Approved
+          covers: [R1, R2]
+
+        - id: CR2
+          credit_score: Good
+          income_level: Low
+          existing_debts: "-"
+          outcome: Further Review Required
+          covers: [R3, R4]
+
+        - id: CR3
+          credit_score: Poor
+          income_level: "-"
+          existing_debts: "-"
+          outcome: Rejected
+          covers: [R5, R6, R7, R8]
+
+    summary_statistics:
+      original_rules: 8
+      collapsed_rules: 3
+      reduction_percentage: 62.5
+      dont_care_entries_introduced: 5
+      most_significant_collapse: "Poor credit group: 4 rules to 1 (two don't-care conditions)"
+
+  # =========================================================================
+  # COMPLETENESS AND CONSISTENCY CHECK
+  # =========================================================================
+  analysis:
+    completeness:
+      status: Complete
+      explanation: >
+        All 8 possible combinations of the three binary conditions are accounted
+        for in the decision table. No input combination lacks an assigned outcome.
+
+    consistency:
+      status: Consistent
+      explanation: >
+        No combination maps to more than one outcome. Each of the 8 rows
+        produces exactly one unambiguous result.
+
+    ambiguities:
+      - rule: R3
+        condition: "Good credit, Low income, No debts"
+        issue: >
+          This combination was not explicitly specified in the requirements.
+          The outcome "Further Review Required" was inferred based on the
+          pattern that Good credit + Low income leads to further review
+          regardless of debts. Stakeholder confirmation is recommended.
+
+    key_observations:
+      - observation: >
+          Credit Score is the dominant condition. Poor credit overrides all other
+          conditions and always results in Rejection. This makes Credit Score a
+          short-circuit condition -- if Poor, no other conditions need evaluation.
+      - observation: >
+          For Good credit, Income Level is the decisive secondary condition.
+          High income leads to Approved; Low income leads to Further Review.
+      - observation: >
+          Existing Debts has no independent effect on the outcome in any
+          collapsed rule. It is always a don't-care condition. This suggests
+          the system effectively operates on only two conditions (Credit Score
+          and Income Level) despite nominally having three inputs.
+
+  # =========================================================================
+  # TEST CASES
+  # =========================================================================
+  test_cases:
+    - test_id: TC-01
+      title: "Best-case applicant: Good credit, High income, No debts"
+      credit_score: Good
+      income_level: High
+      existing_debts: "No"
+      expected_outcome: Approved
+      covers_rule: R1
+      priority: High
+      test_ref: ""
+
+    - test_id: TC-02
+      title: "Good credit and High income with existing debts"
+      credit_score: Good
+      income_level: High
+      existing_debts: "Yes"
+      expected_outcome: Approved
+      covers_rule: R2
+      priority: High
+      rationale: "Validates that debts do not affect approval when credit and income are both favorable"
+      test_ref: ""
+
+    - test_id: TC-03
+      title: "Good credit, Low income, No debts"
+      credit_score: Good
+      income_level: Low
+      existing_debts: "No"
+      expected_outcome: Further Review Required
+      covers_rule: R3
+      priority: High
+      rationale: "Validates inferred rule -- confirm expected outcome with business stakeholders"
+      test_ref: ""
+
+    - test_id: TC-04
+      title: "Good credit, Low income, existing debts"
+      credit_score: Good
+      income_level: Low
+      existing_debts: "Yes"
+      expected_outcome: Further Review Required
+      covers_rule: R4
+      priority: High
+      test_ref: ""
+
+    - test_id: TC-05
+      title: "Poor credit, High income, No debts"
+      credit_score: Poor
+      income_level: High
+      existing_debts: "No"
+      expected_outcome: Rejected
+      covers_rule: R5
+      priority: High
+      rationale: "Validates that high income and no debts cannot compensate for poor credit"
+      test_ref: ""
+
+    - test_id: TC-06
+      title: "Poor credit, High income, existing debts"
+      credit_score: Poor
+      income_level: High
+      existing_debts: "Yes"
+      expected_outcome: Rejected
+      covers_rule: R6
+      priority: High
+      test_ref: ""
+
+    - test_id: TC-07
+      title: "Poor credit, Low income, No debts"
+      credit_score: Poor
+      income_level: Low
+      existing_debts: "No"
+      expected_outcome: Rejected
+      covers_rule: R7
+      priority: Medium
+      rationale: "Confirms blanket poor-credit rejection rule"
+      test_ref: ""
+
+    - test_id: TC-08
+      title: "Worst-case applicant: Poor credit, Low income, existing debts"
+      credit_score: Poor
+      income_level: Low
+      existing_debts: "Yes"
+      expected_outcome: Rejected
+      covers_rule: R8
+      priority: Medium
+      rationale: "All conditions unfavorable -- strongest rejection case"
+      test_ref: ""
+
+  # =========================================================================
+  # BOUNDARY AND EDGE CASE CONSIDERATIONS
+  # =========================================================================
+  boundary_considerations:
+    - area: Credit Score Threshold
+      description: >
+        The boundary between Good and Poor credit scores must be tested with
+        precision. If the threshold is 700, test with values 699 (Poor), 700
+        (boundary -- confirm which side it falls on), and 701 (Good). The
+        on-point and off-point values are critical since Credit Score is the
+        dominant decision factor.
+
+    - area: Income Level Threshold
+      description: >
+        Similarly, the boundary between High and Low income must be tested.
+        If the threshold is $50,000, test with $49,999, $50,000, and $50,001.
+        This is the secondary decision factor for Good-credit applicants.
+
+    - area: Existing Debts Definition
+      description: >
+        Although debts turned out to be a don't-care condition in all collapsed
+        rules, the system must still correctly classify the Yes/No input.
+        Edge cases include: zero-balance debts, debts in collections, debts
+        nearly paid off, and very small outstanding balances. Clarify the
+        threshold for what constitutes "existing debts."
+
+    - area: Credit Score at Exact Threshold with Different Income Levels
+      description: >
+        Since Credit Score is the dominant short-circuit condition, the
+        combination of borderline credit score with varying income levels is
+        a high-risk boundary area. A misclassification at the credit score
+        boundary could flip the outcome between Approved and Rejected.
+
+  # =========================================================================
+  # SUMMARY
+  # =========================================================================
+  summary:
+    conditions_count: 3
+    values_per_condition: 2
+    total_combinations: 8
+    unique_outcomes: 3
+    explicitly_specified_rules: 5
+    inferred_rules: 3
+    rules_after_collapsing: 3
+    reduction_percentage: 62.5
+    test_cases_for_full_coverage: 8
+    dominant_condition: Credit Score
+    irrelevant_condition: "Existing Debts (don't-care in all collapsed rules)"
+    key_finding: >
+      The Existing Debts condition is irrelevant in every collapsed rule,
+      meaning the system effectively makes decisions based on only two
+      conditions: Credit Score and Income Level. The 8-rule table collapses
+      to 3 rules. The most significant insight is that Poor credit is a
+      blanket rejection regardless of all other factors, and for Good credit
+      applicants, only Income Level determines the outcome. One rule (R3:
+      Good/Low/No) was not explicitly stated and requires stakeholder
+      validation.

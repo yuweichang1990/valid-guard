@@ -1,0 +1,136 @@
+{
+  "eval_key": "p3-03-conway-completeness",
+  "eval_name": "Conway's Game of Life completeness",
+  "category": "completeness",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Alive + 2 neighbors → survives",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Alive', 'surviv')"
+    },
+    {
+      "text": "Alive + 3 neighbors → survives",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Alive', 'surviv')"
+    },
+    {
+      "text": "Alive + 0-1 neighbors → dies (underpopulation)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: underpopulation"
+    },
+    {
+      "text": "Alive + 4+ neighbors → dies (overcrowding)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('overpopulat', '')"
+    },
+    {
+      "text": "Dead + 3 neighbors → becomes alive",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('Dead', 'alive')"
+    },
+    {
+      "text": "Dead + non-3 neighbors → stays dead",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('Dead cell with 0 neighbors stay', 'stay', '')"
+    },
+    {
+      "text": "Uses decision table for state x count",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Decision Table"
+    },
+    {
+      "text": "Uses BVA on neighbor count",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: BVA"
+    },
+    {
+      "text": "Tests all neighbor counts 0-8",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: 0"
+    },
+    {
+      "text": "Includes edge cases: 0 (isolation) and 8 (max)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: isol"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: feature:"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Impact"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: technique_rationale:"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: uncovered"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priority: 1"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: test_ref:"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: combinatorial"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence_partitioning"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: example_mapping:"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: metadata:"
+    }
+  ],
+  "summary": {
+    "passed": 20,
+    "total": 20,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 1.0
+  }
+}

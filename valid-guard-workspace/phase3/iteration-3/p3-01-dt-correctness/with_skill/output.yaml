@@ -1,0 +1,1488 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Largest of Three Positive Integers"
+
+feature_description: >
+  Determine the largest value among three positive integers (x, y, z) where
+  each must be in the range [1, 300]. Inputs are validated for range compliance
+  before comparison. If any input falls outside the valid range, the operation
+  is rejected. When all inputs are valid, the function returns the largest
+  value, handling ties by returning the tied value.
+
+risk_level: medium
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # VALIDATION SCENARIOS — Range checks (c1–c6)
+  # ==========================================================================
+
+  - name: "All inputs within valid range — happy path"
+    description: >
+      All three integers x, y, z satisfy their range constraints [1, 300].
+      This is the precondition for the comparison logic to execute.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      This is the core happy path; every valid invocation depends on range acceptance.
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+    technique_rationale: >
+      Equivalence partitioning confirms a representative from the valid class;
+      decision table encodes the all-true validation rule.
+    preconditions:
+      - "Function accepts three integer parameters x, y, z"
+    examples:
+      - input:
+          x: 150
+          y: 100
+          z: 200
+        expected:
+          accepted: true
+          result: 200
+        description: "All values in mid-range — accepted and largest returned."
+    decision_table:
+      conditions:
+        - "c1: x>=1"
+        - "c2: x<=300"
+        - "c3: y>=1"
+        - "c4: y<=300"
+        - "c5: z>=1"
+        - "c6: z<=300"
+      actions:
+        - "accept_input"
+        - "proceed_to_comparison"
+      rules:
+        - description: "All validation conditions true — input accepted"
+          condition_values:
+            "c1: x>=1": true
+            "c2: x<=300": true
+            "c3: y>=1": true
+            "c4: y<=300": true
+            "c5: z>=1": true
+            "c6: z<=300": true
+          expected_actions:
+            accept_input: true
+            proceed_to_comparison: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - happy-path
+      - smoke
+
+  - name: "x below minimum (x < 1) — validation rejection"
+    description: >
+      Input x is below the lower bound (x < 1). Regardless of y and z values,
+      the input must be rejected. Conditions c1 is false; c3-c6 are don't-care.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Accepting out-of-range input corrupts the comparison result silently.
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      Boundary value tests the lower edge of x; decision table captures the
+      validation rule where c1=false triggers rejection regardless of other conditions.
+    preconditions:
+      - "Function accepts three integer parameters x, y, z"
+    examples:
+      - input:
+          x: 0
+          y: 150
+          z: 150
+        expected:
+          accepted: false
+          error: "x out of range: must be >= 1"
+        description: "x=0 is one below the lower boundary — rejected."
+      - input:
+          x: -5
+          y: 100
+          z: 200
+        expected:
+          accepted: false
+          error: "x out of range: must be >= 1"
+        description: "x=-5 is well below minimum — rejected."
+    decision_table:
+      conditions:
+        - "c1: x>=1"
+      actions:
+        - "reject_input"
+        - "error_message"
+      rules:
+        - description: "c1 false — x below minimum, reject regardless of other conditions"
+          condition_values:
+            "c1: x>=1": false
+          expected_actions:
+            reject_input: true
+            error_message: "x out of range"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - boundary
+      - error-handling
+
+  - name: "x above maximum (x > 300) — validation rejection"
+    description: >
+      Input x exceeds the upper bound (x > 300). Condition c2 is false;
+      the input must be rejected.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Upper bound violation must be caught to prevent incorrect comparisons.
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      Boundary value tests the upper edge of x; decision table captures the
+      c2=false rejection rule.
+    preconditions:
+      - "Function accepts three integer parameters x, y, z"
+    examples:
+      - input:
+          x: 301
+          y: 150
+          z: 150
+        expected:
+          accepted: false
+          error: "x out of range: must be <= 300"
+        description: "x=301 is one above the upper boundary — rejected."
+      - input:
+          x: 1000
+          y: 100
+          z: 200
+        expected:
+          accepted: false
+          error: "x out of range: must be <= 300"
+        description: "x=1000 is well above maximum — rejected."
+    decision_table:
+      conditions:
+        - "c2: x<=300"
+      actions:
+        - "reject_input"
+        - "error_message"
+      rules:
+        - description: "c2 false — x above maximum, reject"
+          condition_values:
+            "c2: x<=300": false
+          expected_actions:
+            reject_input: true
+            error_message: "x out of range"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - boundary
+      - error-handling
+
+  - name: "y below minimum (y < 1) — validation rejection"
+    description: >
+      Input y is below the lower bound (y < 1). Condition c3 is false;
+      the input must be rejected.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Same severity as x lower bound — any parameter out of range invalidates the operation.
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      Boundary value tests the lower edge of y; decision table captures the
+      c3=false rejection rule.
+    preconditions:
+      - "Function accepts three integer parameters x, y, z"
+    examples:
+      - input:
+          x: 150
+          y: 0
+          z: 150
+        expected:
+          accepted: false
+          error: "y out of range: must be >= 1"
+        description: "y=0 is one below the lower boundary — rejected."
+    decision_table:
+      conditions:
+        - "c3: y>=1"
+      actions:
+        - "reject_input"
+        - "error_message"
+      rules:
+        - description: "c3 false — y below minimum, reject"
+          condition_values:
+            "c3: y>=1": false
+          expected_actions:
+            reject_input: true
+            error_message: "y out of range"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - boundary
+      - error-handling
+
+  - name: "y above maximum (y > 300) — validation rejection"
+    description: >
+      Input y exceeds the upper bound (y > 300). Condition c4 is false;
+      the input must be rejected.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Upper bound violation on y must be caught.
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      Boundary value tests the upper edge of y; decision table captures the
+      c4=false rejection rule.
+    preconditions:
+      - "Function accepts three integer parameters x, y, z"
+    examples:
+      - input:
+          x: 150
+          y: 301
+          z: 150
+        expected:
+          accepted: false
+          error: "y out of range: must be <= 300"
+        description: "y=301 is one above the upper boundary — rejected."
+    decision_table:
+      conditions:
+        - "c4: y<=300"
+      actions:
+        - "reject_input"
+        - "error_message"
+      rules:
+        - description: "c4 false — y above maximum, reject"
+          condition_values:
+            "c4: y<=300": false
+          expected_actions:
+            reject_input: true
+            error_message: "y out of range"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - boundary
+      - error-handling
+
+  - name: "z below minimum (z < 1) — validation rejection"
+    description: >
+      Input z is below the lower bound (z < 1). Condition c5 is false;
+      the input must be rejected.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Same severity as other lower bound violations.
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      Boundary value tests the lower edge of z; decision table captures the
+      c5=false rejection rule.
+    preconditions:
+      - "Function accepts three integer parameters x, y, z"
+    examples:
+      - input:
+          x: 150
+          y: 150
+          z: 0
+        expected:
+          accepted: false
+          error: "z out of range: must be >= 1"
+        description: "z=0 is one below the lower boundary — rejected."
+    decision_table:
+      conditions:
+        - "c5: z>=1"
+      actions:
+        - "reject_input"
+        - "error_message"
+      rules:
+        - description: "c5 false — z below minimum, reject"
+          condition_values:
+            "c5: z>=1": false
+          expected_actions:
+            reject_input: true
+            error_message: "z out of range"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - boundary
+      - error-handling
+
+  - name: "z above maximum (z > 300) — validation rejection"
+    description: >
+      Input z exceeds the upper bound (z > 300). Condition c6 is false;
+      the input must be rejected.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Upper bound violation on z must be caught.
+    techniques:
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      Boundary value tests the upper edge of z; decision table captures the
+      c6=false rejection rule.
+    preconditions:
+      - "Function accepts three integer parameters x, y, z"
+    examples:
+      - input:
+          x: 150
+          y: 150
+          z: 301
+        expected:
+          accepted: false
+          error: "z out of range: must be <= 300"
+        description: "z=301 is one above the upper boundary — rejected."
+    decision_table:
+      conditions:
+        - "c6: z<=300"
+      actions:
+        - "reject_input"
+        - "error_message"
+      rules:
+        - description: "c6 false — z above maximum, reject"
+          condition_values:
+            "c6: z<=300": false
+          expected_actions:
+            reject_input: true
+            error_message: "z out of range"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - boundary
+      - error-handling
+
+  - name: "Multiple inputs out of range simultaneously"
+    description: >
+      More than one input violates range constraints at the same time.
+      All violations should be reported.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 -> medium.
+      Multiple violations are less common but error reporting should be comprehensive.
+    techniques:
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Decision table captures multi-condition failure; error guessing anticipates
+      the case where all three inputs are simultaneously invalid.
+    preconditions:
+      - "Function accepts three integer parameters x, y, z"
+    examples:
+      - input:
+          x: 0
+          y: 0
+          z: 0
+        expected:
+          accepted: false
+          error: "x, y, z out of range"
+        description: "All three inputs below minimum — all rejected."
+      - input:
+          x: 301
+          y: 301
+          z: 301
+        expected:
+          accepted: false
+          error: "x, y, z out of range"
+        description: "All three inputs above maximum — all rejected."
+      - input:
+          x: 0
+          y: 301
+          z: 150
+        expected:
+          accepted: false
+          error: "x, y out of range"
+        description: "x below min, y above max, z valid — two rejected."
+    decision_table:
+      conditions:
+        - "c1: x>=1"
+        - "c2: x<=300"
+        - "c3: y>=1"
+        - "c4: y<=300"
+        - "c5: z>=1"
+        - "c6: z<=300"
+      actions:
+        - "reject_input"
+        - "report_all_violations"
+      rules:
+        - description: "All six validation conditions false — all inputs invalid"
+          condition_values:
+            "c1: x>=1": false
+            "c2: x<=300": false
+            "c3: y>=1": false
+            "c4: y<=300": false
+            "c5: z>=1": false
+            "c6: z<=300": false
+          expected_actions:
+            reject_input: true
+            report_all_violations: true
+        - description: "c1 false, c4 false — x and y out of range"
+          condition_values:
+            "c1: x>=1": false
+            "c2: x<=300": true
+            "c3: y>=1": true
+            "c4: y<=300": false
+            "c5: z>=1": true
+            "c6: z<=300": true
+          expected_actions:
+            reject_input: true
+            report_all_violations: true
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - validation
+      - error-handling
+      - multi-violation
+
+  # ==========================================================================
+  # BOUNDARY VALUE SCENARIOS — On-point / Off-point at range edges
+  # ==========================================================================
+
+  - name: "Boundary values at x lower bound (x=1)"
+    description: >
+      Tests the on-point (x=1) and off-point (x=0) at the lower boundary of x.
+      BVA two-value approach: boundary itself and boundary-1.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Off-by-one at the lower bound could accept invalid input or reject valid input.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Classic two-value BVA at the lower boundary of x: on-point x=1 (valid),
+      off-point x=0 (invalid).
+    preconditions:
+      - "y and z are within valid range"
+    examples:
+      - input:
+          x: 1
+          y: 1
+          z: 1
+        expected:
+          accepted: true
+          result: 1
+        description: "x=1 on-point — minimum valid value, accepted."
+      - input:
+          x: 0
+          y: 1
+          z: 1
+        expected:
+          accepted: false
+          error: "x out of range: must be >= 1"
+        description: "x=0 off-point — one below minimum, rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - bva
+      - x-lower
+
+  - name: "Boundary values at x upper bound (x=300)"
+    description: >
+      Tests the on-point (x=300) and off-point (x=301) at the upper boundary of x.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Off-by-one at the upper bound could accept out-of-range input.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Two-value BVA at the upper boundary of x: on-point x=300 (valid),
+      off-point x=301 (invalid).
+    preconditions:
+      - "y and z are within valid range"
+    examples:
+      - input:
+          x: 300
+          y: 1
+          z: 1
+        expected:
+          accepted: true
+          result: 300
+        description: "x=300 on-point — maximum valid value, accepted."
+      - input:
+          x: 301
+          y: 1
+          z: 1
+        expected:
+          accepted: false
+          error: "x out of range: must be <= 300"
+        description: "x=301 off-point — one above maximum, rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - bva
+      - x-upper
+
+  - name: "Boundary values at y lower bound (y=1)"
+    description: >
+      Tests the on-point (y=1) and off-point (y=0) at the lower boundary of y.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Same criticality as x boundary — symmetric validation requirement.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Two-value BVA at the lower boundary of y.
+    preconditions:
+      - "x and z are within valid range"
+    examples:
+      - input:
+          x: 150
+          y: 1
+          z: 150
+        expected:
+          accepted: true
+          result: 150
+        description: "y=1 on-point — minimum valid value, accepted."
+      - input:
+          x: 150
+          y: 0
+          z: 150
+        expected:
+          accepted: false
+          error: "y out of range: must be >= 1"
+        description: "y=0 off-point — one below minimum, rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - bva
+      - y-lower
+
+  - name: "Boundary values at y upper bound (y=300)"
+    description: >
+      Tests the on-point (y=300) and off-point (y=301) at the upper boundary of y.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Upper bound violation on y must be precisely detected.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Two-value BVA at the upper boundary of y.
+    preconditions:
+      - "x and z are within valid range"
+    examples:
+      - input:
+          x: 1
+          y: 300
+          z: 1
+        expected:
+          accepted: true
+          result: 300
+        description: "y=300 on-point — maximum valid value, accepted."
+      - input:
+          x: 1
+          y: 301
+          z: 1
+        expected:
+          accepted: false
+          error: "y out of range: must be <= 300"
+        description: "y=301 off-point — one above maximum, rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - bva
+      - y-upper
+
+  - name: "Boundary values at z lower bound (z=1)"
+    description: >
+      Tests the on-point (z=1) and off-point (z=0) at the lower boundary of z.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Symmetric with x and y lower bound testing.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Two-value BVA at the lower boundary of z.
+    preconditions:
+      - "x and y are within valid range"
+    examples:
+      - input:
+          x: 150
+          y: 150
+          z: 1
+        expected:
+          accepted: true
+          result: 150
+        description: "z=1 on-point — minimum valid value, accepted."
+      - input:
+          x: 150
+          y: 150
+          z: 0
+        expected:
+          accepted: false
+          error: "z out of range: must be >= 1"
+        description: "z=0 off-point — one below minimum, rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - bva
+      - z-lower
+
+  - name: "Boundary values at z upper bound (z=300)"
+    description: >
+      Tests the on-point (z=300) and off-point (z=301) at the upper boundary of z.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      Upper bound violation on z must be precisely detected.
+    techniques:
+      - boundary_value
+    technique_rationale: >
+      Two-value BVA at the upper boundary of z.
+    preconditions:
+      - "x and y are within valid range"
+    examples:
+      - input:
+          x: 1
+          y: 1
+          z: 300
+        expected:
+          accepted: true
+          result: 300
+        description: "z=300 on-point — maximum valid value, accepted."
+      - input:
+          x: 1
+          y: 1
+          z: 301
+        expected:
+          accepted: false
+          error: "z out of range: must be <= 300"
+        description: "z=301 off-point — one above maximum, rejected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - boundary
+      - bva
+      - z-upper
+
+  # ==========================================================================
+  # COMPARISON SCENARIOS — Decision table for c7, c8, c9 (all inputs valid)
+  # ==========================================================================
+
+  - name: "x is the unique largest (x>y and x>z)"
+    description: >
+      When all inputs are valid and x is strictly greater than both y and z,
+      x is returned as the largest. Decision table rule: c7=true, c8=true,
+      c9=don't-care.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      Core comparison logic — returning the wrong maximum is the primary defect.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table captures the comparison rule combination; equivalence
+      partitioning selects a representative from the x-is-largest class.
+    preconditions:
+      - "All inputs are in range [1, 300]"
+      - "x > y and x > z"
+    examples:
+      - input:
+          x: 250
+          y: 100
+          z: 200
+        expected:
+          result: 250
+          largest: "x"
+        description: "x=250 > y=100 and x=250 > z=200, so x is largest."
+      - input:
+          x: 300
+          y: 1
+          z: 299
+        expected:
+          result: 300
+          largest: "x"
+        description: "x at upper bound, y at lower bound — x is clearly largest."
+    decision_table:
+      conditions:
+        - "c7: x>y"
+        - "c8: x>z"
+        - "c9: y>z"
+      actions:
+        - "return_largest"
+      rules:
+        - description: "x>y, x>z, y>z => x is largest (permutation x>y>z)"
+          condition_values:
+            "c7: x>y": true
+            "c8: x>z": true
+            "c9: y>z": true
+          expected_actions:
+            return_largest: "x"
+        - description: "x>y, x>z, y<=z => x is largest (permutation x>z>=y)"
+          condition_values:
+            "c7: x>y": true
+            "c8: x>z": true
+            "c9: y>z": false
+          expected_actions:
+            return_largest: "x"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - comparison
+      - decision-table
+      - core-logic
+
+  - name: "y is the unique largest (y>=x and y>z)"
+    description: >
+      When all inputs are valid and y is greater than or equal to x, and y is
+      strictly greater than z, y is returned as the largest. Decision table
+      rule: c7=false, c9=true.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      Core comparison logic — symmetric importance with x-largest case.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table captures the comparison rule combination; equivalence
+      partitioning selects a representative from the y-is-largest class.
+    preconditions:
+      - "All inputs are in range [1, 300]"
+      - "y >= x and y > z"
+    examples:
+      - input:
+          x: 100
+          y: 250
+          z: 200
+        expected:
+          result: 250
+          largest: "y"
+        description: "y=250 > x=100 and y=250 > z=200, so y is largest."
+      - input:
+          x: 1
+          y: 300
+          z: 299
+        expected:
+          result: 300
+          largest: "y"
+        description: "y at upper bound — y is clearly largest."
+    decision_table:
+      conditions:
+        - "c7: x>y"
+        - "c8: x>z"
+        - "c9: y>z"
+      actions:
+        - "return_largest"
+      rules:
+        - description: "x<=y, x>z, y>z => y is largest (permutation y>=x>z)"
+          condition_values:
+            "c7: x>y": false
+            "c8: x>z": true
+            "c9: y>z": true
+          expected_actions:
+            return_largest: "y"
+        - description: "x<=y, x<=z, y>z => y is largest (permutation y>z>=x)"
+          condition_values:
+            "c7: x>y": false
+            "c8: x>z": false
+            "c9: y>z": true
+          expected_actions:
+            return_largest: "y"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - comparison
+      - decision-table
+      - core-logic
+
+  - name: "z is the unique largest (z>=x and z>=y)"
+    description: >
+      When all inputs are valid and z is greater than or equal to both x and y,
+      z is returned as the largest. Decision table rule: c8=false, c9=false.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      Core comparison logic — symmetric importance with x/y-largest cases.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table captures the comparison rule combination; equivalence
+      partitioning selects a representative from the z-is-largest class.
+    preconditions:
+      - "All inputs are in range [1, 300]"
+      - "z >= x and z >= y"
+    examples:
+      - input:
+          x: 100
+          y: 200
+          z: 250
+        expected:
+          result: 250
+          largest: "z"
+        description: "z=250 > x=100 and z=250 > y=200, so z is largest."
+      - input:
+          x: 1
+          y: 299
+          z: 300
+        expected:
+          result: 300
+          largest: "z"
+        description: "z at upper bound — z is clearly largest."
+    decision_table:
+      conditions:
+        - "c7: x>y"
+        - "c8: x>z"
+        - "c9: y>z"
+      actions:
+        - "return_largest"
+      rules:
+        - description: "x>y, x<=z, y<=z => z is largest (permutation z>=x>y)"
+          condition_values:
+            "c7: x>y": true
+            "c8: x>z": false
+            "c9: y>z": false
+          expected_actions:
+            return_largest: "z"
+        - description: "x<=y, x<=z, y<=z => z is largest (permutation z>=y>=x)"
+          condition_values:
+            "c7: x>y": false
+            "c8: x>z": false
+            "c9: y>z": false
+          expected_actions:
+            return_largest: "z"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - comparison
+      - decision-table
+      - core-logic
+
+  # ==========================================================================
+  # COMPLETE DECISION TABLE — All 8 combinations of c7, c8, c9
+  # ==========================================================================
+
+  - name: "Full comparison decision table — all 8 rule combinations"
+    description: >
+      Exhaustive decision table for the three comparison conditions c7 (x>y),
+      c8 (x>z), c9 (y>z). With 3 boolean conditions there are 2^3 = 8
+      combinations. Two combinations are infeasible due to transitivity
+      constraints. The remaining 6 feasible rules are enumerated with their
+      expected outcomes.
+      Infeasible: c7=true (x>y), c8=false (x<=z), c9=true (y>z) implies
+      x>y>z>=x which is a contradiction. Similarly c7=false (x<=y),
+      c8=true (x>z), c9=false (y<=z) implies x<=y<=z<x, also a contradiction.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.00 -> high.
+      This is the complete truth table for the core algorithm. Missing any rule
+      means a silent wrong answer for certain inputs.
+    techniques:
+      - decision_table
+      - cause_effect
+    technique_rationale: >
+      Decision table enumerates all condition combinations. Cause-effect graphing
+      identifies the two infeasible combinations due to transitivity constraints
+      (x>y AND y>z implies x>z; x<=y AND y<=z implies x<=z).
+    preconditions:
+      - "All inputs are in range [1, 300]"
+    examples:
+      - input:
+          x: 200
+          y: 150
+          z: 100
+        expected:
+          result: 200
+          largest: "x"
+        description: "Rule R1: x>y>z => x is largest."
+      - input:
+          x: 200
+          y: 100
+          z: 150
+        expected:
+          result: 200
+          largest: "x"
+        description: "Rule R2: x>z>y => x is largest."
+      - input:
+          x: 150
+          y: 200
+          z: 100
+        expected:
+          result: 200
+          largest: "y"
+        description: "Rule R3: y>x>z => y is largest."
+      - input:
+          x: 100
+          y: 200
+          z: 150
+        expected:
+          result: 200
+          largest: "y"
+        description: "Rule R5: y>z>x => y is largest."
+      - input:
+          x: 150
+          y: 100
+          z: 200
+        expected:
+          result: 200
+          largest: "z"
+        description: "Rule R6: z>x>y => z is largest."
+      - input:
+          x: 100
+          y: 150
+          z: 200
+        expected:
+          result: 200
+          largest: "z"
+        description: "Rule R7: z>y>x => z is largest."
+    decision_table:
+      conditions:
+        - "c7: x>y"
+        - "c8: x>z"
+        - "c9: y>z"
+      actions:
+        - "return_largest"
+        - "feasible"
+      rules:
+        - description: "R1: x>y, x>z, y>z (x>y>z) => largest is x"
+          condition_values:
+            "c7: x>y": true
+            "c8: x>z": true
+            "c9: y>z": true
+          expected_actions:
+            return_largest: "x"
+            feasible: true
+        - description: "R2: x>y, x>z, y<=z (x>z>=y) => largest is x"
+          condition_values:
+            "c7: x>y": true
+            "c8: x>z": true
+            "c9: y>z": false
+          expected_actions:
+            return_largest: "x"
+            feasible: true
+        - description: "R3: x>y, x<=z, y<=z (z>=x>y) => largest is z"
+          condition_values:
+            "c7: x>y": true
+            "c8: x>z": false
+            "c9: y>z": false
+          expected_actions:
+            return_largest: "z"
+            feasible: true
+        - description: "R4: x>y, x<=z, y>z — INFEASIBLE (x>y>z>=x is a contradiction)"
+          condition_values:
+            "c7: x>y": true
+            "c8: x>z": false
+            "c9: y>z": true
+          expected_actions:
+            return_largest: "N/A"
+            feasible: false
+        - description: "R5: x<=y, x>z, y>z (y>=x>z) => largest is y"
+          condition_values:
+            "c7: x>y": false
+            "c8: x>z": true
+            "c9: y>z": true
+          expected_actions:
+            return_largest: "y"
+            feasible: true
+        - description: "R6: x<=y, x>z, y<=z — INFEASIBLE (y<=z<x<=y is a contradiction)"
+          condition_values:
+            "c7: x>y": false
+            "c8: x>z": true
+            "c9: y>z": false
+          expected_actions:
+            return_largest: "N/A"
+            feasible: false
+        - description: "R7: x<=y, x<=z, y>z (y>=x, y>z) => largest is y"
+          condition_values:
+            "c7: x>y": false
+            "c8: x>z": false
+            "c9: y>z": true
+          expected_actions:
+            return_largest: "y"
+            feasible: true
+        - description: "R8: x<=y, x<=z, y<=z (z>=y>=x) => largest is z"
+          condition_values:
+            "c7: x>y": false
+            "c8: x>z": false
+            "c9: y>z": false
+          expected_actions:
+            return_largest: "z"
+            feasible: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - comparison
+      - decision-table
+      - exhaustive
+      - core-logic
+
+  # ==========================================================================
+  # TIE HANDLING SCENARIOS
+  # ==========================================================================
+
+  - name: "Two-way tie: x equals y, both greater than z"
+    description: >
+      When x = y and both are greater than z, the function should return the
+      tied value. This exercises the boundary between c7=true and c7=false
+      (x>y vs x=y). Falls under rule R8/R3 boundary where c7 flips.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 -> medium.
+      Ties are less common but a classic source of off-by-one errors in comparison logic.
+    techniques:
+      - boundary_value
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the transition point where x>y becomes x=y;
+      decision table verifies the rule; error guessing targets classic tie-handling bugs.
+    preconditions:
+      - "All inputs are in range [1, 300]"
+      - "x == y and x > z"
+    examples:
+      - input:
+          x: 200
+          y: 200
+          z: 100
+        expected:
+          result: 200
+        description: "x=y=200 > z=100. Tied value 200 returned."
+      - input:
+          x: 300
+          y: 300
+          z: 1
+        expected:
+          result: 300
+        description: "x=y at upper bound, z at lower bound. Tied value 300 returned."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - comparison
+      - tie-handling
+      - edge-case
+
+  - name: "Two-way tie: x equals z, both greater than y"
+    description: >
+      When x = z and both are greater than y, the function should return the
+      tied value. This exercises the boundary where c8 (x>z) flips.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 -> medium.
+      Symmetric tie case — exercises x-z equality boundary.
+    techniques:
+      - boundary_value
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the x=z transition; error guessing targets
+      comparison operator mistakes (> vs >=).
+    preconditions:
+      - "All inputs are in range [1, 300]"
+      - "x == z and x > y"
+    examples:
+      - input:
+          x: 200
+          y: 100
+          z: 200
+        expected:
+          result: 200
+        description: "x=z=200 > y=100. Tied value 200 returned."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - comparison
+      - tie-handling
+      - edge-case
+
+  - name: "Two-way tie: y equals z, both greater than x"
+    description: >
+      When y = z and both are greater than x, the function should return the
+      tied value. This exercises the boundary where c9 (y>z) flips.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 -> medium.
+      Symmetric tie case — exercises y-z equality boundary.
+    techniques:
+      - boundary_value
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the y=z transition; error guessing targets
+      comparison operator mistakes.
+    preconditions:
+      - "All inputs are in range [1, 300]"
+      - "y == z and y > x"
+    examples:
+      - input:
+          x: 100
+          y: 200
+          z: 200
+        expected:
+          result: 200
+        description: "y=z=200 > x=100. Tied value 200 returned."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - comparison
+      - tie-handling
+      - edge-case
+
+  - name: "Three-way tie: x equals y equals z"
+    description: >
+      When all three inputs are equal, the function should return that value.
+      This is the corner case where c7=false, c8=false, c9=false and all
+      equalities hold simultaneously.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.50 -> medium.
+      Three-way ties are rare but represent the ultimate boundary of all comparison conditions.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the triple-equality corner; error guessing
+      anticipates issues where comparison logic fails when no value is strictly greater.
+    preconditions:
+      - "All inputs are in range [1, 300]"
+      - "x == y == z"
+    examples:
+      - input:
+          x: 150
+          y: 150
+          z: 150
+        expected:
+          result: 150
+        description: "x=y=z=150. Triple tie returns the common value."
+      - input:
+          x: 1
+          y: 1
+          z: 1
+        expected:
+          result: 1
+        description: "x=y=z=1. Triple tie at lower bound."
+      - input:
+          x: 300
+          y: 300
+          z: 300
+        expected:
+          result: 300
+        description: "x=y=z=300. Triple tie at upper bound."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - comparison
+      - tie-handling
+      - edge-case
+      - corner-case
+
+  # ==========================================================================
+  # ALL SIX STRICT ORDERINGS — Permutation coverage
+  # ==========================================================================
+
+  - name: "Permutation coverage — all 6 strict orderings of x, y, z"
+    description: >
+      Exhaustively tests all 6 permutations where x, y, z are strictly distinct
+      to confirm the correct largest is returned in each ordering. This ensures
+      the comparison logic works regardless of which position holds the largest
+      value. Permutations: x>y>z, x>z>y, y>x>z, y>z>x, z>x>y, z>y>x.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      Covering all orderings is essential to verify the algorithm is symmetric
+      and does not have position-dependent bugs.
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+    technique_rationale: >
+      Each permutation is an equivalence class for the comparison logic.
+      Decision table maps each ordering to the expected output.
+    preconditions:
+      - "All inputs are in range [1, 300]"
+      - "x, y, z are all distinct"
+    examples:
+      - input:
+          x: 200
+          y: 150
+          z: 100
+        expected:
+          result: 200
+          largest: "x"
+        description: "Permutation 1: x>y>z (200>150>100) => x."
+      - input:
+          x: 200
+          y: 100
+          z: 150
+        expected:
+          result: 200
+          largest: "x"
+        description: "Permutation 2: x>z>y (200>150>100) => x."
+      - input:
+          x: 150
+          y: 200
+          z: 100
+        expected:
+          result: 200
+          largest: "y"
+        description: "Permutation 3: y>x>z (200>150>100) => y."
+      - input:
+          x: 100
+          y: 200
+          z: 150
+        expected:
+          result: 200
+          largest: "y"
+        description: "Permutation 4: y>z>x (200>150>100) => y."
+      - input:
+          x: 150
+          y: 100
+          z: 200
+        expected:
+          result: 200
+          largest: "z"
+        description: "Permutation 5: z>x>y (200>150>100) => z."
+      - input:
+          x: 100
+          y: 150
+          z: 200
+        expected:
+          result: 200
+          largest: "z"
+        description: "Permutation 6: z>y>x (200>150>100) => z."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - comparison
+      - permutation
+      - exhaustive
+
+  # ==========================================================================
+  # ERROR GUESSING — Anticipated defect scenarios
+  # ==========================================================================
+
+  - name: "Adjacent values differing by 1 — near-tie detection"
+    description: >
+      Inputs differ by exactly 1 to detect off-by-one errors in the comparison
+      operators (e.g., > vs >= confusion).
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3. Average: 2.25 -> medium.
+      Adjacent values are where > vs >= bugs manifest. Silent wrong answer.
+    techniques:
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Error guessing targets the classic off-by-one in comparisons;
+      boundary value analyzes the point where relative ordering changes.
+    preconditions:
+      - "All inputs are in range [1, 300]"
+    examples:
+      - input:
+          x: 101
+          y: 100
+          z: 99
+        expected:
+          result: 101
+          largest: "x"
+        description: "Consecutive descending values, differ by 1."
+      - input:
+          x: 100
+          y: 101
+          z: 100
+        expected:
+          result: 101
+          largest: "y"
+        description: "y is 1 greater than x and z which are tied."
+      - input:
+          x: 100
+          y: 99
+          z: 101
+        expected:
+          result: 101
+          largest: "z"
+        description: "z is 1 greater, x in middle, y smallest — all differ by 1."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - comparison
+      - error-guessing
+      - off-by-one
+
+  - name: "Extreme boundary combination — all inputs at bounds"
+    description: >
+      Tests with inputs at the extreme ends of the valid range simultaneously.
+      Worst-case BVA: all three parameters at boundary values.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 -> medium.
+      Rare in practice but exercises worst-case paths.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Worst-case boundary value analysis tests all parameters at limits
+      simultaneously; error guessing anticipates overflow or edge interactions.
+    preconditions:
+      - "All inputs at boundary values 1 or 300"
+    examples:
+      - input:
+          x: 300
+          y: 300
+          z: 1
+        expected:
+          result: 300
+        description: "Two at upper bound, one at lower bound."
+      - input:
+          x: 1
+          y: 300
+          z: 300
+        expected:
+          result: 300
+        description: "One at lower bound, two at upper bound (different positions)."
+      - input:
+          x: 1
+          y: 1
+          z: 300
+        expected:
+          result: 300
+        description: "Two at lower bound, one at upper bound."
+      - input:
+          x: 300
+          y: 1
+          z: 1
+        expected:
+          result: 300
+        description: "x at upper bound, y and z at lower bound."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - boundary
+      - worst-case-bva
+      - extreme
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As a user, I want to determine the largest of three positive integers
+    (x, y, z) within the range [1, 300] so that I get the correct maximum value.
+  rules:
+    - rule_name: "Each input must be in range [1, 300]"
+      examples:
+        - "x=150, y=100, z=200 -> all valid, proceed to comparison"
+        - "x=0, y=100, z=200 -> x below minimum, reject"
+        - "x=301, y=100, z=200 -> x above maximum, reject"
+        - "x=150, y=0, z=200 -> y below minimum, reject"
+        - "x=150, y=301, z=200 -> y above maximum, reject"
+        - "x=150, y=100, z=0 -> z below minimum, reject"
+        - "x=150, y=100, z=301 -> z above maximum, reject"
+        - "x=0, y=0, z=0 -> all below minimum, reject with all violations"
+
+    - rule_name: "The function returns the value of the largest input"
+      examples:
+        - "x=200, y=150, z=100 -> returns 200 (x is largest)"
+        - "x=100, y=200, z=150 -> returns 200 (y is largest)"
+        - "x=100, y=150, z=200 -> returns 200 (z is largest)"
+
+    - rule_name: "All 6 strict orderings produce correct results"
+      examples:
+        - "x>y>z: x=200, y=150, z=100 -> 200"
+        - "x>z>y: x=200, y=100, z=150 -> 200"
+        - "y>x>z: x=150, y=200, z=100 -> 200"
+        - "y>z>x: x=100, y=200, z=150 -> 200"
+        - "z>x>y: x=150, y=100, z=200 -> 200"
+        - "z>y>x: x=100, y=150, z=200 -> 200"
+
+    - rule_name: "Ties return the tied value"
+      examples:
+        - "x=y=200, z=100 -> returns 200 (two-way tie, x=y)"
+        - "x=z=200, y=100 -> returns 200 (two-way tie, x=z)"
+        - "y=z=200, x=100 -> returns 200 (two-way tie, y=z)"
+        - "x=y=z=150 -> returns 150 (three-way tie)"
+
+    - rule_name: "Boundary values at range limits [1, 300] are accepted"
+      examples:
+        - "x=1 (lower bound) -> accepted"
+        - "x=300 (upper bound) -> accepted"
+        - "x=0 (below lower bound) -> rejected"
+        - "x=301 (above upper bound) -> rejected"
+        - "x=1, y=1, z=1 -> returns 1 (all at minimum)"
+        - "x=300, y=300, z=300 -> returns 300 (all at maximum)"
+
+    - rule_name: "Infeasible condition combinations are identified"
+      examples:
+        - "c7=true (x>y), c8=false (x<=z), c9=true (y>z) is infeasible: x>y>z>=x contradiction"
+        - "c7=false (x<=y), c8=true (x>z), c9=false (y<=z) is infeasible: y<=z<x<=y contradiction"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

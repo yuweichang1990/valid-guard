@@ -1,0 +1,810 @@
+# Valid Guard Test Plan — Loan Approval Decision Table
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+#
+# Decision Table Analysis:
+#   3 conditions with 2 values each = 2^3 = 8 rules
+#   Conditions: Credit Score (Good/Poor), Income Level (High/Low), Existing Debts (Yes/No)
+#   Actions: Approved, Rejected, Further Review Required
+#
+# Rule Collapsing Analysis:
+#   - Rules R5-R8 (Poor credit) collapse into 1 rule: Poor credit + anything = Rejected
+#     (income and debts are don't-care when credit is Poor)
+#   - Rules R1 & R2 (Good credit + High income) collapse into 1 rule:
+#     Good credit + High income + any debts = Approved
+#     (debts are don't-care when credit is Good and income is High)
+#   - After collapsing: 8 rules reduce to 4 effective rules:
+#     1. Good + High + any debts    -> Approved
+#     2. Good + Low  + No debts     -> Approved (or further review, see questions)
+#     3. Good + Low  + Yes debts    -> Further Review Required
+#     4. Poor + any  + any          -> Rejected
+
+feature: "Loan Approval System"
+
+feature_description: >
+  A loan approval decision engine that evaluates applicants based on three
+  conditions: credit score (Good or Poor), income level (High or Low), and
+  existing debts (Yes or No). The system produces one of three outcomes:
+  Approved, Rejected, or Further Review Required. Business rules dictate
+  that poor credit always results in rejection regardless of other factors,
+  good credit with high income always results in approval regardless of debts,
+  and good credit with low income and existing debts triggers further review.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # Scenario 1: Full Decision Table — All 8 Rules (Exhaustive Enumeration)
+  # ==========================================================================
+  - name: "Loan decision table — all condition combinations"
+    description: >
+      Exhaustive decision table covering all 2^3 = 8 combinations of the three
+      binary conditions (credit score, income level, existing debts). This is
+      the primary combinatorial scenario that verifies every path through the
+      loan approval logic. Rules R5-R8 (Poor credit) can be collapsed into a
+      single rule since income and debts are irrelevant when credit is Poor.
+      Rules R1 and R2 (Good credit + High income) can also be collapsed since
+      debts do not affect the outcome when both credit and income are favorable.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      Loan approval is core business logic affecting every applicant. Incorrect
+      decisions have direct financial consequences (approving bad loans or
+      rejecting good applicants). High frequency as every loan application
+      triggers this logic. Silent failures where a wrong decision is rendered
+      without obvious error make detectability moderate.
+    techniques:
+      - decision_table
+      - cause_effect
+    technique_rationale: >
+      Decision table is the primary technique because three binary conditions
+      combining to produce categorical outcomes is the textbook DT use case.
+      Cause-effect graphing supplements it by modeling the logical dependencies
+      between conditions (e.g., Poor credit overrides all other conditions,
+      Good credit + High income overrides the debts condition).
+    preconditions:
+      - "Loan application has been submitted with all required fields"
+      - "Credit score has been categorized as Good or Poor"
+      - "Income level has been categorized as High or Low"
+      - "Existing debts status has been determined as Yes or No"
+    decision_table:
+      conditions:
+        - "credit_score"
+        - "income_level"
+        - "existing_debts"
+      actions:
+        - "decision"
+      rules:
+        # --- Good Credit Rules ---
+        - description: "R1: Good credit + High income + No debts -> Approved"
+          condition_values:
+            credit_score: "Good"
+            income_level: "High"
+            existing_debts: "No"
+          expected_actions:
+            decision: "Approved"
+
+        - description: "R2: Good credit + High income + Yes debts -> Approved (debts irrelevant with good credit and high income)"
+          condition_values:
+            credit_score: "Good"
+            income_level: "High"
+            existing_debts: "Yes"
+          expected_actions:
+            decision: "Approved"
+
+        - description: "R3: Good credit + Low income + No debts -> Approved"
+          condition_values:
+            credit_score: "Good"
+            income_level: "Low"
+            existing_debts: "No"
+          expected_actions:
+            decision: "Approved"
+
+        - description: "R4: Good credit + Low income + Yes debts -> Further Review Required"
+          condition_values:
+            credit_score: "Good"
+            income_level: "Low"
+            existing_debts: "Yes"
+          expected_actions:
+            decision: "Further Review Required"
+
+        # --- Poor Credit Rules (all collapse to Rejected) ---
+        - description: "R5: Poor credit + High income + No debts -> Rejected"
+          condition_values:
+            credit_score: "Poor"
+            income_level: "High"
+            existing_debts: "No"
+          expected_actions:
+            decision: "Rejected"
+
+        - description: "R6: Poor credit + High income + Yes debts -> Rejected"
+          condition_values:
+            credit_score: "Poor"
+            income_level: "High"
+            existing_debts: "Yes"
+          expected_actions:
+            decision: "Rejected"
+
+        - description: "R7: Poor credit + Low income + No debts -> Rejected"
+          condition_values:
+            credit_score: "Poor"
+            income_level: "Low"
+            existing_debts: "No"
+          expected_actions:
+            decision: "Rejected"
+
+        - description: "R8: Poor credit + Low income + Yes debts -> Rejected"
+          condition_values:
+            credit_score: "Poor"
+            income_level: "Low"
+            existing_debts: "Yes"
+          expected_actions:
+            decision: "Rejected"
+    examples:
+      - input:
+          credit_score: "Good"
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Approved"
+        description: "R1: Best-case applicant — good credit, high income, no debts."
+      - input:
+          credit_score: "Good"
+          income_level: "High"
+          existing_debts: "Yes"
+        expected:
+          decision: "Approved"
+        description: "R2: Debts do not matter with good credit and high income."
+      - input:
+          credit_score: "Good"
+          income_level: "Low"
+          existing_debts: "No"
+        expected:
+          decision: "Approved"
+        description: "R3: Good credit and no debts compensate for low income."
+      - input:
+          credit_score: "Good"
+          income_level: "Low"
+          existing_debts: "Yes"
+        expected:
+          decision: "Further Review Required"
+        description: "R4: Low income combined with debts triggers manual review despite good credit."
+      - input:
+          credit_score: "Poor"
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Rejected"
+        description: "R5: Poor credit overrides high income and no debts."
+      - input:
+          credit_score: "Poor"
+          income_level: "High"
+          existing_debts: "Yes"
+        expected:
+          decision: "Rejected"
+        description: "R6: Poor credit with high income and debts — still rejected."
+      - input:
+          credit_score: "Poor"
+          income_level: "Low"
+          existing_debts: "No"
+        expected:
+          decision: "Rejected"
+        description: "R7: Poor credit with low income — rejected regardless of no debts."
+      - input:
+          credit_score: "Poor"
+          income_level: "Low"
+          existing_debts: "Yes"
+        expected:
+          decision: "Rejected"
+        description: "R8: Worst-case applicant — all negative factors."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - core-logic
+      - critical-path
+      - smoke
+
+  # ==========================================================================
+  # Scenario 2: Collapsed Rule — Poor Credit Override
+  # ==========================================================================
+  - name: "Poor credit always results in rejection regardless of other factors"
+    description: >
+      Verifies the dominant business rule: any applicant with a Poor credit
+      score is rejected immediately. Income level and existing debts are
+      don't-care conditions. This tests the rule collapse where R5, R6, R7,
+      and R8 merge into a single logical rule. The system must not evaluate
+      income or debts when credit is Poor.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high.
+      This is the primary gatekeeping rule. If it fails, unqualified applicants
+      receive loans, causing direct financial loss. High frequency because a
+      significant portion of applicants will have poor credit scores. A defect
+      here may not be immediately obvious if the system still appears to
+      process applications normally.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table captures the collapsed rule (credit=Poor, income=don't-care,
+      debts=don't-care). Equivalence partitioning treats all Poor-credit
+      applicants as a single equivalence class regardless of other condition
+      values, confirming the override behavior.
+    preconditions:
+      - "Applicant has a credit score categorized as Poor"
+    examples:
+      - input:
+          credit_score: "Poor"
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Rejected"
+        description: "Poor credit with best possible other factors — still rejected."
+      - input:
+          credit_score: "Poor"
+          income_level: "Low"
+          existing_debts: "Yes"
+        expected:
+          decision: "Rejected"
+        description: "Poor credit with worst other factors — rejected as expected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - rule-collapse
+      - equivalence-class
+      - negative-test
+
+  # ==========================================================================
+  # Scenario 3: Collapsed Rule — Good Credit + High Income Override
+  # ==========================================================================
+  - name: "Good credit and high income always approved regardless of debts"
+    description: >
+      Verifies the second collapsible rule: when credit is Good and income is
+      High, the existing debts condition becomes a don't-care. Rules R1 and R2
+      collapse into one: Good + High + {Yes, No} = Approved. This tests that
+      the debt status is correctly ignored when the two primary positive
+      conditions are met.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 2, Detectability: 2. Average: 2.50 -> high.
+      Core approval path for qualified applicants. Rejecting a qualified
+      applicant with debts (when they should be approved) causes customer
+      churn and lost revenue. High frequency as this represents the primary
+      happy-path for loan applications.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table models the collapsed rule where debts column becomes
+      don't-care. Equivalence partitioning confirms that both debt values
+      (Yes/No) produce identical outcomes under this condition combination.
+    preconditions:
+      - "Applicant has a credit score categorized as Good"
+      - "Applicant has an income level categorized as High"
+    examples:
+      - input:
+          credit_score: "Good"
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Approved"
+        description: "Good credit + high income + no debts — approved."
+      - input:
+          credit_score: "Good"
+          income_level: "High"
+          existing_debts: "Yes"
+        expected:
+          decision: "Approved"
+        description: "Good credit + high income + has debts — still approved."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - rule-collapse
+      - equivalence-class
+      - happy-path
+
+  # ==========================================================================
+  # Scenario 4: Further Review Trigger
+  # ==========================================================================
+  - name: "Good credit with low income and existing debts triggers further review"
+    description: >
+      The only condition combination that produces the Further Review Required
+      outcome. This is rule R4 in the decision table: Good credit provides
+      enough positive signal to avoid outright rejection, but low income
+      combined with existing debts introduces enough risk to require human
+      review before approval.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      This is the only path to a third distinct outcome. If this rule fails
+      (either auto-approving or auto-rejecting), it either creates bad loans
+      or alienates borderline-qualified applicants. The consequence is high
+      because misclassification in either direction has financial impact.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table isolates this unique rule from the other 7 combinations.
+      Equivalence partitioning confirms this specific combination is its own
+      equivalence class distinct from the Approved and Rejected classes.
+    preconditions:
+      - "Applicant has a credit score categorized as Good"
+      - "Applicant has an income level categorized as Low"
+      - "Applicant has existing debts"
+    examples:
+      - input:
+          credit_score: "Good"
+          income_level: "Low"
+          existing_debts: "Yes"
+        expected:
+          decision: "Further Review Required"
+        description: "The single combination that triggers manual review."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - further-review
+      - unique-outcome
+      - critical-path
+
+  # ==========================================================================
+  # Scenario 5: Good Credit + Low Income + No Debts
+  # ==========================================================================
+  - name: "Good credit with low income and no debts results in approval"
+    description: >
+      Rule R3: Good credit and absence of debts are sufficient for approval
+      even with low income. This scenario verifies that the system does not
+      incorrectly route debt-free, low-income applicants to further review.
+      It is the boundary case between Approved and Further Review — flipping
+      the debts condition from No to Yes changes the outcome entirely.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 -> medium.
+      Important approval path but less frequent than the Good+High combination.
+      Incorrect routing to further review causes unnecessary delays but does
+      not result in financial loss. Detectability is moderate since the
+      applicant would notice a delay but might not realize it was an error.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table confirms this specific rule. Equivalence partitioning
+      groups this with other Approved outcomes to verify class membership.
+    preconditions:
+      - "Applicant has a credit score categorized as Good"
+      - "Applicant has an income level categorized as Low"
+      - "Applicant has no existing debts"
+    examples:
+      - input:
+          credit_score: "Good"
+          income_level: "Low"
+          existing_debts: "No"
+        expected:
+          decision: "Approved"
+        description: "Low income is acceptable when credit is good and no debts exist."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - approval-path
+      - boundary-between-outcomes
+
+  # ==========================================================================
+  # Scenario 6: Invalid / Missing Input Handling
+  # ==========================================================================
+  - name: "Loan application with missing or invalid condition values"
+    description: >
+      Error handling for cases where one or more of the three conditions
+      (credit score, income level, existing debts) is missing, null, or
+      contains an unexpected value outside the defined domain. The system
+      must reject the application with a clear validation error rather than
+      defaulting to any decision outcome.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium.
+      However, elevated to high because missing input silently defaulting to
+      Approved would cause direct financial loss. The detectability score of 1
+      reflects that validation errors are immediately visible, but the
+      consequence of a silent default is severe enough to warrant high priority.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning defines the invalid input class (values outside
+      Good/Poor, High/Low, Yes/No). Error guessing anticipates common defects
+      like null handling, empty strings, and case sensitivity issues.
+    preconditions:
+      - "Loan application submission endpoint is available"
+    examples:
+      - input:
+          credit_score: null
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Error"
+          error: "MISSING_CREDIT_SCORE"
+        description: "Missing credit score should produce a validation error."
+      - input:
+          credit_score: "Good"
+          income_level: null
+          existing_debts: "No"
+        expected:
+          decision: "Error"
+          error: "MISSING_INCOME_LEVEL"
+        description: "Missing income level should produce a validation error."
+      - input:
+          credit_score: "Good"
+          income_level: "High"
+          existing_debts: null
+        expected:
+          decision: "Error"
+          error: "MISSING_DEBTS_STATUS"
+        description: "Missing debts status should produce a validation error."
+      - input:
+          credit_score: "Average"
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Error"
+          error: "INVALID_CREDIT_SCORE"
+        description: "Credit score outside Good/Poor domain is rejected."
+      - input:
+          credit_score: ""
+          income_level: ""
+          existing_debts: ""
+        expected:
+          decision: "Error"
+          error: "MISSING_REQUIRED_FIELDS"
+        description: "All fields empty — comprehensive validation failure."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - validation
+      - error-handling
+      - negative-test
+
+  # ==========================================================================
+  # Scenario 7: Outcome Completeness — Each Decision Outcome Reachable
+  # ==========================================================================
+  - name: "All three decision outcomes are reachable and distinct"
+    description: >
+      Verifies that each of the three possible decision outcomes (Approved,
+      Rejected, Further Review Required) is actually reachable through at
+      least one valid combination of inputs. This is a completeness check
+      on the decision table — if any outcome is unreachable, it indicates
+      dead logic or an incomplete specification.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.00 -> medium.
+      This is a structural verification of the decision table rather than a
+      direct user-facing scenario. Low frequency because it is a design-time
+      check. However, an unreachable outcome would indicate a specification
+      error with broad implications.
+    techniques:
+      - decision_table
+      - cause_effect
+    technique_rationale: >
+      Decision table completeness analysis checks that all action columns have
+      at least one triggering rule. Cause-effect graphing maps each outcome
+      back to its triggering conditions to verify reachability.
+    preconditions:
+      - "All three condition values have valid representatives"
+    examples:
+      - input:
+          credit_score: "Good"
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Approved"
+        description: "Approved outcome is reachable via Rule R1."
+      - input:
+          credit_score: "Poor"
+          income_level: "Low"
+          existing_debts: "Yes"
+        expected:
+          decision: "Rejected"
+        description: "Rejected outcome is reachable via Rule R8."
+      - input:
+          credit_score: "Good"
+          income_level: "Low"
+          existing_debts: "Yes"
+        expected:
+          decision: "Further Review Required"
+        description: "Further Review Required outcome is reachable via Rule R4."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - completeness
+      - structural-test
+
+  # ==========================================================================
+  # Scenario 8: Debts as Pivot — Same Conditions, Different Debts, Different Outcome
+  # ==========================================================================
+  - name: "Debts condition as outcome differentiator for Good credit + Low income"
+    description: >
+      When credit is Good and income is Low, the debts condition is the sole
+      differentiator between Approved (No debts) and Further Review Required
+      (Yes debts). This scenario isolates the debts condition as the
+      decision-making pivot point and verifies that toggling only this
+      condition changes the outcome. This is the only condition combination
+      where debts actually matters.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      A defect in the debts evaluation specifically for this condition
+      combination would cause either unnecessary rejections (false Further
+      Review) or missed risk assessment (false Approval). Since debts is
+      the sole differentiator here, any logical error (e.g., inverted
+      boolean) would affect exactly the wrong applicants.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      Decision table isolates the debts column as the variable while holding
+      credit and income constant. Equivalence partitioning confirms the two
+      debts values map to different output classes. Cause-effect graphing
+      models the causal chain: Good credit AND Low income AND debts ->
+      Further Review (vs. no debts -> Approved).
+    preconditions:
+      - "Applicant has Good credit score"
+      - "Applicant has Low income level"
+    examples:
+      - input:
+          credit_score: "Good"
+          income_level: "Low"
+          existing_debts: "No"
+        expected:
+          decision: "Approved"
+        description: "No debts -> Approved (debts = No is the favorable pivot)."
+      - input:
+          credit_score: "Good"
+          income_level: "Low"
+          existing_debts: "Yes"
+        expected:
+          decision: "Further Review Required"
+        description: "Has debts -> Further Review (debts = Yes is the unfavorable pivot)."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - pivot-condition
+      - edge-case
+      - outcome-boundary
+
+  # ==========================================================================
+  # Scenario 9: Debts Irrelevance — Good Credit + High Income
+  # ==========================================================================
+  - name: "Debts condition is irrelevant when credit is Good and income is High"
+    description: >
+      Confirms that the debts condition has no effect on the outcome when
+      credit is Good and income is High. Both R1 (No debts) and R2 (Yes debts)
+      produce Approved. This validates the rule collapsibility claim and
+      ensures no accidental dependency on the debts field exists in this path.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 -> medium.
+      If debts incorrectly influenced the outcome here, high-income applicants
+      with good credit but existing debts would be wrongly rejected or sent
+      to review. Moderate frequency and consequence since most high-income
+      applicants with good credit expect straightforward approval.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table demonstrates the don't-care condition by showing identical
+      outcomes for both debts values. Equivalence partitioning groups R1 and R2
+      into a single equivalence class.
+    preconditions:
+      - "Applicant has Good credit score"
+      - "Applicant has High income level"
+    examples:
+      - input:
+          credit_score: "Good"
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Approved"
+        description: "No debts — approved."
+      - input:
+          credit_score: "Good"
+          income_level: "High"
+          existing_debts: "Yes"
+        expected:
+          decision: "Approved"
+        description: "Has debts — still approved. Debts are don't-care here."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - dont-care-condition
+      - rule-collapse-verification
+
+  # ==========================================================================
+  # Scenario 10: Income and Debts Irrelevance — Poor Credit
+  # ==========================================================================
+  - name: "Income and debts are irrelevant when credit is Poor"
+    description: >
+      Confirms that neither income level nor existing debts affect the outcome
+      when credit is Poor. All four combinations (R5-R8) produce Rejected.
+      This validates the largest rule collapse in the table and ensures no
+      accidental override path exists where high income or no debts could
+      rescue a poor-credit applicant from rejection.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 -> high.
+      If any combination of income and debts could override a poor credit
+      score, the system would approve risky loans. This is the most dangerous
+      failure mode for the lending institution — false approvals for
+      unqualified borrowers.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Decision table shows all four Poor-credit rules producing identical
+      outcomes. Equivalence partitioning groups R5-R8 into one class. Error
+      guessing anticipates defects where an OR condition might accidentally
+      allow high income to override poor credit.
+    preconditions:
+      - "Applicant has a credit score categorized as Poor"
+    examples:
+      - input:
+          credit_score: "Poor"
+          income_level: "High"
+          existing_debts: "No"
+        expected:
+          decision: "Rejected"
+        description: "Best non-credit factors cannot override poor credit."
+      - input:
+          credit_score: "Poor"
+          income_level: "High"
+          existing_debts: "Yes"
+        expected:
+          decision: "Rejected"
+        description: "Poor credit + high income + debts — still rejected."
+      - input:
+          credit_score: "Poor"
+          income_level: "Low"
+          existing_debts: "No"
+        expected:
+          decision: "Rejected"
+        description: "Poor credit + low income + no debts — still rejected."
+      - input:
+          credit_score: "Poor"
+          income_level: "Low"
+          existing_debts: "Yes"
+        expected:
+          decision: "Rejected"
+        description: "All-negative factors — rejected as expected."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - dont-care-condition
+      - rule-collapse-verification
+      - negative-test
+
+# =============================================================================
+# Example Mapping
+# =============================================================================
+example_mapping:
+  story: >
+    As a loan officer, I want the system to automatically evaluate loan
+    applications based on credit score, income level, and existing debts
+    so that qualified applicants are approved, unqualified applicants are
+    rejected, and borderline applicants are flagged for manual review.
+  rules:
+    - rule_name: "Poor credit score always results in rejection"
+      examples:
+        - "Poor credit + High income + No debts -> Rejected (R5)"
+        - "Poor credit + High income + Yes debts -> Rejected (R6)"
+        - "Poor credit + Low income + No debts -> Rejected (R7)"
+        - "Poor credit + Low income + Yes debts -> Rejected (R8)"
+        - "Rules R5-R8 collapse: Poor credit + any income + any debts -> Rejected"
+
+    - rule_name: "Good credit with high income always results in approval regardless of debts"
+      examples:
+        - "Good credit + High income + No debts -> Approved (R1)"
+        - "Good credit + High income + Yes debts -> Approved (R2)"
+        - "Rules R1-R2 collapse: Good credit + High income + any debts -> Approved"
+
+    - rule_name: "Good credit with low income and no debts results in approval"
+      examples:
+        - "Good credit + Low income + No debts -> Approved (R3)"
+        - "This rule does NOT collapse — changing debts to Yes changes the outcome"
+
+    - rule_name: "Good credit with low income and existing debts triggers further review"
+      examples:
+        - "Good credit + Low income + Yes debts -> Further Review Required (R4)"
+        - "This is the only path to the Further Review outcome"
+        - "Debts are the sole differentiator between R3 (Approved) and R4 (Further Review)"
+
+    - rule_name: "All three outcomes must be reachable"
+      examples:
+        - "Approved: reachable via R1, R2, R3 (3 out of 8 rules)"
+        - "Rejected: reachable via R5, R6, R7, R8 (4 out of 8 rules)"
+        - "Further Review Required: reachable via R4 only (1 out of 8 rules)"
+
+    - rule_name: "Invalid inputs must be rejected with validation errors"
+      examples:
+        - "Missing credit score -> validation error"
+        - "Credit score value outside Good/Poor -> validation error"
+        - "All fields empty -> comprehensive validation error"
+
+# =============================================================================
+# Questions (Ambiguities Requiring Human Clarification)
+# =============================================================================
+# 1. What is the exact credit score threshold between Good and Poor?
+#    (e.g., FICO >= 670 = Good, < 670 = Poor?)
+# 2. What is the exact income threshold between High and Low?
+#    (e.g., annual income >= $50,000 = High?)
+# 3. Is there a minimum debt amount that qualifies as "existing debts"?
+#    (e.g., debts > $0 vs debts > $1,000?)
+# 4. For Rule R3 (Good + Low + No debts = Approved): is this confirmed as
+#    Approved, or should it also be Further Review? The prompt does not
+#    explicitly state R3's outcome.
+# 5. Should the system support partial condition evaluation (e.g., proceed
+#    with only credit score if it is Poor, without requiring income/debts)?
+# 6. Is case sensitivity enforced on condition values (e.g., "good" vs "Good")?
+
+# =============================================================================
+# Rule Collapsing Summary
+# =============================================================================
+# Full table: 8 rules (2^3 combinations)
+#
+# Collapsible rules:
+#   - R5 + R6 + R7 + R8 -> 1 collapsed rule
+#     Poor credit + (any income) + (any debts) = Rejected
+#     Income and debts are don't-care conditions when credit is Poor.
+#     Collapses 4 rules into 1.
+#
+#   - R1 + R2 -> 1 collapsed rule
+#     Good credit + High income + (any debts) = Approved
+#     Debts is a don't-care condition when credit is Good and income is High.
+#     Collapses 2 rules into 1.
+#
+# Non-collapsible rules:
+#   - R3: Good credit + Low income + No debts = Approved
+#     Cannot collapse with R4 because changing debts changes the outcome.
+#
+#   - R4: Good credit + Low income + Yes debts = Further Review Required
+#     Cannot collapse with R3 because changing debts changes the outcome.
+#
+# Result: 8 rules collapse to 4 effective rules:
+#   1. Poor + any + any           -> Rejected
+#   2. Good + High + any          -> Approved
+#   3. Good + Low  + No           -> Approved
+#   4. Good + Low  + Yes          -> Further Review Required
+
+# =============================================================================
+# Metadata
+# =============================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

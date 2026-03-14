@@ -1,0 +1,395 @@
+# Valid Guard Test Plan — File Upload API
+# Demonstrates equivalence partitioning for file types, boundary values for
+# file sizes, concurrent upload handling, and comprehensive error handling.
+
+feature: "File Upload API"
+
+feature_description: >
+  REST API endpoint for uploading files (documents, images, archives).
+  Supports single and multipart uploads up to 100 MB, with MIME type
+  validation, virus scanning, and storage to S3-compatible object storage.
+  Concurrent uploads are throttled per-user to prevent abuse.
+
+risk_level: medium
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: "docs/specs/file-upload-api.md"
+
+scenarios:
+  # ---------- Happy Path ---------------------------------------------------
+  - name: "Upload a valid image file"
+    description: "User uploads a JPEG image within size limits."
+    type: happy_path
+    risk: medium
+    risk_rationale: "Core feature — images are the most common upload type."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: "JPEG is a representative of the 'allowed image types' equivalence class."
+    preconditions:
+      - "User is authenticated"
+      - "User has not exceeded storage quota"
+    examples:
+      - input:
+          filename: "photo.jpg"
+          content_type: "image/jpeg"
+          size_bytes: 2_500_000
+        expected:
+          status: 201
+          file_id: "non-empty"
+          storage_path: "non-empty"
+          virus_scan_status: "clean"
+        description: "2.5 MB JPEG uploaded successfully."
+    test_ref: "tests/upload/test_upload.py::test_valid_image_upload"
+    status: covered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+
+  - name: "Upload a valid PDF document"
+    description: "User uploads a PDF within size limits."
+    type: happy_path
+    risk: medium
+    risk_rationale: "PDFs are the second most common upload type."
+    techniques:
+      - equivalence_partitioning
+    examples:
+      - input:
+          filename: "report.pdf"
+          content_type: "application/pdf"
+          size_bytes: 10_000_000
+        expected:
+          status: 201
+          file_id: "non-empty"
+        description: "10 MB PDF uploaded successfully."
+    test_ref: "tests/upload/test_upload.py::test_valid_pdf_upload"
+    status: covered
+    priority: 1
+    tags:
+      - smoke
+
+  # ---------- Equivalence Partitioning — File Types ------------------------
+  - name: "File type validation — allowed and disallowed types"
+    description: >
+      The API allows specific MIME types (images, PDFs, common document
+      formats) and rejects all others. Equivalence classes: allowed image,
+      allowed document, allowed archive, disallowed executable, disallowed
+      script, unknown type.
+    type: edge_case
+    risk: high
+    risk_rationale: "Accepting executable files is a critical security vulnerability."
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Each MIME type group forms an equivalence class; one representative
+      per class provides sufficient coverage.
+    examples:
+      - input:
+          filename: "image.png"
+          content_type: "image/png"
+        expected:
+          status: 201
+        description: "Allowed image type — PNG."
+      - input:
+          filename: "spreadsheet.xlsx"
+          content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        expected:
+          status: 201
+        description: "Allowed document type — Excel."
+      - input:
+          filename: "archive.zip"
+          content_type: "application/zip"
+        expected:
+          status: 201
+        description: "Allowed archive type — ZIP."
+      - input:
+          filename: "malware.exe"
+          content_type: "application/x-msdownload"
+        expected:
+          status: 415
+          error: "UNSUPPORTED_FILE_TYPE"
+        description: "Disallowed — executable."
+      - input:
+          filename: "script.sh"
+          content_type: "application/x-sh"
+        expected:
+          status: 415
+          error: "UNSUPPORTED_FILE_TYPE"
+        description: "Disallowed — shell script."
+      - input:
+          filename: "data.xyz"
+          content_type: "application/octet-stream"
+        expected:
+          status: 415
+          error: "UNSUPPORTED_FILE_TYPE"
+        description: "Disallowed — unknown binary type."
+    test_ref: "tests/upload/test_file_types.py::test_mime_type_validation"
+    status: covered
+    priority: 1
+    tags:
+      - security
+      - validation
+      - equivalence-partitioning
+
+  - name: "MIME type spoofing — extension does not match content"
+    description: >
+      File has a .jpg extension but the actual content is an ELF binary.
+      Server must inspect magic bytes, not trust the extension or declared
+      content type.
+    type: security
+    risk: high
+    risk_rationale: "MIME spoofing bypasses naive extension-based filtering."
+    techniques:
+      - error_guessing
+    examples:
+      - input:
+          filename: "innocent.jpg"
+          declared_content_type: "image/jpeg"
+          actual_content: "ELF binary"
+        expected:
+          status: 415
+          error: "CONTENT_TYPE_MISMATCH"
+        description: "Magic byte inspection catches disguised executable."
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+
+  # ---------- Boundary Values — File Size ----------------------------------
+  - name: "File size at boundaries"
+    description: "Tests minimum (1 byte), maximum (100 MB), and just-over-max file sizes."
+    type: boundary
+    risk: medium
+    risk_rationale: "Over-limit files consume storage and bandwidth if not rejected early."
+    techniques:
+      - boundary_value
+    technique_rationale: "Classic boundary value analysis at the min and max size thresholds."
+    examples:
+      - input:
+          size_bytes: 1
+        expected:
+          status: 201
+        description: "Minimum file size — 1 byte."
+      - input:
+          size_bytes: 0
+        expected:
+          status: 400
+          error: "EMPTY_FILE"
+        description: "Zero bytes — rejected."
+      - input:
+          size_bytes: 104_857_600
+        expected:
+          status: 201
+        description: "Exactly 100 MB (104,857,600 bytes) — accepted."
+      - input:
+          size_bytes: 104_857_601
+        expected:
+          status: 413
+          error: "FILE_TOO_LARGE"
+          max_size_bytes: 104_857_600
+        description: "One byte over 100 MB — rejected."
+    test_ref: "tests/upload/test_upload.py::test_file_size_boundaries"
+    status: covered
+    priority: 2
+    tags:
+      - boundary
+      - validation
+
+  # ---------- Concurrent Uploads -------------------------------------------
+  - name: "Concurrent uploads within per-user throttle"
+    description: "User uploads 3 files simultaneously (limit is 5 concurrent)."
+    type: happy_path
+    risk: medium
+    risk_rationale: "Throttle protects infrastructure but must not block legitimate use."
+    techniques:
+      - boundary_value
+    examples:
+      - input:
+          concurrent_uploads: 3
+          per_user_limit: 5
+        expected:
+          all_accepted: true
+          status_codes: [201, 201, 201]
+        description: "3 concurrent — all accepted."
+    status: uncovered
+    priority: 2
+    tags:
+      - concurrency
+
+  - name: "Concurrent uploads exceeding per-user throttle"
+    description: "User attempts 6 simultaneous uploads (limit is 5)."
+    type: boundary
+    risk: medium
+    risk_rationale: "Missing throttle allows resource exhaustion."
+    techniques:
+      - boundary_value
+    examples:
+      - input:
+          concurrent_uploads: 5
+          per_user_limit: 5
+        expected:
+          all_accepted: true
+        description: "Exactly at limit — all accepted."
+      - input:
+          concurrent_uploads: 6
+          per_user_limit: 5
+        expected:
+          accepted_count: 5
+          rejected_count: 1
+          rejected_status: 429
+          rejected_error: "UPLOAD_THROTTLED"
+        description: "One over limit — 6th upload throttled."
+    status: uncovered
+    priority: 2
+    tags:
+      - concurrency
+      - boundary
+
+  # ---------- Error Handling -----------------------------------------------
+  - name: "Upload with missing authentication"
+    description: "Request without an Authorization header."
+    type: error_handling
+    risk: medium
+    risk_rationale: "Unauthenticated uploads expose storage to abuse."
+    techniques:
+      - equivalence_partitioning
+    examples:
+      - input:
+          auth_header: null
+        expected:
+          status: 401
+          error: "AUTHENTICATION_REQUIRED"
+        description: "No token — 401."
+    test_ref: "tests/upload/test_upload.py::test_unauthenticated_upload"
+    status: covered
+    priority: 1
+    tags:
+      - security
+
+  - name: "Upload when storage quota exceeded"
+    description: "User has consumed their 10 GB storage quota."
+    type: error_handling
+    risk: medium
+    risk_rationale: "Must block further uploads and provide clear guidance."
+    techniques:
+      - boundary_value
+      - error_guessing
+    examples:
+      - input:
+          current_usage_gb: 10.0
+          file_size_mb: 1
+        expected:
+          status: 403
+          error: "STORAGE_QUOTA_EXCEEDED"
+          quota_gb: 10
+          usage_gb: 10.0
+        description: "At quota — upload rejected."
+      - input:
+          current_usage_gb: 9.99
+          file_size_mb: 15
+        expected:
+          status: 403
+          error: "STORAGE_QUOTA_EXCEEDED"
+        description: "Upload would exceed quota — rejected."
+    status: uncovered
+    priority: 2
+    tags:
+      - quota
+      - error-handling
+
+  - name: "Virus detected in uploaded file"
+    description: "Virus scanner flags the uploaded file as infected."
+    type: error_handling
+    risk: high
+    risk_rationale: "Storing and serving infected files endangers all users."
+    techniques:
+      - error_guessing
+    examples:
+      - input:
+          filename: "document.pdf"
+          virus_scan_result: "EICAR-Test-File"
+        expected:
+          status: 422
+          error: "VIRUS_DETECTED"
+          file_stored: false
+          quarantined: true
+        description: "Infected file quarantined, not stored in user space."
+    test_ref: "tests/upload/test_security.py::test_virus_scan"
+    status: failing
+    priority: 1
+    tags:
+      - security
+      - virus-scan
+
+  - name: "Storage backend unavailable (S3 outage)"
+    description: "S3-compatible storage returns 503. System retries then fails gracefully."
+    type: error_handling
+    risk: medium
+    risk_rationale: "Storage failures must not lose the uploaded data silently."
+    techniques:
+      - error_guessing
+    preconditions:
+      - "S3 storage returns 503 for all PUT requests"
+    examples:
+      - input:
+          storage_status: 503
+          retry_count: 3
+        expected:
+          status: 503
+          error: "STORAGE_UNAVAILABLE"
+          retry_after_seconds: 60
+          upload_preserved_locally: true
+        description: "After 3 retries, fail with clear error and local preservation."
+    status: uncovered
+    priority: 2
+    tags:
+      - reliability
+      - error-handling
+
+# ---------------------------------------------------------------------------
+# Example Mapping
+# ---------------------------------------------------------------------------
+example_mapping:
+  story: >
+    As a user, I want to upload files to the platform so that I can share
+    documents and images with my team.
+  rules:
+    - rule_name: "Only allowed file types are accepted"
+      examples:
+        - "JPEG image -> accepted"
+        - "PDF document -> accepted"
+        - "ZIP archive -> accepted"
+        - "EXE executable -> rejected with 415"
+        - "Shell script -> rejected with 415"
+        - "File with spoofed extension (ELF disguised as .jpg) -> rejected"
+
+    - rule_name: "File size must be between 1 byte and 100 MB"
+      examples:
+        - "1 byte file -> accepted"
+        - "0 byte file -> rejected (EMPTY_FILE)"
+        - "100 MB file -> accepted"
+        - "100 MB + 1 byte -> rejected (FILE_TOO_LARGE)"
+
+    - rule_name: "Concurrent uploads are throttled per user"
+      examples:
+        - "3 concurrent (limit 5) -> all accepted"
+        - "5 concurrent (limit 5) -> all accepted"
+        - "6 concurrent (limit 5) -> 5 accepted, 1 throttled (429)"
+
+    - rule_name: "Uploaded files must pass virus scan"
+      examples:
+        - "Clean file -> stored normally"
+        - "Infected file -> quarantined, not accessible"
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+metadata:
+  created_at: "2026-03-13T11:00:00Z"
+  updated_at: "2026-03-13T11:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

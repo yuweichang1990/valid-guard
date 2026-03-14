@@ -1,0 +1,1619 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T00:00:00Z
+# Source: natural language
+
+feature: "Microservices E-Commerce Platform Sprint Regression Testing"
+
+feature_description: >
+  Risk-based regression test prioritization for a microservices e-commerce platform
+  after a sprint that modified Payment Service (retry logic refactor, new payment method),
+  Order Fulfillment (shipping carrier integration update), and Inventory Service (upstream
+  of Product Catalog). Five services evaluated: Payment Service, Order Fulfillment,
+  Product Catalog, User Dashboard, and Analytics Pipeline. QA bandwidth is limited to
+  full regression testing of 2 services and smoke testing of 2 others, with 1 service
+  deprioritized. Prioritization considers code change scope, financial impact, external
+  dependencies, user-facing risk, and blast radius.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ===========================================================================
+  # TIER 1 — FULL REGRESSION: PAYMENT SERVICE
+  # Rationale: Direct code changes to retry logic and new payment method.
+  # Financial impact is highest. Silent failures cause monetary loss.
+  # Blast radius: downstream to Order Fulfillment, User Dashboard, Analytics.
+  # ===========================================================================
+
+  - name: "Payment retry logic — successful retry after transient gateway failure"
+    description: >
+      Verify that the refactored retry logic correctly retries a payment when the
+      payment gateway returns a transient error (e.g., 503, timeout) and ultimately
+      succeeds within the configured retry limit. This is the core happy path for
+      the refactored retry mechanism.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (core payment processing, financial transactions).
+      Frequency: 3 (every purchase triggers payment flow).
+      Consequence: 3 (failed retries mean lost revenue or double charges).
+      Detectability: 1 (silent failure — user may not know retry occurred or failed).
+      Average: 2.5 → high.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      EP partitions transient vs. permanent errors. BVA tests retry count boundaries
+      (0, max-1, max, max+1 retries). EG anticipates real-world gateway failure modes.
+    preconditions:
+      - "Payment gateway is configured with retry policy"
+      - "Valid order exists awaiting payment"
+      - "Payment gateway mock can simulate transient failures"
+    examples:
+      - input:
+          gateway_response_sequence: ["503", "503", "200"]
+          max_retries: 3
+        expected:
+          payment_status: "completed"
+          retry_count: 2
+          charge_count: 1
+        description: "Gateway fails twice then succeeds — payment completes on third attempt"
+      - input:
+          gateway_response_sequence: ["timeout", "200"]
+          max_retries: 3
+        expected:
+          payment_status: "completed"
+          retry_count: 1
+          charge_count: 1
+        description: "Gateway times out once then succeeds on retry"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-service"
+      - "retry-logic"
+      - "full-regression"
+      - "tier-1"
+      - "refactored-code"
+
+  - name: "Payment retry logic — exhausted retries lead to payment failure"
+    description: >
+      Verify that when all retry attempts are exhausted due to persistent transient
+      errors, the payment is marked as failed, the user is notified, and no partial
+      charge is left in an inconsistent state. No duplicate charges should occur.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (financial transaction failure path).
+      Frequency: 2 (happens during outages, not every transaction).
+      Consequence: 3 (double charge or orphaned holds are possible if not handled).
+      Detectability: 1 (user may see generic error without understanding charge status).
+      Average: 2.25 → but elevated to high due to financial severity.
+    techniques:
+      - boundary_value
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      BVA tests the exact retry limit boundary. EG anticipates scenarios like partial
+      charge plus failure. ST tracks payment state machine through retry exhaustion.
+    preconditions:
+      - "Payment gateway consistently returns transient errors"
+      - "Retry limit is configured"
+    examples:
+      - input:
+          gateway_response_sequence: ["503", "503", "503", "503"]
+          max_retries: 3
+        expected:
+          payment_status: "failed"
+          retry_count: 3
+          charge_count: 0
+          user_notification: "payment_failed"
+        description: "All retries exhausted — payment fails gracefully with no charge"
+      - input:
+          gateway_response_sequence: ["timeout", "timeout", "timeout", "timeout"]
+          max_retries: 3
+        expected:
+          payment_status: "failed"
+          pending_holds: 0
+        description: "Timeout on every attempt — no dangling authorization holds"
+    state_transition:
+      states: ["initiated", "processing", "retrying", "failed", "completed"]
+      transitions:
+        - from: "initiated"
+          to: "processing"
+          trigger: "submit_payment"
+          guard: "valid payment details"
+        - from: "processing"
+          to: "retrying"
+          trigger: "transient_error_received"
+          guard: "retry_count < max_retries"
+        - from: "retrying"
+          to: "processing"
+          trigger: "retry_attempt"
+          guard: "backoff period elapsed"
+        - from: "processing"
+          to: "failed"
+          trigger: "transient_error_received"
+          guard: "retry_count >= max_retries"
+        - from: "processing"
+          to: "completed"
+          trigger: "success_response"
+          guard: "charge confirmed"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-service"
+      - "retry-logic"
+      - "error-handling"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "Payment retry logic — idempotency prevents duplicate charges"
+    description: >
+      Verify that the retry mechanism uses idempotency keys to prevent duplicate
+      charges when the gateway processes the payment but the response is lost
+      (network partition between gateway response and service receipt).
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 (duplicate financial charges).
+      Frequency: 1 (rare network partition scenario).
+      Consequence: 3 (customer charged twice, refund required, trust damage).
+      Detectability: 1 (customer discovers double charge later on bank statement).
+      Average: 2.0 → elevated to high due to financial severity.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      EG targets the specific failure mode of lost responses. ST verifies the
+      payment state remains consistent despite ambiguous gateway state.
+    preconditions:
+      - "Payment gateway supports idempotency keys"
+      - "Network partition can be simulated between gateway and service"
+    examples:
+      - input:
+          gateway_actually_charged: true
+          response_lost: true
+          retry_with_same_idempotency_key: true
+        expected:
+          total_charges: 1
+          payment_status: "completed"
+        description: "Gateway charged but response lost — retry with idempotency key returns original result"
+      - input:
+          gateway_actually_charged: false
+          response_lost: true
+          retry_with_same_idempotency_key: true
+        expected:
+          total_charges: 1
+          payment_status: "completed"
+        description: "Gateway did not charge and response lost — retry processes normally"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-service"
+      - "idempotency"
+      - "duplicate-charge-prevention"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "New payment method — successful payment with new method"
+    description: >
+      Verify that the newly added payment method (e.g., Buy Now Pay Later, digital
+      wallet, or new card network) processes a payment end-to-end successfully,
+      including authorization, capture, and confirmation.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (new payment method is net-new code, core revenue path).
+      Frequency: 2 (subset of users will adopt, but growing).
+      Consequence: 3 (failed payments mean lost sales).
+      Detectability: 2 (user sees payment failure directly).
+      Average: 2.5 → high.
+    techniques:
+      - equivalence_partitioning
+      - decision_table
+    technique_rationale: >
+      EP partitions the new method against existing methods for consistency. DT maps
+      the combinations of payment method type, amount ranges, and currency support.
+    preconditions:
+      - "New payment method is configured and enabled"
+      - "Test accounts for new payment provider are available"
+    examples:
+      - input:
+          payment_method: "new_method"
+          amount: 49.99
+          currency: "USD"
+        expected:
+          payment_status: "completed"
+          method_recorded: "new_method"
+        description: "Standard amount payment with new method succeeds"
+      - input:
+          payment_method: "new_method"
+          amount: 0.01
+          currency: "USD"
+        expected:
+          payment_status: "completed"
+        description: "Minimum amount payment with new method succeeds"
+    decision_table:
+      conditions:
+        - "payment_method_enabled"
+        - "amount_within_method_limits"
+        - "currency_supported_by_method"
+      actions:
+        - "payment_processed"
+        - "error_message"
+      rules:
+        - description: "All conditions met — payment succeeds"
+          condition_values:
+            payment_method_enabled: true
+            amount_within_method_limits: true
+            currency_supported_by_method: true
+          expected_actions:
+            payment_processed: true
+            error_message: "none"
+        - description: "Method disabled — payment rejected"
+          condition_values:
+            payment_method_enabled: false
+            amount_within_method_limits: true
+            currency_supported_by_method: true
+          expected_actions:
+            payment_processed: false
+            error_message: "payment_method_unavailable"
+        - description: "Amount exceeds method limit — payment rejected"
+          condition_values:
+            payment_method_enabled: true
+            amount_within_method_limits: false
+            currency_supported_by_method: true
+          expected_actions:
+            payment_processed: false
+            error_message: "amount_exceeds_limit"
+        - description: "Currency unsupported by method — payment rejected"
+          condition_values:
+            payment_method_enabled: true
+            amount_within_method_limits: true
+            currency_supported_by_method: false
+          expected_actions:
+            payment_processed: false
+            error_message: "currency_not_supported"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-service"
+      - "new-payment-method"
+      - "new-feature"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "New payment method — validation and rejection of invalid inputs"
+    description: >
+      Verify that the new payment method correctly validates and rejects invalid
+      inputs such as unsupported currencies, amounts below minimum or above maximum,
+      expired tokens, and malformed payment credentials.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (payment validation is security-adjacent).
+      Frequency: 2 (invalid inputs from typos, bots, or integration errors).
+      Consequence: 3 (accepting invalid payment could lead to fraud or chargebacks).
+      Detectability: 2 (validation errors are usually surfaced to user).
+      Average: 2.5 → high.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      EP partitions valid/invalid input classes. BVA tests amount limits. EG
+      anticipates malformed tokens, expired credentials, and injection attempts.
+    preconditions:
+      - "New payment method is configured"
+      - "Validation rules for the new method are defined"
+    examples:
+      - input:
+          payment_method: "new_method"
+          amount: -10.00
+          currency: "USD"
+        expected:
+          payment_status: "rejected"
+          error: "invalid_amount"
+        description: "Negative amount rejected"
+      - input:
+          payment_method: "new_method"
+          amount: 50.00
+          currency: "XYZ"
+        expected:
+          payment_status: "rejected"
+          error: "unsupported_currency"
+        description: "Unsupported currency code rejected"
+      - input:
+          payment_method: "new_method"
+          token: "expired_token_abc"
+          amount: 25.00
+        expected:
+          payment_status: "rejected"
+          error: "expired_payment_token"
+        description: "Expired payment token rejected"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-service"
+      - "new-payment-method"
+      - "validation"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "New payment method — coexistence with existing payment methods"
+    description: >
+      Verify that adding the new payment method does not break existing payment
+      methods (credit card, PayPal, etc.). Existing methods must continue to work
+      identically. This is a critical regression check.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (regression in existing payment methods affects all revenue).
+      Frequency: 3 (every existing customer uses existing payment methods).
+      Consequence: 3 (broken existing payment = immediate revenue loss).
+      Detectability: 2 (users notice payment failures immediately).
+      Average: 2.75 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP ensures each existing payment method class is tested post-change. EG
+      anticipates shared code path regressions introduced by the new method.
+    preconditions:
+      - "All existing payment methods remain configured"
+      - "New payment method code is deployed alongside existing methods"
+    examples:
+      - input:
+          payment_method: "credit_card"
+          amount: 99.99
+        expected:
+          payment_status: "completed"
+          regression: false
+        description: "Credit card payment still works after new method added"
+      - input:
+          payment_method: "paypal"
+          amount: 45.00
+        expected:
+          payment_status: "completed"
+          regression: false
+        description: "PayPal payment still works after new method added"
+      - input:
+          payment_method: "bank_transfer"
+          amount: 200.00
+        expected:
+          payment_status: "completed"
+          regression: false
+        description: "Bank transfer still works after new method added"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-service"
+      - "regression"
+      - "existing-methods"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "Payment retry — exponential backoff timing and configuration"
+    description: >
+      Verify that the refactored retry logic applies correct backoff strategy
+      (e.g., exponential backoff with jitter) between retries, respects configured
+      timeout limits, and does not overwhelm the payment gateway.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (backoff timing affects system stability, not direct financial loss).
+      Frequency: 2 (triggered during gateway instability).
+      Consequence: 2 (wrong backoff could cause gateway throttling or SLA breach).
+      Detectability: 2 (timing issues require monitoring to detect).
+      Average: 2.0 → medium.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      BVA tests backoff intervals at configured boundaries (min delay, max delay).
+      EG anticipates clock skew, jitter overflow, and zero-delay edge cases.
+    preconditions:
+      - "Retry backoff configuration is defined (base delay, max delay, jitter)"
+    examples:
+      - input:
+          base_delay_ms: 100
+          max_delay_ms: 5000
+          retry_attempt: 1
+        expected:
+          actual_delay_range: [100, 200]
+        description: "First retry uses base delay with bounded jitter"
+      - input:
+          base_delay_ms: 100
+          max_delay_ms: 5000
+          retry_attempt: 10
+        expected:
+          actual_delay_capped_at: 5000
+        description: "High retry count caps delay at max_delay_ms"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "payment-service"
+      - "retry-logic"
+      - "backoff"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "Payment retry — concurrent payment requests during retry window"
+    description: >
+      Verify that if a second payment request arrives for the same order while a
+      retry is in progress, the system prevents double-processing and returns an
+      appropriate conflict or in-progress response.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 (concurrent payment = potential double charge).
+      Frequency: 1 (rare race condition).
+      Consequence: 3 (double charge, financial discrepancy).
+      Detectability: 1 (silent — both requests may succeed independently).
+      Average: 2.0 → elevated to high due to financial severity.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      EG targets race conditions in concurrent payment processing. ST verifies
+      the payment lock/mutex state prevents concurrent transitions.
+    preconditions:
+      - "Payment system supports concurrent requests"
+      - "Locking mechanism exists for in-flight payments"
+    examples:
+      - input:
+          order_id: "ORD-001"
+          concurrent_payment_request: true
+          first_request_status: "retrying"
+        expected:
+          second_request_result: "conflict_409"
+          total_charges: 1
+        description: "Concurrent payment rejected while retry in progress"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-service"
+      - "concurrency"
+      - "race-condition"
+      - "full-regression"
+      - "tier-1"
+
+  # ===========================================================================
+  # TIER 1 — FULL REGRESSION: ORDER FULFILLMENT SERVICE
+  # Rationale: Direct code changes to shipping carrier integration. External
+  # dependency on third-party carriers. Failures directly affect delivery SLA
+  # and customer satisfaction. Downstream from Payment (blast radius overlap).
+  # ===========================================================================
+
+  - name: "Shipping carrier integration — successful shipment creation with updated carrier API"
+    description: >
+      Verify that the updated shipping carrier integration correctly creates
+      shipments, generates tracking numbers, and returns estimated delivery dates
+      using the new carrier API version or newly integrated carrier.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (shipping is core fulfillment path).
+      Frequency: 3 (every fulfilled order requires carrier integration).
+      Consequence: 3 (failed shipment creation blocks delivery).
+      Detectability: 2 (fulfillment team sees failed shipments in queue).
+      Average: 2.75 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions carrier types (domestic, international, express, freight). EG
+      anticipates API version incompatibilities and response format changes.
+    preconditions:
+      - "Updated carrier integration is deployed"
+      - "Carrier sandbox/test environment is available"
+      - "Order is in 'paid' status ready for fulfillment"
+    examples:
+      - input:
+          carrier: "updated_carrier"
+          destination: "domestic"
+          package_weight_kg: 2.5
+          service_level: "standard"
+        expected:
+          shipment_created: true
+          tracking_number_format: "valid"
+          estimated_delivery_present: true
+        description: "Standard domestic shipment created successfully with updated carrier"
+      - input:
+          carrier: "updated_carrier"
+          destination: "international"
+          package_weight_kg: 5.0
+          service_level: "express"
+        expected:
+          shipment_created: true
+          customs_declaration_generated: true
+        description: "International express shipment with customs handling"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "order-fulfillment"
+      - "carrier-integration"
+      - "full-regression"
+      - "tier-1"
+      - "code-changed"
+
+  - name: "Shipping carrier integration — carrier API error handling"
+    description: >
+      Verify that the updated integration handles carrier API errors gracefully:
+      rate limit exceeded, invalid address, service unavailable, authentication
+      failure, and malformed responses. Orders should not be stuck in limbo.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (carrier errors block fulfillment).
+      Frequency: 2 (carrier APIs have periodic issues).
+      Consequence: 3 (stuck orders, missed SLAs, customer complaints).
+      Detectability: 2 (monitoring should catch fulfillment queue backlog).
+      Average: 2.5 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      EP partitions error types (transient vs. permanent, client vs. server). EG
+      anticipates real-world carrier failure modes. ST tracks order state through
+      carrier failures.
+    preconditions:
+      - "Carrier API can be mocked to return various error responses"
+    examples:
+      - input:
+          carrier_response: "429_rate_limited"
+        expected:
+          order_status: "pending_fulfillment"
+          retry_scheduled: true
+          alert_sent: false
+        description: "Rate-limited response triggers automatic retry"
+      - input:
+          carrier_response: "400_invalid_address"
+        expected:
+          order_status: "address_validation_required"
+          customer_notified: true
+        description: "Invalid address triggers customer notification for correction"
+      - input:
+          carrier_response: "500_internal_error"
+        expected:
+          order_status: "pending_fulfillment"
+          retry_scheduled: true
+          alert_sent: true
+        description: "Carrier server error triggers retry and ops alert"
+      - input:
+          carrier_response: "401_auth_failure"
+        expected:
+          order_status: "fulfillment_blocked"
+          critical_alert: true
+        description: "Auth failure blocks fulfillment and sends critical alert"
+    state_transition:
+      states: ["paid", "pending_fulfillment", "shipping_requested", "shipped", "fulfillment_blocked", "address_validation_required"]
+      transitions:
+        - from: "paid"
+          to: "pending_fulfillment"
+          trigger: "initiate_fulfillment"
+          guard: "payment confirmed"
+        - from: "pending_fulfillment"
+          to: "shipping_requested"
+          trigger: "carrier_api_call"
+          guard: "valid address and items"
+        - from: "shipping_requested"
+          to: "shipped"
+          trigger: "carrier_confirms_pickup"
+          guard: "tracking number assigned"
+        - from: "shipping_requested"
+          to: "pending_fulfillment"
+          trigger: "transient_carrier_error"
+          guard: "retry count < max"
+        - from: "shipping_requested"
+          to: "fulfillment_blocked"
+          trigger: "permanent_carrier_error"
+          guard: "non-recoverable error"
+        - from: "shipping_requested"
+          to: "address_validation_required"
+          trigger: "address_rejected"
+          guard: "carrier returns invalid address"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "order-fulfillment"
+      - "carrier-integration"
+      - "error-handling"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "Shipping carrier integration — backward compatibility with existing carriers"
+    description: >
+      Verify that the carrier integration update does not break existing carrier
+      integrations (FedEx, UPS, USPS, DHL, etc.). Orders routed to unchanged
+      carriers must still process identically.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (regression in existing carriers blocks all fulfillment through those carriers).
+      Frequency: 3 (majority of orders still use existing carriers).
+      Consequence: 3 (fulfillment stoppage, SLA breach).
+      Detectability: 2 (fulfillment failures are visible in operations dashboard).
+      Average: 2.75 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP ensures each existing carrier class is tested. EG anticipates shared
+      code path regressions from the carrier integration changes.
+    preconditions:
+      - "All existing carrier integrations remain configured"
+      - "Carrier sandbox environments are available"
+    examples:
+      - input:
+          carrier: "fedex"
+          destination: "domestic"
+          service_level: "ground"
+        expected:
+          shipment_created: true
+          carrier_api_version: "unchanged"
+        description: "FedEx shipment still works after carrier integration update"
+      - input:
+          carrier: "ups"
+          destination: "international"
+          service_level: "express"
+        expected:
+          shipment_created: true
+        description: "UPS international shipment still works"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "order-fulfillment"
+      - "regression"
+      - "existing-carriers"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "Shipping rate calculation — accurate rates with updated carrier"
+    description: >
+      Verify that shipping rate calculations return correct rates from the updated
+      carrier, considering package dimensions, weight, destination, and service
+      level. Rates must match carrier's published rates within acceptable tolerance.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (incorrect rates = financial loss or customer overcharge).
+      Frequency: 3 (rate calculation happens for every order).
+      Consequence: 3 (undercharging erodes margin, overcharging loses customers).
+      Detectability: 1 (slight rate discrepancies may go unnoticed for weeks).
+      Average: 2.5 → high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+      - decision_table
+    technique_rationale: >
+      BVA tests weight and dimension thresholds that trigger rate tier changes. EP
+      partitions service levels and destination zones. DT maps the combinatorial
+      rate calculation logic.
+    preconditions:
+      - "Updated carrier rate tables are loaded"
+      - "Rate calculation service is accessible"
+    examples:
+      - input:
+          weight_kg: 0.5
+          dimensions_cm: [10, 10, 10]
+          destination_zone: "local"
+          service_level: "standard"
+        expected:
+          rate_matches_carrier: true
+          rate_tolerance_percent: 0.01
+        description: "Light small package — correct standard rate"
+      - input:
+          weight_kg: 30.0
+          dimensions_cm: [100, 60, 60]
+          destination_zone: "remote"
+          service_level: "express"
+        expected:
+          rate_matches_carrier: true
+          dimensional_weight_applied: true
+        description: "Heavy oversized package — dimensional weight pricing applied"
+    decision_table:
+      conditions:
+        - "weight_exceeds_standard_limit"
+        - "dimensions_exceed_standard_limit"
+        - "destination_is_remote"
+        - "service_is_express"
+      actions:
+        - "surcharge_applied"
+        - "dimensional_weight_used"
+        - "remote_fee_added"
+        - "express_premium_added"
+      rules:
+        - description: "Standard light local package — no surcharges"
+          condition_values:
+            weight_exceeds_standard_limit: false
+            dimensions_exceed_standard_limit: false
+            destination_is_remote: false
+            service_is_express: false
+          expected_actions:
+            surcharge_applied: false
+            dimensional_weight_used: false
+            remote_fee_added: false
+            express_premium_added: false
+        - description: "Overweight express remote — all surcharges"
+          condition_values:
+            weight_exceeds_standard_limit: true
+            dimensions_exceed_standard_limit: true
+            destination_is_remote: true
+            service_is_express: true
+          expected_actions:
+            surcharge_applied: true
+            dimensional_weight_used: true
+            remote_fee_added: true
+            express_premium_added: true
+        - description: "Oversized but local standard — dimensional weight only"
+          condition_values:
+            weight_exceeds_standard_limit: false
+            dimensions_exceed_standard_limit: true
+            destination_is_remote: false
+            service_is_express: false
+          expected_actions:
+            surcharge_applied: false
+            dimensional_weight_used: true
+            remote_fee_added: false
+            express_premium_added: false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "order-fulfillment"
+      - "rate-calculation"
+      - "financial"
+      - "full-regression"
+      - "tier-1"
+
+  - name: "Order fulfillment — tracking updates propagation"
+    description: >
+      Verify that shipping tracking updates from the updated carrier are correctly
+      received, parsed, and propagated to the order status, customer notifications,
+      and downstream services (User Dashboard, Analytics Pipeline).
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (tracking is important but not transactional).
+      Frequency: 3 (every shipped order generates tracking events).
+      Consequence: 2 (missing tracking degrades experience but order still delivers).
+      Detectability: 2 (customers check tracking and notice missing updates).
+      Average: 2.25 → medium.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      ST models the tracking status lifecycle. EP partitions tracking event types
+      (pickup, in-transit, out-for-delivery, delivered, exception).
+    preconditions:
+      - "Carrier webhook or polling mechanism is configured"
+      - "Order is in 'shipped' status"
+    examples:
+      - input:
+          tracking_event: "in_transit"
+          carrier: "updated_carrier"
+        expected:
+          order_tracking_status: "in_transit"
+          customer_notification_sent: true
+          dashboard_updated: true
+        description: "In-transit event correctly updates order and notifies customer"
+      - input:
+          tracking_event: "delivery_exception"
+          carrier: "updated_carrier"
+          exception_reason: "address_not_found"
+        expected:
+          order_tracking_status: "exception"
+          customer_notification_sent: true
+          support_ticket_created: true
+        description: "Delivery exception triggers support workflow"
+    state_transition:
+      states: ["shipped", "in_transit", "out_for_delivery", "delivered", "exception", "returned"]
+      transitions:
+        - from: "shipped"
+          to: "in_transit"
+          trigger: "carrier_scan_event"
+          guard: "package picked up"
+        - from: "in_transit"
+          to: "out_for_delivery"
+          trigger: "carrier_scan_event"
+          guard: "at local facility"
+        - from: "out_for_delivery"
+          to: "delivered"
+          trigger: "carrier_confirmation"
+          guard: "delivery confirmed"
+        - from: "in_transit"
+          to: "exception"
+          trigger: "carrier_exception_event"
+          guard: "delivery problem reported"
+        - from: "exception"
+          to: "returned"
+          trigger: "return_initiated"
+          guard: "return label generated"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "order-fulfillment"
+      - "tracking"
+      - "carrier-integration"
+      - "full-regression"
+      - "tier-1"
+
+  # ===========================================================================
+  # TIER 2 — SMOKE TEST: PRODUCT CATALOG SERVICE
+  # Rationale: No direct code changes, but depends on Inventory Service which
+  # was updated. Needs smoke testing to verify data contract compatibility.
+  # Medium blast radius — affects User Dashboard and search/browse experience.
+  # ===========================================================================
+
+  - name: "Product catalog — inventory data contract compatibility after inventory service update"
+    description: >
+      Smoke test to verify that the Product Catalog service correctly reads
+      inventory data (stock levels, availability status) from the updated Inventory
+      Service. The API contract between Inventory Service and Product Catalog must
+      remain compatible.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (product display, not transactional).
+      Frequency: 3 (every product page queries inventory).
+      Consequence: 2 (wrong stock info leads to overselling or lost sales).
+      Detectability: 2 (overselling detected at fulfillment, wrong availability visible to users).
+      Average: 2.25 → medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions inventory states (in-stock, low-stock, out-of-stock, pre-order).
+      EG anticipates API contract changes like field renames or type changes.
+    preconditions:
+      - "Inventory Service is updated and running"
+      - "Product Catalog can connect to Inventory Service"
+    examples:
+      - input:
+          product_id: "PROD-001"
+          inventory_service_response: {"stock_count": 50, "status": "in_stock"}
+        expected:
+          catalog_availability: "in_stock"
+          displayed_stock: "available"
+        description: "In-stock product displays correctly after inventory service update"
+      - input:
+          product_id: "PROD-002"
+          inventory_service_response: {"stock_count": 0, "status": "out_of_stock"}
+        expected:
+          catalog_availability: "out_of_stock"
+          add_to_cart_disabled: true
+        description: "Out-of-stock product correctly prevents cart addition"
+      - input:
+          product_id: "PROD-003"
+          inventory_service_response: {"stock_count": 3, "status": "low_stock"}
+        expected:
+          catalog_availability: "low_stock"
+          urgency_indicator_shown: true
+        description: "Low-stock product shows urgency indicator"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "product-catalog"
+      - "inventory-dependency"
+      - "data-contract"
+      - "smoke-test"
+      - "tier-2"
+
+  - name: "Product catalog — graceful degradation when inventory service is unavailable"
+    description: >
+      Smoke test to verify that the Product Catalog degrades gracefully if the
+      updated Inventory Service becomes unavailable or returns errors. Products
+      should still be browsable with cached or default availability information.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (catalog browsing degraded but not offline).
+      Frequency: 1 (inventory service downtime is infrequent).
+      Consequence: 2 (stale data could allow overselling, but catalog remains usable).
+      Detectability: 2 (monitoring detects inventory service health).
+      Average: 1.75 → medium.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      EG anticipates failure modes from the updated inventory service (new error
+      codes, changed timeout behavior). ST models catalog service states based on
+      inventory availability.
+    preconditions:
+      - "Inventory Service can be made unavailable or mocked to return errors"
+      - "Catalog has caching layer configured"
+    examples:
+      - input:
+          inventory_service_status: "unavailable"
+          cache_age_minutes: 5
+        expected:
+          catalog_operational: true
+          data_source: "cache"
+          staleness_warning: false
+        description: "Fresh cache serves data when inventory service is down"
+      - input:
+          inventory_service_status: "unavailable"
+          cache_age_minutes: 120
+        expected:
+          catalog_operational: true
+          data_source: "cache"
+          staleness_warning: true
+        description: "Stale cache still serves data with warning indicator"
+      - input:
+          inventory_service_status: "returning_500"
+        expected:
+          catalog_operational: true
+          circuit_breaker_triggered: true
+        description: "Repeated 500 errors trigger circuit breaker"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "product-catalog"
+      - "resilience"
+      - "circuit-breaker"
+      - "smoke-test"
+      - "tier-2"
+
+  - name: "Product catalog — search and filtering still functional"
+    description: >
+      Smoke test to verify core product search and filtering operations work
+      correctly. While no catalog code changed, the inventory service update
+      could affect availability-based filtering and sorting.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (search/filter is key UX but not financial).
+      Frequency: 3 (primary user interaction with catalog).
+      Consequence: 1 (degraded search is annoying but workarounds exist).
+      Detectability: 3 (broken search is immediately obvious to users).
+      Average: 2.25 → medium.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP partitions search/filter types: text search, category filter, availability
+      filter, price range filter, sort by options.
+    preconditions:
+      - "Product catalog is populated with test data"
+      - "Search index is up to date"
+    examples:
+      - input:
+          search_query: "wireless headphones"
+          filter_availability: "in_stock_only"
+        expected:
+          results_returned: true
+          all_results_in_stock: true
+        description: "Search with availability filter returns only in-stock items"
+      - input:
+          sort_by: "price_low_to_high"
+          category: "electronics"
+        expected:
+          results_sorted_correctly: true
+        description: "Category browsing with sort still works"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "product-catalog"
+      - "search"
+      - "smoke-test"
+      - "tier-2"
+
+  # ===========================================================================
+  # TIER 2 — SMOKE TEST: USER DASHBOARD
+  # Rationale: No code changes but consumes data from all modified services.
+  # User-facing aggregation layer. Smoke test critical data display paths to
+  # verify no data contract breakage from upstream changes.
+  # ===========================================================================
+
+  - name: "User dashboard — order history displays correctly after upstream changes"
+    description: >
+      Smoke test to verify that the User Dashboard correctly displays order history,
+      including payment status from the updated Payment Service and shipping status
+      from the updated Order Fulfillment service. Data aggregation must handle any
+      response format changes from upstream services.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (user-facing display, not transactional).
+      Frequency: 3 (users regularly check order status on dashboard).
+      Consequence: 2 (incorrect display erodes trust but no financial impact).
+      Detectability: 3 (users see incorrect data immediately).
+      Average: 2.5 → high, but assigned medium because no code changed and blast radius
+      is limited to display layer.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions order states that the dashboard must display. EG anticipates
+      data format mismatches from upstream API changes.
+    preconditions:
+      - "User has existing orders in various states"
+      - "All upstream services are running"
+    examples:
+      - input:
+          user_id: "USER-001"
+          order_states_present: ["paid", "shipped", "delivered", "refunded"]
+        expected:
+          all_orders_displayed: true
+          payment_status_accurate: true
+          shipping_status_accurate: true
+        description: "Dashboard shows all order states correctly from updated services"
+      - input:
+          user_id: "USER-002"
+          payment_method: "new_method"
+        expected:
+          new_payment_method_displayed: true
+          payment_icon_present: true
+        description: "New payment method type renders correctly on dashboard"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "user-dashboard"
+      - "data-aggregation"
+      - "smoke-test"
+      - "tier-2"
+
+  - name: "User dashboard — real-time tracking widget with updated carrier data"
+    description: >
+      Smoke test to verify that the tracking widget on the User Dashboard correctly
+      displays tracking information from the updated carrier integration in Order
+      Fulfillment. Tracking timeline, status labels, and estimated delivery must
+      render correctly.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (tracking display, informational).
+      Frequency: 3 (users check tracking frequently).
+      Consequence: 1 (wrong tracking display is confusing but order still delivers).
+      Detectability: 3 (users see tracking info directly).
+      Average: 2.25 → medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions tracking states the widget must render. EG anticipates new
+      tracking status codes from the updated carrier.
+    preconditions:
+      - "User has shipped orders with tracking data"
+      - "Order Fulfillment service returns tracking from updated carrier"
+    examples:
+      - input:
+          tracking_source: "updated_carrier"
+          tracking_status: "in_transit"
+          estimated_delivery: "2026-03-18"
+        expected:
+          widget_displays_status: "In Transit"
+          estimated_delivery_shown: "March 18, 2026"
+          timeline_progress: "50%"
+        description: "Updated carrier tracking renders correctly on dashboard widget"
+      - input:
+          tracking_source: "updated_carrier"
+          tracking_status: "unknown_new_status"
+        expected:
+          widget_displays_status: "Status Update Available"
+          graceful_fallback: true
+        description: "Unknown tracking status from new carrier handled gracefully"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "user-dashboard"
+      - "tracking-widget"
+      - "smoke-test"
+      - "tier-2"
+
+  - name: "User dashboard — performance under upstream service latency"
+    description: >
+      Smoke test to verify the dashboard remains responsive when upstream services
+      (Payment, Fulfillment, Inventory) respond slowly due to changes. Dashboard
+      should use timeouts, circuit breakers, or progressive loading to avoid
+      complete page failure.
+    type: performance
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (dashboard usability affected).
+      Frequency: 2 (latency spikes happen during deployments).
+      Consequence: 1 (slow dashboard is frustrating but not blocking).
+      Detectability: 3 (users notice slow pages immediately).
+      Average: 2.0 → medium.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      EG anticipates latency scenarios from newly deployed upstream services
+      and timeout cascade effects.
+    preconditions:
+      - "Upstream services can be configured to respond with artificial latency"
+    examples:
+      - input:
+          payment_service_latency_ms: 5000
+          fulfillment_service_latency_ms: 5000
+        expected:
+          dashboard_loads_within_ms: 3000
+          partial_content_displayed: true
+          slow_sections_show_loading: true
+        description: "Dashboard loads partial content quickly despite slow upstream services"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "user-dashboard"
+      - "performance"
+      - "resilience"
+      - "smoke-test"
+      - "tier-2"
+
+  # ===========================================================================
+  # TIER 3 — DEPRIORITIZED: ANALYTICS PIPELINE
+  # Rationale: No code changes. Downstream consumer only. No user-facing impact.
+  # Data latency is acceptable. Failures are detectable through data quality
+  # monitoring. Lowest financial and user-facing risk.
+  # ===========================================================================
+
+  - name: "Analytics pipeline — data ingestion from modified upstream services"
+    description: >
+      Verify that the Analytics Pipeline continues to correctly ingest events from
+      the modified Payment Service and Order Fulfillment service. This is
+      deprioritized because analytics is a downstream consumer with no user-facing
+      impact, data can be backfilled, and failures are detectable through data
+      quality dashboards.
+    type: happy_path
+    risk: low
+    risk_rationale: >
+      Impact: 1 (analytics is non-critical, reporting/BI only).
+      Frequency: 3 (continuous data ingestion).
+      Consequence: 1 (delayed analytics, backfillable, no customer impact).
+      Detectability: 3 (data quality monitoring detects missing events quickly).
+      Average: 2.0 → but assigned low because consequence and impact are minimal
+      and data is backfillable.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      EP partitions event types from modified services to verify schema compatibility.
+    preconditions:
+      - "Analytics pipeline is running"
+      - "Modified services are emitting events"
+    examples:
+      - input:
+          event_source: "payment_service"
+          event_type: "payment_completed"
+          payment_method: "new_method"
+        expected:
+          event_ingested: true
+          new_method_field_parsed: true
+        description: "Payment events with new method type are ingested correctly"
+      - input:
+          event_source: "order_fulfillment"
+          event_type: "shipment_created"
+          carrier: "updated_carrier"
+        expected:
+          event_ingested: true
+          carrier_field_parsed: true
+        description: "Fulfillment events from updated carrier are ingested correctly"
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - "analytics-pipeline"
+      - "data-ingestion"
+      - "deprioritized"
+      - "tier-3"
+
+  # ===========================================================================
+  # CROSS-SERVICE INTEGRATION SCENARIOS
+  # ===========================================================================
+
+  - name: "End-to-end order flow — payment through fulfillment with modified services"
+    description: >
+      Verify the complete end-to-end flow: customer places order, pays with new
+      payment method (Payment Service), order enters fulfillment (Order Fulfillment
+      Service), shipment created with updated carrier, tracking propagated to
+      dashboard. This integration test exercises the critical path through both
+      Tier 1 services.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (complete purchase-to-delivery flow).
+      Frequency: 3 (every customer order traverses this path).
+      Consequence: 3 (broken E2E flow means zero revenue and zero delivery).
+      Detectability: 2 (order failures surface through customer complaints or monitoring).
+      Average: 2.75 → high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST models the complete order lifecycle across services. EG anticipates
+      integration failures at service boundaries.
+    preconditions:
+      - "All services are deployed and running"
+      - "Test customer account exists"
+      - "Test product with inventory is available"
+    examples:
+      - input:
+          product_id: "PROD-100"
+          payment_method: "new_method"
+          shipping_carrier: "updated_carrier"
+          destination: "domestic"
+        expected:
+          order_status_final: "shipped"
+          payment_recorded: true
+          tracking_number_generated: true
+          customer_notified: true
+        description: "Complete order flow with both modified services succeeds"
+    state_transition:
+      states: ["cart", "checkout", "payment_processing", "paid", "fulfillment_processing", "shipped", "delivered"]
+      transitions:
+        - from: "cart"
+          to: "checkout"
+          trigger: "customer_initiates_checkout"
+          guard: "cart is not empty"
+        - from: "checkout"
+          to: "payment_processing"
+          trigger: "customer_submits_payment"
+          guard: "valid payment details"
+        - from: "payment_processing"
+          to: "paid"
+          trigger: "payment_confirmed"
+          guard: "payment service returns success"
+        - from: "paid"
+          to: "fulfillment_processing"
+          trigger: "order_sent_to_fulfillment"
+          guard: "inventory reserved"
+        - from: "fulfillment_processing"
+          to: "shipped"
+          trigger: "carrier_confirms_shipment"
+          guard: "tracking number assigned"
+        - from: "shipped"
+          to: "delivered"
+          trigger: "carrier_confirms_delivery"
+          guard: "delivery signature captured"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "integration"
+      - "end-to-end"
+      - "cross-service"
+      - "critical-path"
+
+  - name: "Service prioritization decision — regression test allocation matrix"
+    description: >
+      This scenario validates the regression test prioritization decision itself.
+      Given the five services, their change status, dependencies, and risk factors,
+      verify that the prioritization matrix correctly assigns: Payment Service and
+      Order Fulfillment to full regression, Product Catalog and User Dashboard to
+      smoke testing, and Analytics Pipeline to deprioritized/monitor-only.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 (wrong prioritization means testing the wrong things).
+      Frequency: 1 (once per sprint cycle).
+      Consequence: 3 (missed critical bugs in production).
+      Detectability: 1 (poor prioritization only discovered when defects escape to production).
+      Average: 2.0 → elevated to high because consequences of wrong prioritization are severe.
+    techniques:
+      - decision_table
+      - cause_effect
+    technique_rationale: >
+      DT maps the multi-factor prioritization decision. CE models the causal
+      relationships between risk factors and prioritization outcomes.
+    preconditions:
+      - "Sprint change log is available"
+      - "Service dependency map is documented"
+      - "QA bandwidth constraint is known (2 full, 2 smoke, 1 skip)"
+    examples:
+      - input:
+          service: "Payment Service"
+          code_changed: true
+          financial_impact: "high"
+          external_dependencies: "payment_gateway"
+          user_facing: true
+          blast_radius: "high"
+        expected:
+          priority_tier: "tier_1_full_regression"
+          rationale: "Direct code changes to financial-critical retry logic and new payment method"
+        description: "Payment Service assigned to full regression due to code changes, financial impact, and blast radius"
+      - input:
+          service: "Order Fulfillment"
+          code_changed: true
+          financial_impact: "medium"
+          external_dependencies: "shipping_carriers"
+          user_facing: true
+          blast_radius: "medium"
+        expected:
+          priority_tier: "tier_1_full_regression"
+          rationale: "Direct code changes to external carrier integration affecting delivery SLA"
+        description: "Order Fulfillment assigned to full regression due to code changes and external dependency risk"
+      - input:
+          service: "Product Catalog"
+          code_changed: false
+          financial_impact: "medium"
+          external_dependencies: "inventory_service_updated"
+          user_facing: true
+          blast_radius: "medium"
+        expected:
+          priority_tier: "tier_2_smoke_test"
+          rationale: "No code change but upstream dependency updated — verify data contract"
+        description: "Product Catalog assigned to smoke test due to upstream dependency change"
+      - input:
+          service: "User Dashboard"
+          code_changed: false
+          financial_impact: "low"
+          external_dependencies: "all_services"
+          user_facing: true
+          blast_radius: "low"
+        expected:
+          priority_tier: "tier_2_smoke_test"
+          rationale: "No code change but consumes data from all modified services — verify display"
+        description: "User Dashboard assigned to smoke test as downstream aggregator of all changed services"
+      - input:
+          service: "Analytics Pipeline"
+          code_changed: false
+          financial_impact: "none"
+          external_dependencies: "all_services_downstream_only"
+          user_facing: false
+          blast_radius: "none"
+        expected:
+          priority_tier: "tier_3_deprioritized"
+          rationale: "No code change, non-user-facing, backfillable data, detectable through monitoring"
+        description: "Analytics Pipeline deprioritized — lowest risk across all dimensions"
+    decision_table:
+      conditions:
+        - "code_changed"
+        - "financial_impact_high"
+        - "has_external_dependency_change"
+        - "user_facing"
+        - "blast_radius_high"
+      actions:
+        - "assign_full_regression"
+        - "assign_smoke_test"
+        - "assign_deprioritized"
+      rules:
+        - description: "Code changed + high financial impact → full regression"
+          condition_values:
+            code_changed: true
+            financial_impact_high: true
+            has_external_dependency_change: true
+            user_facing: true
+            blast_radius_high: true
+          expected_actions:
+            assign_full_regression: true
+            assign_smoke_test: false
+            assign_deprioritized: false
+        - description: "Code changed + external dependency + user facing → full regression"
+          condition_values:
+            code_changed: true
+            financial_impact_high: false
+            has_external_dependency_change: true
+            user_facing: true
+            blast_radius_high: false
+          expected_actions:
+            assign_full_regression: true
+            assign_smoke_test: false
+            assign_deprioritized: false
+        - description: "No code change + upstream dependency changed + user facing → smoke test"
+          condition_values:
+            code_changed: false
+            financial_impact_high: false
+            has_external_dependency_change: true
+            user_facing: true
+            blast_radius_high: false
+          expected_actions:
+            assign_full_regression: false
+            assign_smoke_test: true
+            assign_deprioritized: false
+        - description: "No code change + downstream consumer only + not user facing → deprioritized"
+          condition_values:
+            code_changed: false
+            financial_impact_high: false
+            has_external_dependency_change: false
+            user_facing: false
+            blast_radius_high: false
+          expected_actions:
+            assign_full_regression: false
+            assign_smoke_test: false
+            assign_deprioritized: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "prioritization"
+      - "decision-framework"
+      - "meta-testing"
+      - "risk-assessment"
+
+  - name: "Payment-to-fulfillment handoff — failure compensation when payment succeeds but fulfillment fails"
+    description: >
+      Verify that when payment succeeds (via new or existing method) but fulfillment
+      fails (due to carrier integration error), the system correctly handles
+      compensation: refund is initiated, customer is notified, and order status
+      reflects the failure. This tests the interaction between both Tier 1 services.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (customer charged but order cannot be fulfilled).
+      Frequency: 1 (rare but possible, especially during carrier integration changes).
+      Consequence: 3 (customer paid with no delivery — worst customer experience).
+      Detectability: 1 (may not be detected until customer complains).
+      Average: 2.0 → elevated to high due to severe customer impact.
+    techniques:
+      - state_transition
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      ST models the cross-service state machine during partial failure. EG anticipates
+      compensation edge cases. CE maps the logical flow from payment success through
+      fulfillment failure to refund initiation.
+    preconditions:
+      - "Payment service processes payments successfully"
+      - "Fulfillment service can be configured to fail"
+      - "Refund mechanism exists"
+    examples:
+      - input:
+          payment_result: "success"
+          fulfillment_result: "carrier_integration_error"
+        expected:
+          order_status: "payment_reversal_initiated"
+          refund_initiated: true
+          customer_notified: true
+          compensation_type: "full_refund"
+        description: "Payment succeeds but fulfillment fails — automatic refund initiated"
+      - input:
+          payment_result: "success"
+          fulfillment_result: "carrier_integration_error"
+          refund_attempt_result: "refund_gateway_timeout"
+        expected:
+          order_status: "requires_manual_intervention"
+          escalation_created: true
+          customer_notified: true
+        description: "Double failure (fulfillment + refund) escalates to manual intervention"
+    state_transition:
+      states: ["paid", "fulfillment_attempted", "fulfillment_failed", "refund_initiated", "refunded", "manual_intervention"]
+      transitions:
+        - from: "paid"
+          to: "fulfillment_attempted"
+          trigger: "send_to_fulfillment"
+          guard: "payment confirmed"
+        - from: "fulfillment_attempted"
+          to: "fulfillment_failed"
+          trigger: "carrier_error"
+          guard: "non-recoverable error after retries"
+        - from: "fulfillment_failed"
+          to: "refund_initiated"
+          trigger: "auto_refund_triggered"
+          guard: "refund policy allows"
+        - from: "refund_initiated"
+          to: "refunded"
+          trigger: "refund_confirmed"
+          guard: "payment gateway confirms reversal"
+        - from: "refund_initiated"
+          to: "manual_intervention"
+          trigger: "refund_failed"
+          guard: "refund gateway error"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "integration"
+      - "payment-fulfillment"
+      - "compensation"
+      - "error-handling"
+      - "cross-service"
+
+  - name: "Inventory reservation consistency — product catalog shows correct availability during concurrent orders"
+    description: >
+      Verify that when the updated Inventory Service processes concurrent stock
+      reservations, the Product Catalog reflects accurate availability. This tests
+      the indirect impact of Inventory Service changes on Product Catalog's data
+      accuracy under load.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (incorrect stock display, potential overselling).
+      Frequency: 2 (concurrent orders happen during sales events).
+      Consequence: 2 (overselling requires cancellation and customer disappointment).
+      Detectability: 2 (overselling detected at fulfillment time).
+      Average: 2.0 → medium.
+    techniques:
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      EG anticipates race conditions in inventory updates. BVA tests the stock
+      count boundary (last item, zero stock transition).
+    preconditions:
+      - "Product has limited stock (e.g., 2 units)"
+      - "Multiple concurrent order requests can be simulated"
+    examples:
+      - input:
+          product_stock: 2
+          concurrent_orders: 3
+        expected:
+          orders_accepted: 2
+          orders_rejected: 1
+          catalog_shows_out_of_stock: true
+        description: "Concurrent orders for limited stock — only available quantity fulfilled"
+      - input:
+          product_stock: 1
+          concurrent_orders: 2
+        expected:
+          orders_accepted: 1
+          orders_rejected: 1
+          no_negative_stock: true
+        description: "Last item race condition — exactly one order succeeds"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "product-catalog"
+      - "inventory"
+      - "concurrency"
+      - "smoke-test"
+      - "tier-2"
+
+example_mapping:
+  story: >
+    As a QA lead with limited bandwidth after a sprint, I need to determine which
+    microservices to fully regression test, smoke test, or deprioritize, so that
+    I maximize defect detection for the highest-risk changes while respecting the
+    constraint of 2 full regressions and 2 smoke tests.
+  rules:
+    - rule_name: "Services with direct code changes get highest priority"
+      examples:
+        - "Payment Service has refactored retry logic AND new payment method → Tier 1 full regression"
+        - "Order Fulfillment has updated carrier integration → Tier 1 full regression"
+        - "Product Catalog has no code change → not Tier 1 even though it is user-facing"
+    - rule_name: "Financial impact elevates priority within the same tier"
+      examples:
+        - "Payment Service handles money directly → higher priority than Order Fulfillment within Tier 1"
+        - "Order Fulfillment affects delivery cost calculation → financial but secondary to payment"
+        - "Analytics Pipeline has zero financial impact → lowest priority"
+    - rule_name: "External dependency changes require at minimum smoke testing"
+      examples:
+        - "Product Catalog depends on updated Inventory Service → Tier 2 smoke test to verify data contract"
+        - "Order Fulfillment depends on external carriers (integration changed) → amplifies Tier 1 need"
+    - rule_name: "User-facing services take priority over internal services"
+      examples:
+        - "User Dashboard is user-facing but no code change → Tier 2 smoke test to verify display"
+        - "Analytics Pipeline is internal, non-user-facing → Tier 3 deprioritized"
+    - rule_name: "Blast radius determines scope of testing when in the same priority band"
+      examples:
+        - "Payment Service changes affect Order Fulfillment, Dashboard, and Analytics → high blast radius"
+        - "Order Fulfillment changes affect Dashboard and Analytics → medium blast radius"
+        - "Analytics Pipeline changes affect nothing downstream → zero blast radius"
+    - rule_name: "Deprioritized services must still have monitoring and alerting"
+      examples:
+        - "Analytics Pipeline skipped for regression but monitored via data quality dashboards"
+        - "If analytics data drift detected post-deployment, ad-hoc testing can be triggered"
+    - rule_name: "Cross-service integration tests cover boundary interactions between Tier 1 services"
+      examples:
+        - "E2E test from payment (new method) through fulfillment (updated carrier) validates both changes"
+        - "Compensation flow test for payment-success/fulfillment-failure validates failure mode handling"
+
+metadata:
+  created_at: "2026-03-14T00:00:00Z"
+  updated_at: "2026-03-14T00:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

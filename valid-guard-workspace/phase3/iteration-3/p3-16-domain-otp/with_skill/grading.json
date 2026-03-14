@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-16-domain-otp",
+  "eval_name": "OTP verification for payment",
+  "category": "domain_specific",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "OTP delivery verification",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('deliver', 'SMS')"
+    },
+    {
+      "text": "OTP expiration handling",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('EXPIR', 'OTP')"
+    },
+    {
+      "text": "Brute-force protection (max attempts)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('max', 'attempt')"
+    },
+    {
+      "text": "Invalid OTP rejection",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('invalid', 'OTP')"
+    },
+    {
+      "text": "OTP reuse prevention",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('replay', '')"
+    },
+    {
+      "text": "Resend OTP flow",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('resend', '')"
+    },
+    {
+      "text": "BVA on expiration time",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('second', '')"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: feature:"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Impact"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: technique_rationale:"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: uncovered"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: priority: 1"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: test_ref:"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: happy_path"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: equivalence_partitioning"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: example_mapping:"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: metadata:"
+    }
+  ],
+  "summary": {
+    "passed": 17,
+    "total": 17,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 1.0
+  }
+}

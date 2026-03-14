@@ -1,0 +1,543 @@
+# Valid Guard Test Plan — User Registration with Email Verification
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+#
+# This is a showcase test plan demonstrating Valid Guard's output quality.
+# It was generated from: "User registration with email verification"
+
+feature: "User Registration with Email Verification"
+
+feature_description: >
+  User registration system allowing new users to create an account with email
+  and password credentials. After registration, a verification email is sent
+  containing a time-limited token. The account remains inactive until the user
+  clicks the verification link. Passwords must meet complexity requirements.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ---------- Happy Path ---------------------------------------------------
+  - name: "Successful registration with valid inputs"
+    description: >
+      A new user provides a unique email address, a password that meets all
+      complexity requirements, and a matching confirmation. The system creates
+      the account in an unverified state and sends a verification email.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Registration is the entry point for every new
+      user. Failure blocks all user acquisition.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning separates valid inputs (unique email, strong
+      password) from invalid partitions tested in other scenarios.
+    preconditions:
+      - "No existing account with the provided email"
+      - "Email service is operational"
+    examples:
+      - input:
+          email: "alice@example.com"
+          password: "Str0ng!Pass#42"
+          password_confirmation: "Str0ng!Pass#42"
+        expected:
+          status: 201
+          account_state: "unverified"
+          verification_email_sent: true
+        description: "Standard successful registration with all valid inputs."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - registration
+
+  - name: "Successful email verification with valid token"
+    description: >
+      User clicks the verification link containing a valid, unexpired token.
+      The account transitions from unverified to active.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2.
+      Average: 2.75 -> high. Without working verification, users cannot
+      activate their accounts and are permanently locked out.
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      Equivalence partitioning for valid vs. invalid tokens; state transition
+      models the account lifecycle from unverified to active.
+    preconditions:
+      - "Account exists in unverified state"
+      - "Verification token is valid and unexpired"
+    examples:
+      - input:
+          token: "valid-verification-token"
+          token_age_minutes: 30
+        expected:
+          status: 200
+          account_state: "active"
+          token_invalidated: true
+        description: "Valid token within expiry window activates the account."
+    state_transition:
+      states:
+        - unverified
+        - active
+      transitions:
+        - from: unverified
+          to: active
+          trigger: "valid_verification_token_submitted"
+          guard: "token not expired and matches account"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - critical-path
+      - verification
+      - state-machine
+
+  # ---------- Error Handling ------------------------------------------------
+  - name: "Registration with duplicate email"
+    description: >
+      User attempts to register with an email address that already exists in
+      the system. The request is rejected without revealing whether the email
+      is registered (to prevent enumeration).
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1.
+      Average: 2.25 -> medium, but elevated to high because leaking
+      registration status enables targeted attacks against known accounts.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning for the duplicate-email input class; error
+      guessing anticipates timing side-channel and response-differentiation
+      attacks that could reveal account existence.
+    preconditions:
+      - "An account with alice@example.com already exists"
+    examples:
+      - input:
+          email: "alice@example.com"
+          password: "An0ther!Pass99"
+          password_confirmation: "An0ther!Pass99"
+        expected:
+          status: 200
+          message: "If this email is not already registered, a verification link has been sent."
+          response_time_delta_ms: "<50"
+        description: >
+          Ambiguous success response prevents email enumeration. Response
+          time must be consistent with the non-duplicate case.
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - enumeration
+      - registration
+
+  - name: "Registration with weak password"
+    description: >
+      User provides a password that fails complexity requirements: must be
+      at least 8 characters, contain uppercase, lowercase, digit, and
+      special character.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3.
+      Average: 2.25 -> medium. Weak password acceptance degrades security
+      but the error is immediately visible to the user.
+    techniques:
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      Equivalence partitioning groups passwords by which requirement they
+      violate. Cause-effect maps each missing requirement to its specific
+      error message.
+    preconditions: []
+    examples:
+      - input:
+          email: "bob@example.com"
+          password: "short1!"
+          password_confirmation: "short1!"
+        expected:
+          status: 400
+          error: "PASSWORD_TOO_SHORT"
+        description: "7 characters — below the 8-character minimum."
+      - input:
+          email: "bob@example.com"
+          password: "alllowercase1!"
+          password_confirmation: "alllowercase1!"
+        expected:
+          status: 400
+          error: "PASSWORD_MISSING_UPPERCASE"
+        description: "No uppercase letter violates complexity rule."
+      - input:
+          email: "bob@example.com"
+          password: "NoDigitsHere!!"
+          password_confirmation: "NoDigitsHere!!"
+        expected:
+          status: 400
+          error: "PASSWORD_MISSING_DIGIT"
+        description: "No digit violates complexity rule."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - password-policy
+      - validation
+      - registration
+
+  - name: "Registration with empty required fields"
+    description: >
+      User submits the registration form with one or more required fields
+      left empty. Each missing field should produce a specific validation
+      error.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 1, Detectability: 3.
+      Average: 2.0 -> medium. Missing field validation is basic but its
+      absence could allow corrupt data into the system.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning covers the empty-value partition for each
+      field. Error guessing covers whitespace-only and null submissions.
+    preconditions: []
+    examples:
+      - input:
+          email: ""
+          password: "Str0ng!Pass#42"
+          password_confirmation: "Str0ng!Pass#42"
+        expected:
+          status: 400
+          error: "EMAIL_REQUIRED"
+        description: "Empty email field."
+      - input:
+          email: "bob@example.com"
+          password: ""
+          password_confirmation: ""
+        expected:
+          status: 400
+          error: "PASSWORD_REQUIRED"
+        description: "Empty password field."
+      - input:
+          email: "   "
+          password: "Str0ng!Pass#42"
+          password_confirmation: "Str0ng!Pass#42"
+        expected:
+          status: 400
+          error: "EMAIL_REQUIRED"
+        description: "Whitespace-only email treated as empty."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - validation
+      - registration
+
+  # ---------- Boundary Values -----------------------------------------------
+  - name: "Email format boundary cases"
+    description: >
+      Email validation must accept valid RFC 5321 addresses and reject
+      malformed ones. Tests boundary cases at the edges of valid email syntax.
+    type: boundary
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3.
+      Average: 2.25 -> medium. Overly strict validation locks out
+      legitimate users; overly lax validation allows garbage data.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      Boundary value analysis at the syntactic edges of email format.
+      Equivalence partitioning separates valid/invalid email classes.
+    preconditions: []
+    examples:
+      - input:
+          email: "a@b.co"
+        expected:
+          valid: true
+        description: "Minimal valid email — single character local part, two-char TLD."
+      - input:
+          email: "user+tag@example.com"
+        expected:
+          valid: true
+        description: "Plus-addressing is valid and must be accepted."
+      - input:
+          email: "missing-at-sign.com"
+        expected:
+          valid: false
+          error: "INVALID_EMAIL_FORMAT"
+        description: "No @ sign — invalid."
+      - input:
+          email: "@no-local-part.com"
+        expected:
+          valid: false
+          error: "INVALID_EMAIL_FORMAT"
+        description: "Empty local part — invalid."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - validation
+      - boundary
+      - registration
+
+  # ---------- Security -------------------------------------------------------
+  - name: "SQL injection in email field"
+    description: >
+      Malicious input in the email field containing SQL injection payloads
+      must be safely handled without executing any injected SQL.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1.
+      Average: 2.0 -> medium, but elevated to high because successful
+      SQL injection can compromise the entire database.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing based on known SQL injection attack vectors. This is
+      a security-focused technique that anticipates likely attack patterns.
+    preconditions: []
+    examples:
+      - input:
+          email: "'; DROP TABLE users; --"
+          password: "Str0ng!Pass#42"
+          password_confirmation: "Str0ng!Pass#42"
+        expected:
+          status: 400
+          error: "INVALID_EMAIL_FORMAT"
+          database_intact: true
+        description: "Classic SQL injection payload rejected as invalid email format."
+      - input:
+          email: "admin@example.com' OR '1'='1"
+          password: "Str0ng!Pass#42"
+          password_confirmation: "Str0ng!Pass#42"
+        expected:
+          status: 400
+          error: "INVALID_EMAIL_FORMAT"
+          database_intact: true
+        description: "Boolean-based SQL injection payload rejected safely."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - injection
+      - registration
+
+  # ---------- State Transition — Verification Token Expiry ------------------
+  - name: "Email verification token expiry"
+    description: >
+      Verification tokens expire after 24 hours. Attempting to verify with
+      an expired token fails and offers to resend a new verification email.
+    type: state_transition
+    risk: high
+    risk_rationale: >
+      Impact: 3, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 2.25 -> medium, but elevated to high because non-expiring
+      tokens are a security risk — a leaked token could be used indefinitely.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the token lifecycle (valid -> expired).
+      Boundary value analysis tests the exact 24-hour expiry threshold.
+    preconditions:
+      - "Account exists in unverified state"
+    examples:
+      - input:
+          token: "valid-token"
+          token_age_hours: 23
+        expected:
+          status: 200
+          account_state: "active"
+        description: "Token at 23 hours — still valid, account activated."
+      - input:
+          token: "expired-token"
+          token_age_hours: 25
+        expected:
+          status: 410
+          error: "TOKEN_EXPIRED"
+          resend_available: true
+        description: "Token at 25 hours — expired, resend option offered."
+      - input:
+          token: "boundary-token"
+          token_age_hours: 24
+        expected:
+          status: 410
+          error: "TOKEN_EXPIRED"
+        description: "Token at exactly 24 hours — boundary, treated as expired."
+    state_transition:
+      states:
+        - valid
+        - expired
+        - used
+      transitions:
+        - from: valid
+          to: used
+          trigger: "verification_submitted"
+          guard: "token_age < 24 hours"
+        - from: valid
+          to: expired
+          trigger: "time_elapsed"
+          guard: "token_age >= 24 hours"
+        - from: expired
+          to: valid
+          trigger: "resend_verification"
+          guard: "new token generated"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - verification
+      - boundary
+      - state-machine
+      - security
+
+  # ---------- Combinatorial — Password Confirmation Mismatch ----------------
+  - name: "Password and confirmation mismatch"
+    description: >
+      The password confirmation field must exactly match the password field.
+      Mismatches are rejected with a clear error before any account creation.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2, Frequency: 2, Consequence: 1, Detectability: 3.
+      Average: 2.0 -> medium. A mismatch bypass could leave users locked
+      out with a password they did not intend, but the error is visible.
+    techniques:
+      - equivalence_partitioning
+    technique_rationale: >
+      Equivalence partitioning separates matching from non-matching
+      confirmation values, including case-sensitivity edge cases.
+    preconditions: []
+    examples:
+      - input:
+          email: "carol@example.com"
+          password: "Str0ng!Pass#42"
+          password_confirmation: "Str0ng!Pass#43"
+        expected:
+          status: 400
+          error: "PASSWORD_CONFIRMATION_MISMATCH"
+        description: "Single character difference between password and confirmation."
+      - input:
+          email: "carol@example.com"
+          password: "Str0ng!Pass#42"
+          password_confirmation: "str0ng!pass#42"
+        expected:
+          status: 400
+          error: "PASSWORD_CONFIRMATION_MISMATCH"
+        description: "Case-sensitive comparison — different case is a mismatch."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - validation
+      - registration
+
+  # ---------- Edge Case — Resend Verification Rate Limiting -----------------
+  - name: "Resend verification email rate limiting"
+    description: >
+      Users can request a new verification email, but requests are
+      rate-limited to prevent abuse. Maximum 3 resend requests per hour.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 1, Frequency: 2, Consequence: 2, Detectability: 2.
+      Average: 1.75 -> medium. Without rate limiting, attackers can use
+      the resend endpoint to spam arbitrary email addresses.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value analysis at the 3-request threshold. Error guessing
+      anticipates abuse patterns like rapid automated resend requests.
+    preconditions:
+      - "Account exists in unverified state"
+    examples:
+      - input:
+          resend_count_this_hour: 2
+          action: "resend_verification"
+        expected:
+          status: 200
+          email_sent: true
+          remaining_resends: 0
+        description: "3rd resend in the hour — allowed, but quota exhausted."
+      - input:
+          resend_count_this_hour: 3
+          action: "resend_verification"
+        expected:
+          status: 429
+          error: "RATE_LIMIT_EXCEEDED"
+          retry_after_seconds: ">0"
+        description: "4th resend in the hour — rate limited."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - rate-limiting
+      - verification
+      - abuse-prevention
+
+# ---------------------------------------------------------------------------
+# Example Mapping
+# ---------------------------------------------------------------------------
+example_mapping:
+  story: >
+    As a new user, I want to register an account with my email and verify
+    it so that I can securely access the application.
+  rules:
+    - rule_name: "Registration requires a unique email and a strong password"
+      examples:
+        - "Valid email + strong password + matching confirmation -> account created (unverified), verification email sent"
+        - "Duplicate email -> ambiguous success response (prevents enumeration)"
+        - "Weak password (too short) -> 400, PASSWORD_TOO_SHORT"
+        - "Weak password (missing uppercase) -> 400, PASSWORD_MISSING_UPPERCASE"
+        - "Password confirmation mismatch -> 400, PASSWORD_CONFIRMATION_MISMATCH"
+        - "Empty email or password -> 400, field-specific error"
+        - "SQL injection in email -> 400, INVALID_EMAIL_FORMAT, database unaffected"
+
+    - rule_name: "Email must be syntactically valid"
+      examples:
+        - "Minimal valid email (a@b.co) -> accepted"
+        - "Plus-addressing (user+tag@example.com) -> accepted"
+        - "Missing @ sign -> INVALID_EMAIL_FORMAT"
+        - "Empty local part (@domain.com) -> INVALID_EMAIL_FORMAT"
+
+    - rule_name: "Verification token activates the account within 24 hours"
+      examples:
+        - "Valid token at 30 minutes -> account activated"
+        - "Valid token at 23 hours -> account activated"
+        - "Expired token at 24 hours -> TOKEN_EXPIRED, resend offered"
+        - "Expired token at 25 hours -> TOKEN_EXPIRED, resend offered"
+
+    - rule_name: "Verification resend is rate-limited to 3 per hour"
+      examples:
+        - "3rd resend in the hour -> allowed, quota exhausted"
+        - "4th resend in the hour -> 429, RATE_LIMIT_EXCEEDED"
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

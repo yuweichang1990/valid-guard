@@ -1,0 +1,602 @@
+test_plan:
+  feature: "Conway's Game of Life - Cell Survival Logic"
+  description: >
+    Comprehensive test plan for Conway's Game of Life cell state transition rules.
+    A living cell survives with exactly 2 or 3 neighbors, a dead cell becomes alive
+    with exactly 3 neighbors, and all other live cells die.
+  rules_under_test:
+    - id: R1
+      name: "Underpopulation"
+      description: "A live cell with fewer than 2 neighbors dies"
+    - id: R2
+      name: "Stable Neighborhood"
+      description: "A live cell with exactly 2 or 3 neighbors survives"
+    - id: R3
+      name: "Overpopulation"
+      description: "A live cell with more than 3 neighbors dies"
+    - id: R4
+      name: "Reproduction"
+      description: "A dead cell with exactly 3 neighbors becomes alive"
+    - id: R5
+      name: "Dead Cell Stays Dead"
+      description: "A dead cell without exactly 3 neighbors remains dead"
+
+  test_suites:
+
+    - suite: "Live Cell - Underpopulation (Rule R1)"
+      description: "Live cells with 0 or 1 neighbors die from underpopulation"
+      tests:
+        - id: TC-LIVE-00
+          name: "Live cell with 0 neighbors dies"
+          initial_state: alive
+          neighbor_count: 0
+          expected_state: dead
+          rule: R1
+          description: "A completely isolated live cell dies from loneliness"
+          example:
+            grid_before:
+              - [0, 0, 0]
+              - [0, 1, 0]
+              - [0, 0, 0]
+            grid_after:
+              - [0, 0, 0]
+              - [0, 0, 0]
+              - [0, 0, 0]
+
+        - id: TC-LIVE-01
+          name: "Live cell with 1 neighbor dies"
+          initial_state: alive
+          neighbor_count: 1
+          expected_state: dead
+          rule: R1
+          description: "A live cell with only one neighbor dies from underpopulation"
+          example:
+            grid_before:
+              - [0, 0, 0]
+              - [1, 1, 0]
+              - [0, 0, 0]
+            grid_after:
+              - [0, 0, 0]
+              - [0, 0, 0]
+              - [0, 0, 0]
+
+    - suite: "Live Cell - Survival (Rule R2)"
+      description: "Live cells with exactly 2 or 3 neighbors survive to the next generation"
+      tests:
+        - id: TC-LIVE-02
+          name: "Live cell with 2 neighbors survives"
+          initial_state: alive
+          neighbor_count: 2
+          expected_state: alive
+          rule: R2
+          description: "A live cell with exactly 2 neighbors survives (stable neighborhood)"
+          example:
+            grid_before:
+              - [0, 0, 0]
+              - [1, 1, 1]
+              - [0, 0, 0]
+            center_cell: [1, 1]
+            center_neighbors: 2
+            grid_after_center: alive
+
+        - id: TC-LIVE-03
+          name: "Live cell with 3 neighbors survives"
+          initial_state: alive
+          neighbor_count: 3
+          expected_state: alive
+          rule: R2
+          description: "A live cell with exactly 3 neighbors survives (stable neighborhood)"
+          example:
+            grid_before:
+              - [0, 1, 0]
+              - [1, 1, 1]
+              - [0, 0, 0]
+            center_cell: [1, 1]
+            center_neighbors: 3
+            grid_after_center: alive
+
+    - suite: "Live Cell - Overpopulation (Rule R3)"
+      description: "Live cells with more than 3 neighbors die from overcrowding"
+      tests:
+        - id: TC-LIVE-04
+          name: "Live cell with 4 neighbors dies"
+          initial_state: alive
+          neighbor_count: 4
+          expected_state: dead
+          rule: R3
+          description: "A live cell with 4 neighbors dies from overpopulation"
+          example:
+            grid_before:
+              - [0, 1, 0]
+              - [1, 1, 1]
+              - [0, 1, 0]
+            center_cell: [1, 1]
+            center_neighbors: 4
+            grid_after_center: dead
+
+        - id: TC-LIVE-05
+          name: "Live cell with 5 neighbors dies"
+          initial_state: alive
+          neighbor_count: 5
+          expected_state: dead
+          rule: R3
+          description: "A live cell with 5 neighbors dies from overpopulation"
+          example:
+            grid_before:
+              - [1, 1, 0]
+              - [1, 1, 1]
+              - [0, 1, 0]
+            center_cell: [1, 1]
+            center_neighbors: 5
+            grid_after_center: dead
+
+        - id: TC-LIVE-06
+          name: "Live cell with 6 neighbors dies"
+          initial_state: alive
+          neighbor_count: 6
+          expected_state: dead
+          rule: R3
+          description: "A live cell with 6 neighbors dies from overpopulation"
+          example:
+            grid_before:
+              - [1, 1, 1]
+              - [1, 1, 1]
+              - [0, 0, 0]
+            center_cell: [1, 1]
+            center_neighbors: 6
+            grid_after_center: dead
+
+        - id: TC-LIVE-07
+          name: "Live cell with 7 neighbors dies"
+          initial_state: alive
+          neighbor_count: 7
+          expected_state: dead
+          rule: R3
+          description: "A live cell with 7 neighbors dies from overpopulation"
+          example:
+            grid_before:
+              - [1, 1, 1]
+              - [1, 1, 1]
+              - [1, 0, 0]
+            center_cell: [1, 1]
+            center_neighbors: 7
+            grid_after_center: dead
+
+        - id: TC-LIVE-08
+          name: "Live cell with 8 neighbors dies"
+          initial_state: alive
+          neighbor_count: 8
+          expected_state: dead
+          rule: R3
+          description: "A live cell surrounded by all 8 neighbors dies from maximum overpopulation"
+          example:
+            grid_before:
+              - [1, 1, 1]
+              - [1, 1, 1]
+              - [1, 1, 1]
+            center_cell: [1, 1]
+            center_neighbors: 8
+            grid_after_center: dead
+
+    - suite: "Dead Cell - Reproduction (Rule R4)"
+      description: "Dead cells with exactly 3 neighbors become alive"
+      tests:
+        - id: TC-DEAD-03
+          name: "Dead cell with 3 neighbors becomes alive"
+          initial_state: dead
+          neighbor_count: 3
+          expected_state: alive
+          rule: R4
+          description: "A dead cell with exactly 3 live neighbors is born (reproduction)"
+          example:
+            grid_before:
+              - [0, 1, 0]
+              - [1, 0, 1]
+              - [0, 0, 0]
+            center_cell: [1, 1]
+            center_neighbors: 3
+            grid_after_center: alive
+
+    - suite: "Dead Cell - Stays Dead (Rule R5)"
+      description: "Dead cells without exactly 3 neighbors remain dead"
+      tests:
+        - id: TC-DEAD-00
+          name: "Dead cell with 0 neighbors stays dead"
+          initial_state: dead
+          neighbor_count: 0
+          expected_state: dead
+          rule: R5
+          description: "An empty cell with no neighbors remains dead"
+          example:
+            grid_before:
+              - [0, 0, 0]
+              - [0, 0, 0]
+              - [0, 0, 0]
+            grid_after:
+              - [0, 0, 0]
+              - [0, 0, 0]
+              - [0, 0, 0]
+
+        - id: TC-DEAD-01
+          name: "Dead cell with 1 neighbor stays dead"
+          initial_state: dead
+          neighbor_count: 1
+          expected_state: dead
+          rule: R5
+          description: "A dead cell with only 1 live neighbor remains dead"
+          example:
+            grid_before:
+              - [0, 0, 0]
+              - [1, 0, 0]
+              - [0, 0, 0]
+            center_cell: [1, 1]
+            center_neighbors: 1
+            grid_after_center: dead
+
+        - id: TC-DEAD-02
+          name: "Dead cell with 2 neighbors stays dead"
+          initial_state: dead
+          neighbor_count: 2
+          expected_state: dead
+          rule: R5
+          description: "A dead cell with 2 live neighbors remains dead (not enough for reproduction)"
+          example:
+            grid_before:
+              - [0, 0, 0]
+              - [1, 0, 1]
+              - [0, 0, 0]
+            center_cell: [1, 1]
+            center_neighbors: 2
+            grid_after_center: dead
+
+        - id: TC-DEAD-04
+          name: "Dead cell with 4 neighbors stays dead"
+          initial_state: dead
+          neighbor_count: 4
+          expected_state: dead
+          rule: R5
+          description: "A dead cell with 4 live neighbors remains dead (too many for reproduction)"
+          example:
+            grid_before:
+              - [0, 1, 0]
+              - [1, 0, 1]
+              - [0, 1, 0]
+            center_cell: [1, 1]
+            center_neighbors: 4
+            grid_after_center: dead
+
+        - id: TC-DEAD-05
+          name: "Dead cell with 5 neighbors stays dead"
+          initial_state: dead
+          neighbor_count: 5
+          expected_state: dead
+          rule: R5
+          description: "A dead cell with 5 live neighbors remains dead"
+          example:
+            grid_before:
+              - [1, 1, 0]
+              - [1, 0, 1]
+              - [0, 1, 0]
+            center_cell: [1, 1]
+            center_neighbors: 5
+            grid_after_center: dead
+
+        - id: TC-DEAD-06
+          name: "Dead cell with 6 neighbors stays dead"
+          initial_state: dead
+          neighbor_count: 6
+          expected_state: dead
+          rule: R5
+          description: "A dead cell with 6 live neighbors remains dead"
+          example:
+            grid_before:
+              - [1, 1, 1]
+              - [1, 0, 1]
+              - [0, 1, 0]
+            center_cell: [1, 1]
+            center_neighbors: 6
+            grid_after_center: dead
+
+        - id: TC-DEAD-07
+          name: "Dead cell with 7 neighbors stays dead"
+          initial_state: dead
+          neighbor_count: 7
+          expected_state: dead
+          rule: R5
+          description: "A dead cell with 7 live neighbors remains dead"
+          example:
+            grid_before:
+              - [1, 1, 1]
+              - [1, 0, 1]
+              - [1, 1, 0]
+            center_cell: [1, 1]
+            center_neighbors: 7
+            grid_after_center: dead
+
+        - id: TC-DEAD-08
+          name: "Dead cell with 8 neighbors stays dead"
+          initial_state: dead
+          neighbor_count: 8
+          expected_state: dead
+          rule: R5
+          description: "A dead cell fully surrounded by 8 live neighbors remains dead"
+          example:
+            grid_before:
+              - [1, 1, 1]
+              - [1, 0, 1]
+              - [1, 1, 1]
+            center_cell: [1, 1]
+            center_neighbors: 8
+            grid_after_center: dead
+
+    - suite: "Known Patterns - Still Lifes"
+      description: "Patterns that remain stable across generations (period 1)"
+      tests:
+        - id: TC-PATTERN-BLOCK
+          name: "Block pattern remains stable"
+          pattern_name: "Block"
+          period: 1
+          description: "A 2x2 block is a still life; each cell has exactly 3 neighbors and survives"
+          grid_before:
+            - [0, 0, 0, 0]
+            - [0, 1, 1, 0]
+            - [0, 1, 1, 0]
+            - [0, 0, 0, 0]
+          grid_after:
+            - [0, 0, 0, 0]
+            - [0, 1, 1, 0]
+            - [0, 1, 1, 0]
+            - [0, 0, 0, 0]
+
+        - id: TC-PATTERN-BEEHIVE
+          name: "Beehive pattern remains stable"
+          pattern_name: "Beehive"
+          period: 1
+          description: "A beehive is a still life with 6 cells"
+          grid_before:
+            - [0, 0, 0, 0, 0, 0]
+            - [0, 0, 1, 1, 0, 0]
+            - [0, 1, 0, 0, 1, 0]
+            - [0, 0, 1, 1, 0, 0]
+            - [0, 0, 0, 0, 0, 0]
+          grid_after:
+            - [0, 0, 0, 0, 0, 0]
+            - [0, 0, 1, 1, 0, 0]
+            - [0, 1, 0, 0, 1, 0]
+            - [0, 0, 1, 1, 0, 0]
+            - [0, 0, 0, 0, 0, 0]
+
+        - id: TC-PATTERN-LOAF
+          name: "Loaf pattern remains stable"
+          pattern_name: "Loaf"
+          period: 1
+          description: "A loaf is a still life with 7 cells"
+          grid_before:
+            - [0, 0, 0, 0, 0, 0]
+            - [0, 0, 1, 1, 0, 0]
+            - [0, 1, 0, 0, 1, 0]
+            - [0, 0, 1, 0, 1, 0]
+            - [0, 0, 0, 1, 0, 0]
+            - [0, 0, 0, 0, 0, 0]
+          grid_after:
+            - [0, 0, 0, 0, 0, 0]
+            - [0, 0, 1, 1, 0, 0]
+            - [0, 1, 0, 0, 1, 0]
+            - [0, 0, 1, 0, 1, 0]
+            - [0, 0, 0, 1, 0, 0]
+            - [0, 0, 0, 0, 0, 0]
+
+    - suite: "Known Patterns - Oscillators"
+      description: "Patterns that cycle through a fixed sequence of states"
+      tests:
+        - id: TC-PATTERN-BLINKER
+          name: "Blinker oscillates with period 2"
+          pattern_name: "Blinker"
+          period: 2
+          description: "A horizontal line of 3 cells becomes vertical and back"
+          grid_gen0:
+            - [0, 0, 0, 0, 0]
+            - [0, 0, 0, 0, 0]
+            - [0, 1, 1, 1, 0]
+            - [0, 0, 0, 0, 0]
+            - [0, 0, 0, 0, 0]
+          grid_gen1:
+            - [0, 0, 0, 0, 0]
+            - [0, 0, 1, 0, 0]
+            - [0, 0, 1, 0, 0]
+            - [0, 0, 1, 0, 0]
+            - [0, 0, 0, 0, 0]
+          grid_gen2:
+            - [0, 0, 0, 0, 0]
+            - [0, 0, 0, 0, 0]
+            - [0, 1, 1, 1, 0]
+            - [0, 0, 0, 0, 0]
+            - [0, 0, 0, 0, 0]
+
+        - id: TC-PATTERN-TOAD
+          name: "Toad oscillates with period 2"
+          pattern_name: "Toad"
+          period: 2
+          description: "A toad is a period-2 oscillator with 6 cells"
+          grid_gen0:
+            - [0, 0, 0, 0, 0, 0]
+            - [0, 0, 0, 0, 0, 0]
+            - [0, 0, 1, 1, 1, 0]
+            - [0, 1, 1, 1, 0, 0]
+            - [0, 0, 0, 0, 0, 0]
+            - [0, 0, 0, 0, 0, 0]
+          grid_gen1:
+            - [0, 0, 0, 0, 0, 0]
+            - [0, 0, 0, 1, 0, 0]
+            - [0, 1, 0, 0, 1, 0]
+            - [0, 1, 0, 0, 1, 0]
+            - [0, 0, 1, 0, 0, 0]
+            - [0, 0, 0, 0, 0, 0]
+
+    - suite: "Boundary and Edge Cases"
+      description: "Tests for cells at grid boundaries and special configurations"
+      tests:
+        - id: TC-EDGE-CORNER
+          name: "Corner cell neighbor counting"
+          description: "A cell in the corner of a finite grid has at most 3 potential neighbors"
+          cell_position: "corner (0,0)"
+          max_possible_neighbors: 3
+          initial_state: alive
+          neighbor_count: 1
+          expected_state: dead
+          rule: R1
+
+        - id: TC-EDGE-BORDER
+          name: "Edge cell neighbor counting"
+          description: "A cell on the edge (non-corner) has at most 5 potential neighbors"
+          cell_position: "edge (0,1)"
+          max_possible_neighbors: 5
+          initial_state: alive
+          neighbor_count: 2
+          expected_state: alive
+          rule: R2
+
+        - id: TC-EDGE-EMPTY-GRID
+          name: "Completely empty grid stays empty"
+          description: "A grid with no live cells remains empty after any number of generations"
+          grid_before:
+            - [0, 0, 0]
+            - [0, 0, 0]
+            - [0, 0, 0]
+          grid_after:
+            - [0, 0, 0]
+            - [0, 0, 0]
+            - [0, 0, 0]
+
+        - id: TC-EDGE-FULL-GRID
+          name: "Completely full 3x3 grid"
+          description: "All cells except corners die from overpopulation; corners survive with exactly 3 neighbors"
+          grid_before:
+            - [1, 1, 1]
+            - [1, 1, 1]
+            - [1, 1, 1]
+          grid_after:
+            - [1, 0, 1]
+            - [0, 0, 0]
+            - [1, 0, 1]
+
+        - id: TC-EDGE-SINGLE-CELL
+          name: "Single live cell dies"
+          description: "A single live cell has 0 neighbors and dies from underpopulation"
+          grid_before:
+            - [0, 0, 0]
+            - [0, 1, 0]
+            - [0, 0, 0]
+          grid_after:
+            - [0, 0, 0]
+            - [0, 0, 0]
+            - [0, 0, 0]
+
+        - id: TC-EDGE-SIMULTANEOUS
+          name: "All cells update simultaneously"
+          description: >
+            Verify that state transitions are computed from the current generation,
+            not partially updated state. The blinker is a good test: if updates
+            were sequential left-to-right, the result would differ.
+          grid_before:
+            - [0, 0, 0, 0, 0]
+            - [0, 0, 1, 0, 0]
+            - [0, 0, 1, 0, 0]
+            - [0, 0, 1, 0, 0]
+            - [0, 0, 0, 0, 0]
+          grid_after:
+            - [0, 0, 0, 0, 0]
+            - [0, 0, 0, 0, 0]
+            - [0, 1, 1, 1, 0]
+            - [0, 0, 0, 0, 0]
+            - [0, 0, 0, 0, 0]
+
+    - suite: "Neighbor Counting Verification"
+      description: "Tests that specifically verify correct neighbor enumeration for all 8 directions"
+      tests:
+        - id: TC-NEIGHBOR-DIRECTIONS
+          name: "All 8 neighbor directions counted"
+          description: >
+            Verify that neighbors in all 8 directions (N, NE, E, SE, S, SW, W, NW)
+            are counted for the center cell.
+          directions:
+            - name: "North"
+              offset: [-1, 0]
+            - name: "North-East"
+              offset: [-1, 1]
+            - name: "East"
+              offset: [0, 1]
+            - name: "South-East"
+              offset: [1, 1]
+            - name: "South"
+              offset: [1, 0]
+            - name: "South-West"
+              offset: [1, -1]
+            - name: "West"
+              offset: [0, -1]
+            - name: "North-West"
+              offset: [-1, -1]
+          test_approach: >
+            For each direction, place a single live neighbor in that direction
+            relative to a dead center cell. The center should remain dead (1 neighbor).
+            Then place live neighbors in exactly 3 directions; the dead center should
+            become alive, confirming all directions are counted.
+
+        - id: TC-NEIGHBOR-SELF-NOT-COUNTED
+          name: "Cell does not count itself as a neighbor"
+          description: >
+            A live cell in the center of a 3x3 grid with no other live cells
+            must have 0 neighbors, not 1. Ensures the cell excludes itself.
+          grid:
+            - [0, 0, 0]
+            - [0, 1, 0]
+            - [0, 0, 0]
+          center_cell: [1, 1]
+          expected_neighbor_count: 0
+
+  coverage_matrix:
+    description: >
+      Complete decision table mapping every combination of (cell_state, neighbor_count)
+      to the expected next state. There are 2 states x 9 neighbor counts = 18 combinations.
+    rows:
+      - {cell_state: alive, neighbors: 0, next_state: dead,  rule: R1, test_id: TC-LIVE-00}
+      - {cell_state: alive, neighbors: 1, next_state: dead,  rule: R1, test_id: TC-LIVE-01}
+      - {cell_state: alive, neighbors: 2, next_state: alive, rule: R2, test_id: TC-LIVE-02}
+      - {cell_state: alive, neighbors: 3, next_state: alive, rule: R2, test_id: TC-LIVE-03}
+      - {cell_state: alive, neighbors: 4, next_state: dead,  rule: R3, test_id: TC-LIVE-04}
+      - {cell_state: alive, neighbors: 5, next_state: dead,  rule: R3, test_id: TC-LIVE-05}
+      - {cell_state: alive, neighbors: 6, next_state: dead,  rule: R3, test_id: TC-LIVE-06}
+      - {cell_state: alive, neighbors: 7, next_state: dead,  rule: R3, test_id: TC-LIVE-07}
+      - {cell_state: alive, neighbors: 8, next_state: dead,  rule: R3, test_id: TC-LIVE-08}
+      - {cell_state: dead,  neighbors: 0, next_state: dead,  rule: R5, test_id: TC-DEAD-00}
+      - {cell_state: dead,  neighbors: 1, next_state: dead,  rule: R5, test_id: TC-DEAD-01}
+      - {cell_state: dead,  neighbors: 2, next_state: dead,  rule: R5, test_id: TC-DEAD-02}
+      - {cell_state: dead,  neighbors: 3, next_state: alive, rule: R4, test_id: TC-DEAD-03}
+      - {cell_state: dead,  neighbors: 4, next_state: dead,  rule: R5, test_id: TC-DEAD-04}
+      - {cell_state: dead,  neighbors: 5, next_state: dead,  rule: R5, test_id: TC-DEAD-05}
+      - {cell_state: dead,  neighbors: 6, next_state: dead,  rule: R5, test_id: TC-DEAD-06}
+      - {cell_state: dead,  neighbors: 7, next_state: dead,  rule: R5, test_id: TC-DEAD-07}
+      - {cell_state: dead,  neighbors: 8, next_state: dead,  rule: R5, test_id: TC-DEAD-08}
+
+  summary:
+    total_test_cases: 28
+    rule_coverage:
+      R1_underpopulation: 2
+      R2_survival: 2
+      R3_overpopulation: 5
+      R4_reproduction: 1
+      R5_dead_stays_dead: 8
+    category_breakdown:
+      unit_cell_state_transitions: 18
+      known_pattern_still_lifes: 3
+      known_pattern_oscillators: 2
+      boundary_and_edge_cases: 6
+      neighbor_counting_verification: 2
+    neighbor_count_coverage: "All 18 combinations of (alive/dead) x (0-8 neighbors) are tested"
+    completeness_notes:
+      - "Every possible neighbor count (0 through 8) tested for both alive and dead cells"
+      - "Still life patterns verify multi-cell equilibrium stability"
+      - "Oscillator patterns verify correct simultaneous state transitions"
+      - "Edge cases cover empty grids, full grids, single cells, and boundary cells"
+      - "Neighbor direction tests verify all 8 adjacencies are considered"
+      - "Self-exclusion test ensures a cell does not count itself as a neighbor"

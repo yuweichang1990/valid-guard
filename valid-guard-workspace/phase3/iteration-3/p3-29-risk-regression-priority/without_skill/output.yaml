@@ -1,0 +1,261 @@
+##############################################################################
+# Regression Test Prioritization Plan — Sprint Post-Modification
+# Scope: 5 microservices, limited QA bandwidth
+# Constraint: Full regression on 2 services, smoke test on 2 others
+##############################################################################
+
+meta:
+  plan_name: "Sprint Regression Test Prioritization"
+  date: "2026-03-14"
+  qa_bandwidth:
+    full_regression_slots: 2
+    smoke_test_slots: 2
+    services_excluded_from_testing: 1
+
+# ---------------------------------------------------------------------------
+# Risk assessment per service (scored 1-5, 5 = highest risk)
+# ---------------------------------------------------------------------------
+risk_assessment:
+
+  payment_service:
+    code_changed: true
+    change_description: "Refactored payment retry logic and added a new payment method"
+    risk_scores:
+      code_change_scope: 5        # Two significant changes — retry logic is critical-path, new payment method adds new code paths
+      financial_impact: 5          # Direct money handling; bugs cause revenue loss, double charges, or failed transactions
+      external_dependencies: 5     # Integrates with payment gateways, banks, PCI-scoped systems
+      user_facing_risk: 5          # Checkout failure is the highest-friction user experience issue
+      blast_radius: 4              # Order fulfillment, analytics, and user dashboard all consume payment state
+    composite_risk: 4.8
+    rationale: >
+      Payment is the most financially sensitive service. The retry logic refactor
+      touches an area historically prone to idempotency bugs (duplicate charges,
+      phantom failures). Adding a new payment method introduces an entirely new
+      code path that has never been exercised in production. A defect here can
+      cause direct monetary loss, regulatory exposure, and chargebacks.
+
+  order_fulfillment:
+    code_changed: true
+    change_description: "Updated shipping carrier integration"
+    risk_scores:
+      code_change_scope: 4        # External integration change; carrier API contracts may have shifted
+      financial_impact: 4          # Mis-routed or delayed shipments cause refunds, reships, and SLA breaches
+      external_dependencies: 5     # Depends on third-party carrier APIs which are outside our control
+      user_facing_risk: 4          # Users see shipping status; failures are visible and erode trust
+      blast_radius: 3              # Downstream to analytics and user dashboard, but not upstream to payments
+    composite_risk: 4.0
+    rationale: >
+      Carrier integration changes are high-risk because they depend on external
+      APIs whose behavior we do not fully control. Incorrect label generation,
+      rate calculation, or tracking number propagation can silently corrupt the
+      fulfillment pipeline. The financial impact is significant through reships
+      and SLA penalties, though slightly less immediate than payment failures.
+
+  product_catalog:
+    code_changed: false
+    change_description: "No direct code change; upstream inventory service was updated"
+    risk_scores:
+      code_change_scope: 2        # No local changes, but contract with inventory service may have shifted
+      financial_impact: 3          # Wrong stock counts can lead to overselling or lost sales
+      external_dependencies: 4     # Depends on the recently changed inventory service
+      user_facing_risk: 4          # Users see stale or incorrect availability directly on product pages
+      blast_radius: 3              # Feeds into order fulfillment and user dashboard
+    composite_risk: 3.2
+    rationale: >
+      Although the catalog code itself was not modified, its dependency on the
+      inventory service creates indirect risk. Schema changes, new response
+      fields, or altered semantics in inventory data could cause stock display
+      errors or overselling. This warrants a smoke test to validate the
+      integration contract.
+
+  user_dashboard:
+    code_changed: false
+    change_description: "No code change; consumes data from all other services"
+    risk_scores:
+      code_change_scope: 1        # No local changes at all
+      financial_impact: 2          # Incorrect display is embarrassing but does not directly lose money
+      external_dependencies: 4     # Aggregates from every modified service — high exposure to upstream changes
+      user_facing_risk: 4          # Primary surface where users review orders, payments, and shipments
+      blast_radius: 1              # Terminal consumer; no downstream dependents
+    composite_risk: 2.4
+    rationale: >
+      The dashboard has no code changes and no downstream dependents, which
+      limits its blast radius. However, it aggregates data from every modified
+      service, so upstream defects will manifest here as rendering or data
+      consistency errors. A targeted smoke test against key data flows is
+      sufficient to catch integration-level regressions without a full suite.
+
+  analytics_pipeline:
+    code_changed: false
+    change_description: "No code change; downstream-only consumer"
+    risk_scores:
+      code_change_scope: 1        # No changes
+      financial_impact: 1          # Analytics lag or error is not customer-visible and not revenue-blocking
+      external_dependencies: 3     # Consumes events from modified services
+      user_facing_risk: 1          # Internal tooling only; no end-user exposure
+      blast_radius: 1              # Terminal; no further downstream consumers
+    composite_risk: 1.4
+    rationale: >
+      Analytics is an internal, non-customer-facing pipeline with no code
+      changes and no downstream dependents. While upstream event schema changes
+      could cause ingestion failures, the impact is limited to delayed internal
+      reporting. This is the lowest priority and can be excluded from this
+      cycle's regression scope, relying on pipeline monitoring and alerts
+      instead.
+
+# ---------------------------------------------------------------------------
+# Prioritized test plan
+# ---------------------------------------------------------------------------
+test_plan:
+
+  full_regression:
+
+    - priority: 1
+      service: "Payment Service"
+      composite_risk: 4.8
+      justification: >
+        Highest composite risk across all dimensions. Two concurrent changes
+        (retry logic refactor + new payment method) in the most financially
+        sensitive service demand exhaustive regression. Retry logic bugs can
+        cause duplicate charges or silently dropped transactions — both of
+        which have direct revenue and compliance consequences. The new payment
+        method is untested in production and needs full happy-path, error-path,
+        and edge-case coverage.
+      test_focus_areas:
+        - area: "Payment retry idempotency"
+          scenarios:
+            - "Verify exactly-once semantics when gateway returns transient 5xx errors"
+            - "Confirm no duplicate charges after network timeout during retry window"
+            - "Validate retry backoff intervals and max-retry limits"
+            - "Test concurrent retry attempts for the same order do not create duplicate payment records"
+            - "Ensure partial failures roll back cleanly and leave no orphaned transactions"
+        - area: "New payment method end-to-end"
+          scenarios:
+            - "Complete purchase flow with the new payment method (happy path)"
+            - "Decline handling: insufficient funds, expired instrument, fraud block"
+            - "Refund and void operations for the new payment method"
+            - "Currency and locale handling for the new method"
+            - "Fallback behavior when new method gateway is unavailable"
+        - area: "Existing payment method regression"
+          scenarios:
+            - "Credit card, debit card, and digital wallet flows still work unchanged"
+            - "Webhook and callback handling for all existing gateways"
+            - "Reconciliation report generation includes new and old methods correctly"
+        - area: "Security and compliance"
+          scenarios:
+            - "PCI-DSS sensitive data handling for the new method"
+            - "Tokenization and detokenization round-trip"
+            - "Audit log entries for all payment state transitions"
+
+    - priority: 2
+      service: "Order Fulfillment"
+      composite_risk: 4.0
+      justification: >
+        Second highest composite risk. The shipping carrier integration change
+        touches external API contracts where we have limited control. Failures
+        are financially costly (reships, SLA penalties) and highly visible to
+        customers tracking their packages. Full regression is necessary because
+        carrier-specific edge cases (international shipments, oversized items,
+        hazmat flags) are difficult to catch with smoke tests alone.
+      test_focus_areas:
+        - area: "Carrier API integration"
+          scenarios:
+            - "Rate quote retrieval for all supported carriers"
+            - "Label generation for domestic and international shipments"
+            - "Tracking number assignment and propagation to order records"
+            - "Carrier API timeout and error handling (retry, fallback carrier)"
+            - "Carrier-specific field mappings (dimensions, weight, service level)"
+        - area: "Shipping workflow"
+          scenarios:
+            - "Order-to-shipment lifecycle: created, picked, packed, shipped, delivered"
+            - "Split shipment handling (multiple packages per order)"
+            - "Address validation and correction via carrier APIs"
+            - "Customs declaration generation for international orders"
+        - area: "Financial accuracy"
+          scenarios:
+            - "Shipping cost passed to invoice matches carrier quoted rate"
+            - "Free-shipping promotional rules still apply correctly"
+            - "Return label generation and cost attribution"
+
+  smoke_test:
+
+    - priority: 3
+      service: "Product Catalog"
+      composite_risk: 3.2
+      justification: >
+        No code was changed in the catalog itself, but the upstream inventory
+        service was updated. The primary risk is a contract mismatch between
+        the catalog and inventory — changed field names, new null-possible
+        fields, or altered stock quantity semantics. A targeted smoke test
+        covering the inventory integration boundary is sufficient to catch
+        these regressions without a full catalog regression suite.
+      test_focus_areas:
+        - area: "Inventory integration contract"
+          scenarios:
+            - "Product listing pages display correct in-stock / out-of-stock status"
+            - "Stock count decrements correctly after a purchase"
+            - "Inventory service timeout gracefully degrades (shows 'check availability' instead of crashing)"
+            - "Bulk product queries return consistent inventory data"
+        - area: "Core catalog functionality"
+          scenarios:
+            - "Search returns results and product detail pages load"
+            - "Category browsing and filtering work end to end"
+            - "Price display is correct and currency-formatted"
+
+    - priority: 4
+      service: "User Dashboard"
+      composite_risk: 2.4
+      justification: >
+        The dashboard has no code changes and no downstream dependents. Its
+        risk comes entirely from consuming data produced by the three modified
+        upstream services. A smoke test that walks through the primary user
+        journeys (view recent orders, check payment status, track shipment)
+        will surface any data-level regressions introduced upstream without
+        requiring a full regression of the dashboard's own UI logic.
+      test_focus_areas:
+        - area: "Upstream data rendering"
+          scenarios:
+            - "Recent orders list displays correctly with new payment method transactions"
+            - "Payment status reflects retry outcomes accurately (no ghost pending states)"
+            - "Shipment tracking shows carrier data from updated integration"
+            - "Product availability shown on wishlist matches current inventory"
+        - area: "Basic UI health"
+          scenarios:
+            - "Dashboard loads without console errors or broken API calls"
+            - "Key pages render within acceptable latency thresholds"
+
+  excluded:
+
+    - priority: 5
+      service: "Analytics Pipeline"
+      composite_risk: 1.4
+      justification: >
+        Lowest risk: no code changes, no customer-facing exposure, no
+        downstream dependents. The pipeline is an internal consumer only.
+        Any breakage will be caught by existing pipeline monitoring and data
+        quality alerts. If QA bandwidth opens up, a quick schema-compatibility
+        check can be added, but it should not displace testing of the four
+        higher-priority services.
+      mitigation_without_testing:
+        - "Rely on existing pipeline monitoring dashboards and dead-letter queue alerts"
+        - "Verify event schema compatibility in the next sprint's regression cycle"
+        - "Have data engineering team spot-check a sample of post-deployment events"
+
+# ---------------------------------------------------------------------------
+# Decision summary
+# ---------------------------------------------------------------------------
+decision_summary:
+  full_regression:
+    - "Payment Service (risk 4.8) — code changed, highest financial and compliance exposure"
+    - "Order Fulfillment (risk 4.0) — code changed, external carrier dependency, visible to customers"
+  smoke_test:
+    - "Product Catalog (risk 3.2) — no code change but upstream inventory dependency updated"
+    - "User Dashboard (risk 2.4) — no code change but aggregates data from all modified services"
+  excluded:
+    - "Analytics Pipeline (risk 1.4) — internal-only, no code change, covered by monitoring"
+  key_principles_applied:
+    - "Code changes receive higher priority than unchanged services regardless of other factors"
+    - "Financial impact is weighted most heavily after code change scope"
+    - "External dependencies amplify risk because failure modes are outside our control"
+    - "Blast radius determines whether a defect stays contained or cascades across the platform"
+    - "Services with no downstream dependents (terminal consumers) are safest to defer"

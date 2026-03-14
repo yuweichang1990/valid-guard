@@ -1,0 +1,839 @@
+{
+  "skill_name": "valid-guard",
+  "phase": 3,
+  "grading_method": "llm-as-judge",
+  "quality_dimensions": [
+    {"name": "correctness", "description": "Technical accuracy of test scenarios and design decisions", "weight": 0.25},
+    {"name": "completeness", "description": "Coverage of all important scenarios including edge cases", "weight": 0.25},
+    {"name": "structure", "description": "Schema compliance, organization, traceability", "weight": 0.20},
+    {"name": "actionability", "description": "Can a developer directly implement these tests?", "weight": 0.15},
+    {"name": "insight", "description": "Non-obvious testing insights beyond the obvious", "weight": 0.15}
+  ],
+  "evals": [
+    {
+      "id": "p3-01",
+      "category": "correctness",
+      "source_id": 76,
+      "dir_name": "p3-01-dt-correctness",
+      "name": "Decision table correctness for max(x,y,z)",
+      "prompt": "Create a test plan for determining the largest of three positive integers (x, y, z) where each must be in range [1, 300]. Build a decision table with conditions: c1: x>=1, c2: x<=300, c3: y>=1, c4: y<=300, c5: z>=1, c6: z<=300, c7: x>y, c8: x>z, c9: y>z. Include validation rules and comparison rules.",
+      "rubric": {
+        "correctness_criteria": [
+          "Decision table conditions include all 9 conditions listed",
+          "Actions correctly identify x_largest, y_largest, z_largest, invalid_input",
+          "Rules correctly map condition combinations to actions (e.g., x>y AND x>z → x_largest)",
+          "Handles equal values case (x==y==z)",
+          "Validation failures map to invalid_input action"
+        ],
+        "completeness_criteria": [
+          "At least 10 rules in the decision table",
+          "Covers all 3 largest outcomes plus invalid cases",
+          "Includes boundary values: 1 and 300",
+          "Includes equality cases (two equal, all equal)",
+          "Includes range validation failures (0, 301, negative)"
+        ],
+        "insight_criteria": [
+          "Identifies that conditions c7/c8/c9 create impossible combinations",
+          "Notes that equal values need explicit handling",
+          "Considers numeric edge cases beyond just boundaries"
+        ]
+      }
+    },
+    {
+      "id": "p3-02",
+      "category": "correctness",
+      "source_id": 6,
+      "dir_name": "p3-02-bva-correctness",
+      "name": "Boundary value correctness for isEligible",
+      "prompt": "Generate tests for this function:\nfunction isEligible(age, income) {\n  if (age >= 18 && income > 30000) return 'approved';\n  return 'rejected';\n}\n\nProduce a complete test plan with boundary value analysis and equivalence partitioning.",
+      "rubric": {
+        "correctness_criteria": [
+          "Tests age=17 → rejected (boundary: just below 18)",
+          "Tests age=18 → depends on income (exact boundary)",
+          "Tests income=30000 → rejected (boundary: > not >=)",
+          "Tests income=30001 → depends on age (just above boundary)",
+          "Tests both conditions independently (age valid + income invalid, age invalid + income valid)"
+        ],
+        "completeness_criteria": [
+          "Equivalence partitions defined for age (under 18, 18+) and income (<=30000, >30000)",
+          "All 4 combinations of EP classes tested",
+          "BVA on both parameters at their boundaries",
+          "Error/edge cases: negative age, zero income, very large values"
+        ],
+        "insight_criteria": [
+          "Notes that >= vs > difference is critical for boundary tests",
+          "Identifies that && can be mutated to || and tests catch it",
+          "Points out the difference between on-point and off-point values"
+        ]
+      }
+    },
+    {
+      "id": "p3-03",
+      "category": "completeness",
+      "source_id": 132,
+      "dir_name": "p3-03-conway-completeness",
+      "name": "Conway's Game of Life completeness",
+      "prompt": "I need to implement Conway's Game of Life cell survival logic. A living cell survives if it has exactly 2 or 3 neighbors (stable neighborhood). A dead cell becomes alive if it has exactly 3 neighbors (reproduction). All other live cells die. Create a comprehensive test plan.",
+      "rubric": {
+        "correctness_criteria": [
+          "Alive cell + 2 neighbors → survives",
+          "Alive cell + 3 neighbors → survives",
+          "Alive cell + 0,1 neighbors → dies (underpopulation)",
+          "Alive cell + 4-8 neighbors → dies (overcrowding)",
+          "Dead cell + 3 neighbors → becomes alive"
+        ],
+        "completeness_criteria": [
+          "Decision table with cell_state x neighbor_count covering all combinations",
+          "BVA on neighbor count: 0, 1, 2, 3, 4, 8",
+          "EP separating alive-cell rules from dead-cell rules",
+          "All boundary transitions: 1→2 (alive survives), 3→4 (alive dies), 2→3 (dead stays), 3→4 (dead stays)",
+          "Edge cases: 0 neighbors (isolation), 8 neighbors (overcrowding)",
+          "Dead cell with 0,1,2,4-8 neighbors stays dead"
+        ],
+        "insight_criteria": [
+          "Realizes neighbor_count range is [0,8] not unbounded",
+          "Uses decision table for state x count combinatorial coverage",
+          "Considers grid-level scenarios beyond single-cell rules"
+        ]
+      }
+    },
+    {
+      "id": "p3-04",
+      "category": "completeness",
+      "source_id": 176,
+      "dir_name": "p3-04-amigos-completeness",
+      "name": "Three Amigos purchase order ambiguity discovery",
+      "prompt": "We're doing a Three Amigos session for this story: 'As a purchasing manager, I want to approve purchase orders so that vendors receive notifications and accounting can process payments.' Generate acceptance scenarios using example mapping. Identify all ambiguities.",
+      "rubric": {
+        "correctness_criteria": [
+          "Example mapping structure with story, rules, examples, questions",
+          "Includes approval threshold rules with specific dollar amounts",
+          "Given-When-Then scenarios for approval and rejection flows",
+          "Verification of side effects: email notification, accounting queue"
+        ],
+        "completeness_criteria": [
+          "Multi-level approval for high-value orders",
+          "Rejection flow with proper notification",
+          "At least 3 business rules identified",
+          "Each rule has at least 1 concrete scenario",
+          "Edge cases: zero-value PO, partial approval, concurrent approvals"
+        ],
+        "insight_criteria": [
+          "Questions capture real ambiguities (e.g., approver unavailable, delegation rules)",
+          "Considers different stakeholder perspectives (business, dev, test)",
+          "Identifies implicit requirements (audit trail, SLA for notification delivery)"
+        ]
+      }
+    },
+    {
+      "id": "p3-05",
+      "category": "brownfield",
+      "source_id": null,
+      "dir_name": "p3-05-brownfield-gap",
+      "name": "Brownfield gap analysis on order_processor.py",
+      "prompt": "Analyze the following Python module and its existing test file. Identify all coverage gaps and produce a test plan for the missing scenarios.\n\n--- order_processor.py ---\n\"\"\"Order processing module.\"\"\"\n\nfrom enum import Enum\nfrom decimal import Decimal\nfrom datetime import datetime, timedelta\n\n\nclass OrderStatus(Enum):\n    PENDING = \"pending\"\n    CONFIRMED = \"confirmed\"\n    PROCESSING = \"processing\"\n    SHIPPED = \"shipped\"\n    DELIVERED = \"delivered\"\n    CANCELLED = \"cancelled\"\n    REFUNDED = \"refunded\"\n\n\nclass InsufficientStockError(Exception):\n    pass\n\n\nclass InvalidTransitionError(Exception):\n    pass\n\n\nclass OrderProcessor:\n    TAX_RATE = Decimal(\"0.08\")\n    FREE_SHIPPING_THRESHOLD = Decimal(\"50.00\")\n    SHIPPING_FEE = Decimal(\"5.99\")\n    MAX_ITEMS_PER_ORDER = 100\n    REFUND_WINDOW_DAYS = 30\n\n    def __init__(self, inventory: dict[str, int], pricing: dict[str, Decimal]):\n        self.inventory = inventory\n        self.pricing = pricing\n        self.orders: dict[str, dict] = {}\n\n    def create_order(self, order_id: str, items: dict[str, int]) -> dict:\n        if not items:\n            raise ValueError(\"Order must contain at least one item\")\n        total_items = sum(items.values())\n        if total_items > self.MAX_ITEMS_PER_ORDER:\n            raise ValueError(f\"Cannot order more than {self.MAX_ITEMS_PER_ORDER} items\")\n        for item, qty in items.items():\n            if qty <= 0:\n                raise ValueError(f\"Quantity must be positive for {item}\")\n            if item not in self.pricing:\n                raise ValueError(f\"Unknown item: {item}\")\n            if item not in self.inventory or self.inventory[item] < qty:\n                raise InsufficientStockError(f\"Not enough stock for {item}\")\n        subtotal = sum(self.pricing[item] * qty for item, qty in items.items())\n        tax = subtotal * self.TAX_RATE\n        shipping = Decimal(\"0\") if subtotal >= self.FREE_SHIPPING_THRESHOLD else self.SHIPPING_FEE\n        total = subtotal + tax + shipping\n        for item, qty in items.items():\n            self.inventory[item] -= qty\n        order = {\"id\": order_id, \"items\": items, \"subtotal\": subtotal, \"tax\": tax, \"shipping\": shipping, \"total\": total, \"status\": OrderStatus.PENDING, \"created_at\": datetime.now(), \"updated_at\": datetime.now()}\n        self.orders[order_id] = order\n        return order\n\n    def transition_status(self, order_id: str, new_status: OrderStatus) -> dict:\n        if order_id not in self.orders:\n            raise KeyError(f\"Order {order_id} not found\")\n        order = self.orders[order_id]\n        current = order[\"status\"]\n        valid_transitions = {\n            OrderStatus.PENDING: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},\n            OrderStatus.CONFIRMED: {OrderStatus.PROCESSING, OrderStatus.CANCELLED},\n            OrderStatus.PROCESSING: {OrderStatus.SHIPPED, OrderStatus.CANCELLED},\n            OrderStatus.SHIPPED: {OrderStatus.DELIVERED},\n            OrderStatus.DELIVERED: {OrderStatus.REFUNDED},\n            OrderStatus.CANCELLED: set(),\n            OrderStatus.REFUNDED: set(),\n        }\n        if new_status not in valid_transitions.get(current, set()):\n            raise InvalidTransitionError(f\"Cannot transition from {current.value} to {new_status.value}\")\n        order[\"status\"] = new_status\n        order[\"updated_at\"] = datetime.now()\n        if new_status == OrderStatus.CANCELLED:\n            for item, qty in order[\"items\"].items():\n                self.inventory[item] = self.inventory.get(item, 0) + qty\n        return order\n\n    def request_refund(self, order_id: str) -> dict:\n        if order_id not in self.orders:\n            raise KeyError(f\"Order {order_id} not found\")\n        order = self.orders[order_id]\n        if order[\"status\"] != OrderStatus.DELIVERED:\n            raise InvalidTransitionError(\"Can only refund delivered orders\")\n        days_since = (datetime.now() - order[\"created_at\"]).days\n        if days_since > self.REFUND_WINDOW_DAYS:\n            raise ValueError(f\"Refund window expired ({days_since} days > {self.REFUND_WINDOW_DAYS})\")\n        order[\"status\"] = OrderStatus.REFUNDED\n        order[\"updated_at\"] = datetime.now()\n        order[\"refund_amount\"] = order[\"total\"]\n        for item, qty in order[\"items\"].items():\n            self.inventory[item] = self.inventory.get(item, 0) + qty\n        return order\n\n    def apply_discount(self, order_id: str, discount_percent: Decimal) -> dict:\n        if order_id not in self.orders:\n            raise KeyError(f\"Order {order_id} not found\")\n        if not (Decimal(\"0\") < discount_percent <= Decimal(\"100\")):\n            raise ValueError(\"Discount must be between 0 (exclusive) and 100 (inclusive)\")\n        order = self.orders[order_id]\n        if order[\"status\"] != OrderStatus.PENDING:\n            raise InvalidTransitionError(\"Can only apply discount to pending orders\")\n        discount = order[\"subtotal\"] * discount_percent / Decimal(\"100\")\n        new_subtotal = order[\"subtotal\"] - discount\n        new_tax = new_subtotal * self.TAX_RATE\n        new_shipping = Decimal(\"0\") if new_subtotal >= self.FREE_SHIPPING_THRESHOLD else self.SHIPPING_FEE\n        order[\"discount\"] = discount\n        order[\"subtotal\"] = new_subtotal\n        order[\"tax\"] = new_tax\n        order[\"shipping\"] = new_shipping\n        order[\"total\"] = new_subtotal + new_tax + new_shipping\n        order[\"updated_at\"] = datetime.now()\n        return order\n\n--- test_order_processor_existing.py ---\nimport pytest\nfrom decimal import Decimal\nfrom order_processor import OrderProcessor, OrderStatus, InsufficientStockError\n\n@pytest.fixture\ndef processor():\n    inventory = {\"widget\": 10, \"gadget\": 5, \"gizmo\": 20}\n    pricing = {\"widget\": Decimal(\"10.00\"), \"gadget\": Decimal(\"25.00\"), \"gizmo\": Decimal(\"3.50\")}\n    return OrderProcessor(inventory, pricing)\n\nclass TestCreateOrder:\n    def test_create_simple_order(self, processor):\n        order = processor.create_order(\"ORD-1\", {\"widget\": 2})\n        assert order[\"subtotal\"] == Decimal(\"20.00\")\n        assert order[\"status\"] == OrderStatus.PENDING\n\n    def test_create_order_with_multiple_items(self, processor):\n        order = processor.create_order(\"ORD-2\", {\"widget\": 1, \"gadget\": 1})\n        assert order[\"subtotal\"] == Decimal(\"35.00\")\n\n    def test_create_order_empty_items_raises(self, processor):\n        with pytest.raises(ValueError):\n            processor.create_order(\"ORD-3\", {})\n\n    def test_insufficient_stock_raises(self, processor):\n        with pytest.raises(InsufficientStockError):\n            processor.create_order(\"ORD-4\", {\"widget\": 999})\n\nclass TestTransitionStatus:\n    def test_pending_to_confirmed(self, processor):\n        processor.create_order(\"ORD-1\", {\"widget\": 1})\n        order = processor.transition_status(\"ORD-1\", OrderStatus.CONFIRMED)\n        assert order[\"status\"] == OrderStatus.CONFIRMED\n\n    def test_confirmed_to_shipped_raises(self, processor):\n        processor.create_order(\"ORD-1\", {\"widget\": 1})\n        processor.transition_status(\"ORD-1\", OrderStatus.CONFIRMED)\n        with pytest.raises(Exception):\n            processor.transition_status(\"ORD-1\", OrderStatus.SHIPPED)\n\nclass TestDiscount:\n    def test_apply_10_percent_discount(self, processor):\n        processor.create_order(\"ORD-1\", {\"gadget\": 3})\n        order = processor.apply_discount(\"ORD-1\", Decimal(\"10\"))\n        assert order[\"discount\"] == Decimal(\"7.500\")",
+      "rubric": {
+        "correctness_criteria": [
+          "Correctly maps existing 7 tests to discovered scenarios",
+          "Identifies FREE_SHIPPING_THRESHOLD boundary at 50.00",
+          "Identifies MAX_ITEMS_PER_ORDER boundary at 100",
+          "Identifies REFUND_WINDOW_DAYS boundary at 30",
+          "Correctly identifies all valid state transitions from the transition map"
+        ],
+        "completeness_criteria": [
+          "Missing: tax calculation verification",
+          "Missing: shipping fee logic (above/below $50 threshold)",
+          "Missing: full state transition coverage (7 states × valid transitions)",
+          "Missing: request_refund method entirely untested",
+          "Missing: inventory restoration on cancellation",
+          "Missing: inventory restoration on refund",
+          "Missing: discount boundary cases (0%, 100%, negative)",
+          "Missing: MAX_ITEMS_PER_ORDER boundary (100, 101)",
+          "Missing: unknown item in pricing",
+          "Missing: zero/negative quantity validation",
+          "Missing: discount on non-pending order"
+        ],
+        "insight_criteria": [
+          "Groups gaps by risk level (payment/inventory = high, state transitions = medium)",
+          "Identifies that existing transition test uses generic Exception instead of InvalidTransitionError",
+          "Notes that existing tests don't verify inventory deduction after order creation"
+        ]
+      }
+    },
+    {
+      "id": "p3-06",
+      "category": "brownfield",
+      "source_id": 148,
+      "dir_name": "p3-06-brownfield-redundancy",
+      "name": "Test suite redundancy analysis advice",
+      "prompt": "Our test suite has 500 test cases but we suspect many are redundant while important edge cases remain untested. How should Valid Guard help us identify meaningless tests and discover untested paths?",
+      "rubric": {
+        "correctness_criteria": [
+          "Recommends analyzing test overlap via EP to identify tests in same partition",
+          "Distinguishes between redundant (same partition) and complementary (different partition) tests",
+          "Correctly explains how to identify missing edge cases using BVA and EP"
+        ],
+        "completeness_criteria": [
+          "Addresses both problems: identifying redundant tests AND finding gaps",
+          "Recommends systematic approach (not just 'look at coverage report')",
+          "Suggests categorizing tests by what scenarios they cover",
+          "Addresses path coverage for untested execution routes",
+          "Mentions risk-based prioritization for which gaps matter most"
+        ],
+        "insight_criteria": [
+          "Notes that removing redundant tests improves maintainability without reducing quality",
+          "Suggests mapping tests to requirements/scenarios for traceability",
+          "Recommends mutation testing to identify tests that don't actually verify behavior"
+        ]
+      }
+    },
+    {
+      "id": "p3-07",
+      "category": "codegen",
+      "source_id": null,
+      "dir_name": "p3-07-codegen-runnable",
+      "name": "Generate runnable pytest for order_processor",
+      "prompt": "Generate pytest test code for the order_processor module. The module has these classes and methods:\n\n- OrderProcessor(inventory, pricing) with methods: create_order, transition_status, request_refund, apply_discount\n- OrderStatus enum: PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED, REFUNDED\n- InsufficientStockError, InvalidTransitionError exceptions\n- Constants: TAX_RATE=0.08, FREE_SHIPPING_THRESHOLD=50.00, SHIPPING_FEE=5.99, MAX_ITEMS_PER_ORDER=100, REFUND_WINDOW_DAYS=30\n\nGenerate comprehensive test code that I can run with pytest. Focus on boundary values, state transitions, and error handling. Output ONLY the test code, no explanations.",
+      "rubric": {
+        "correctness_criteria": [
+          "Code is syntactically valid Python (no syntax errors)",
+          "Imports are correct (OrderProcessor, OrderStatus, InsufficientStockError, InvalidTransitionError, Decimal, datetime)",
+          "Fixtures set up valid inventory and pricing dictionaries",
+          "Assertions use correct expected values (e.g., tax = subtotal * 0.08)",
+          "State transition tests follow valid paths through the state machine"
+        ],
+        "completeness_criteria": [
+          "Tests create_order: happy path, empty items, insufficient stock, unknown item, max items boundary",
+          "Tests transition_status: all valid transitions, invalid transitions, cancellation inventory restore",
+          "Tests request_refund: delivered order, non-delivered order, expired window",
+          "Tests apply_discount: valid discount, boundary (0, 100), non-pending order",
+          "Tests shipping threshold: subtotal at/below/above $50",
+          "At least 15 test functions"
+        ],
+        "insight_criteria": [
+          "Uses parametrize for similar test cases",
+          "Tests inventory side effects (deduction on create, restore on cancel/refund)",
+          "Tests calculation precision with Decimal values"
+        ]
+      }
+    },
+    {
+      "id": "p3-08",
+      "category": "codegen",
+      "source_id": 4,
+      "dir_name": "p3-08-codegen-fix",
+      "name": "Weak assertion detection and fix",
+      "prompt": "I wrote a test for my calculator's add function: result = calculator.add(2, 3); assertTrue(result != null). Coverage report shows 100% line coverage. Is this test effective? If not, provide the corrected test code.",
+      "rubric": {
+        "correctness_criteria": [
+          "Correctly identifies assertTrue(result != null) as tautological/weak",
+          "Explains that arithmetic mutations (+→-, *→/) would survive",
+          "Provides corrected assertion: assertEquals(5, result) or equivalent"
+        ],
+        "completeness_criteria": [
+          "Explains WHY the assertion is weak (any non-null value passes)",
+          "Provides additional test cases beyond just add(2,3)",
+          "Suggests boundary/edge cases: add(0,0), add(-1,1), add(MAX,1)",
+          "Explains coverage vs quality distinction"
+        ],
+        "insight_criteria": [
+          "References mutation testing as verification method",
+          "Explains the 'exercising code vs validating behavior' distinction",
+          "Notes that 100% coverage with weak assertions gives false confidence"
+        ]
+      }
+    },
+    {
+      "id": "p3-09",
+      "category": "adversarial",
+      "source_id": 172,
+      "dir_name": "p3-09-adversarial-antipattern",
+      "name": "Adversarial: testing trivial code ignoring critical logic",
+      "prompt": "I want to achieve 100% code coverage on my project. I wrote tests for all getters, setters, and trivial utility methods but haven't tested the payment processing module yet. Is my approach correct?",
+      "rubric": {
+        "correctness_criteria": [
+          "Explicitly says NO, the approach is wrong",
+          "Identifies the anti-pattern: testing trivial code while ignoring critical logic",
+          "Correctly prioritizes payment processing over getters/setters"
+        ],
+        "completeness_criteria": [
+          "Explains why testing getters/setters provides minimal value",
+          "Recommends risk-based test prioritization",
+          "Suggests specific payment module scenarios: invalid amounts, declined cards, timeouts",
+          "Addresses the coverage metric misconception"
+        ],
+        "insight_criteria": [
+          "References Pareto principle or risk-based testing",
+          "Pushes back firmly without being dismissive",
+          "Provides actionable next steps (what to test first in payment module)"
+        ]
+      }
+    },
+    {
+      "id": "p3-10",
+      "category": "adversarial",
+      "source_id": 1,
+      "dir_name": "p3-10-adversarial-misconception",
+      "name": "Adversarial: 100% coverage = good tests misconception",
+      "prompt": "I have a PriceCalculator class with a CalculatePrice(price, discountPercent) method. My test uses Assert.Equal(90.00, calculator.CalculatePrice(100, 10)) and Assert.Throws for negative prices. Coverage is 100%. Are my tests good enough?",
+      "rubric": {
+        "correctness_criteria": [
+          "Says NO, 100% coverage does not guarantee quality",
+          "Identifies missing boundary test: price=0 vs price=-1 (boundary of <= 0 check)",
+          "Identifies missing boundary for discountPercent at 0 and 100"
+        ],
+        "completeness_criteria": [
+          "Mentions conditional boundary mutations (<= to <) would survive",
+          "Recommends testing discountPercent boundaries",
+          "Suggests verifying exception messages for string mutation coverage",
+          "Addresses what specific tests to ADD"
+        ],
+        "insight_criteria": [
+          "References mutation testing as quality verification",
+          "Explains the specific mutation that would survive (price=-10 passes but price=0 with <= to < mutation also passes)",
+          "Provides concrete boundary value recommendations"
+        ]
+      }
+    },
+    {
+      "id": "p3-11",
+      "category": "state_transition",
+      "source_id": 57,
+      "dir_name": "p3-11-st-atm-pin",
+      "name": "ATM PIN entry state machine",
+      "prompt": "Create a test plan for an ATM PIN entry system. The system starts at an idle state. When a card is inserted, it moves to 'waiting_for_pin'. If the correct PIN is entered, the user gets account access. If an incorrect PIN is entered, the user gets another attempt (up to 3 attempts). After 3 incorrect PINs, the card is confiscated and the account is blocked. Include all states, transitions, guards, and derive valid/invalid test cases.",
+      "rubric": {
+        "correctness_criteria": [
+          "States: idle, waiting_for_pin, account_access, card_retained/blocked",
+          "Transition: incorrect PIN → retry (up to 3 attempts)",
+          "Transition: 3rd failure → card retained/locked",
+          "Guard condition on PIN attempt counter"
+        ],
+        "completeness_criteria": [
+          "State transition diagram/table with all transitions",
+          "Tests for timeout/card ejection/cancel",
+          "Uses state_transition technique explicitly",
+          "BVA on attempt counter (1st, 2nd, 3rd)"
+        ],
+        "insight_criteria": [
+          "Identifies that attempt counter is a guard variable",
+          "Considers edge cases like card removal during PIN entry",
+          "Notes that locked state should be terminal or require admin unlock"
+        ]
+      }
+    },
+    {
+      "id": "p3-12",
+      "category": "state_transition",
+      "source_id": 59,
+      "dir_name": "p3-12-st-order-lifecycle",
+      "name": "Order lifecycle with time guards",
+      "prompt": "Design a test plan for an order lifecycle state machine in an online store. The order goes through these states: cart -> pending_payment -> payment_processing -> confirmed -> preparing -> shipped -> delivered. Additionally, orders can be cancelled from 'confirmed' state (within 30 minutes), and customers can request a refund from 'delivered' state (within 30 days). Payment failures should retry up to 3 times before auto-cancelling. Include guard conditions for all constrained transitions.",
+      "rubric": {
+        "correctness_criteria": [
+          "Models 7+ order states in correct sequence",
+          "Cancellation within 30-minute window from confirmed state",
+          "Refund from delivered state within 30 days",
+          "Payment retry up to 3 times then auto-cancel"
+        ],
+        "completeness_criteria": [
+          "Time-based guards on cancellation and refund",
+          "Terminal states identified (delivered, cancelled, refunded)",
+          "BVA on time boundaries (29/30/31 minutes, 29/30/31 days)",
+          "Uses state_transition + decision_table techniques"
+        ],
+        "insight_criteria": [
+          "Considers concurrent modification scenarios",
+          "Notes that time-based guards need precise boundary testing",
+          "Identifies that payment retry creates a sub-state machine"
+        ]
+      }
+    },
+    {
+      "id": "p3-13",
+      "category": "state_transition",
+      "source_id": 75,
+      "dir_name": "p3-13-st-ticket-booking",
+      "name": "Ticket booking with timer and refund rules",
+      "prompt": "Design a test plan for a ticket booking system workflow. A ticket starts as 'available'. When a user selects it, it moves to 'reserved' (held for 10 minutes). If payment completes within 10 minutes, it moves to 'booked'. If the 10-minute timer expires, it returns to 'available'. A booked ticket can be 'cancelled' (with refund if cancelled > 24h before event, partial refund if 2-24h, no refund if < 2h). A cancelled ticket returns to 'available'. On event day, booked tickets move to 'used' when scanned. Model all states, transitions, guards, and the refund decision table for cancellation.",
+      "rubric": {
+        "correctness_criteria": [
+          "States: available, reserved, booked, cancelled, used",
+          "10-minute reservation timer with expiry back to available",
+          "Refund rules: >24h full, 2-24h partial, <2h none",
+          "Timer expiry returns to available"
+        ],
+        "completeness_criteria": [
+          "Concurrent booking handling (race conditions)",
+          "BVA on timer (9/10/11 min) and refund window (1h59m/2h/2h01m, 23h59m/24h/24h01m)",
+          "Decision table for refund calculation",
+          "Event day scanning transition"
+        ],
+        "insight_criteria": [
+          "Notes that concurrent reservations are the highest risk",
+          "Identifies that partial refund percentage needs specification",
+          "Considers what happens if event is cancelled"
+        ]
+      }
+    },
+    {
+      "id": "p3-14",
+      "category": "domain_specific",
+      "source_id": 82,
+      "dir_name": "p3-14-domain-double-payment",
+      "name": "Double payment prevention",
+      "prompt": "Generate test cases for preventing double payment submissions when a user clicks the 'Pay Now' button multiple times rapidly during checkout on an e-commerce site.",
+      "rubric": {
+        "correctness_criteria": [
+          "Button disabling after first click",
+          "Idempotency key/token for server-side dedup",
+          "Server-side duplicate rejection",
+          "Only one transaction recorded in database"
+        ],
+        "completeness_criteria": [
+          "Loading/spinner indicator while processing",
+          "Network retry handling (timeout, disconnect)",
+          "Concurrent session/tab protection",
+          "Back button / browser refresh scenarios"
+        ],
+        "insight_criteria": [
+          "Identifies that client-side alone is insufficient",
+          "Notes idempotency key as the gold standard",
+          "Considers partial failure (payment succeeds but confirmation fails)"
+        ]
+      }
+    },
+    {
+      "id": "p3-15",
+      "category": "domain_specific",
+      "source_id": 92,
+      "dir_name": "p3-15-domain-login-lockout",
+      "name": "Login authentication with lockout",
+      "prompt": "Generate test cases for login page authentication covering valid login, invalid credentials, account lockout after failed attempts, and generic error messages that prevent username enumeration.",
+      "rubric": {
+        "correctness_criteria": [
+          "Valid login redirects to dashboard/home",
+          "Generic error message prevents user enumeration",
+          "Account lockout after N failed attempts",
+          "Lockout duration/reset mechanism"
+        ],
+        "completeness_criteria": [
+          "SQL injection prevention testing",
+          "Brute force protection (rate limiting, CAPTCHA)",
+          "Session management (token, cookie, JWT)",
+          "Password complexity and reset flow"
+        ],
+        "insight_criteria": [
+          "Identifies timing attack on login response",
+          "Notes that generic errors must have identical response times",
+          "Considers account enumeration via registration/forgot-password"
+        ]
+      }
+    },
+    {
+      "id": "p3-16",
+      "category": "domain_specific",
+      "source_id": 83,
+      "dir_name": "p3-16-domain-otp",
+      "name": "OTP verification for payment",
+      "prompt": "Generate test cases for OTP (One-Time Password) verification during a payment transaction, including delivery, expiration, brute-force protection, and invalid OTP handling.",
+      "rubric": {
+        "correctness_criteria": [
+          "OTP delivery verification (SMS/email)",
+          "OTP expiration handling with time window",
+          "Brute-force protection (max attempts)",
+          "Invalid OTP rejection"
+        ],
+        "completeness_criteria": [
+          "OTP reuse prevention (one-time use)",
+          "Resend OTP flow with rate limiting",
+          "BVA on expiration time",
+          "Correct OTP after failed attempts"
+        ],
+        "insight_criteria": [
+          "Notes that OTP channel security matters (SMS interception)",
+          "Identifies race condition between OTP generation and validation",
+          "Considers what happens when OTP expires mid-entry"
+        ]
+      }
+    },
+    {
+      "id": "p3-17",
+      "category": "tdd_best_practices",
+      "source_id": 129,
+      "dir_name": "p3-17-tdd-throttle",
+      "name": "Throttle function TDD with state + BVA",
+      "prompt": "I'm building a throttle function that limits how often a callback fires. It takes a callback function and a delay in milliseconds. The throttled function should execute immediately on the first call, then ignore subsequent calls until the delay period has elapsed. After the delay expires, the next call should execute and restart the timer. If the delay is zero or negative, no throttling should be applied. Plan the tests.",
+      "rubric": {
+        "correctness_criteria": [
+          "Immediate first call execution",
+          "Subsequent calls ignored during delay",
+          "After delay expires, next call executes",
+          "Zero/negative delay means no throttling"
+        ],
+        "completeness_criteria": [
+          "State model: ready/throttled transitions",
+          "BVA on delay parameter (0, negative, very large)",
+          "Timer precision and edge cases",
+          "Multiple rapid calls during throttle window"
+        ],
+        "insight_criteria": [
+          "Uses state_transition technique for ready/throttled model",
+          "Considers trailing edge vs leading edge throttle variants",
+          "Notes that timer testing needs deterministic clock control"
+        ]
+      }
+    },
+    {
+      "id": "p3-18",
+      "category": "correctness",
+      "source_id": 68,
+      "dir_name": "p3-18-dt-loan-approval",
+      "name": "Loan approval multi-condition DT",
+      "prompt": "Design a test plan for a loan approval system with three conditions: credit score (Good/Poor), income level (High/Low), and existing debts (Yes/No). Good credit + High income + No debts = Approved. Poor credit + High income + debts = Rejected. Good credit + Low income + debts = Further Review Required. Good credit + High income + debts = Approved (debts don't matter with good credit and high income). Poor credit + anything = Rejected. Generate the full decision table and identify which rules can be collapsed.",
+      "rubric": {
+        "correctness_criteria": [
+          "Three conditions: credit, income, debts correctly modeled",
+          "Correct outcomes: Approved, Rejected, Further Review",
+          "Decision table with 8 rules (2^3 combinations)",
+          "Rule collapsing identified (Poor credit always rejected)"
+        ],
+        "completeness_criteria": [
+          "All 8 combinations covered in decision table",
+          "EP for each condition (Good/Poor, High/Low, Yes/No)",
+          "Concrete examples with all 3 inputs specified",
+          "Boundary cases for credit score threshold"
+        ],
+        "insight_criteria": [
+          "Notes that 'Poor credit + anything = Rejected' collapses 4 rules to 1",
+          "Identifies missing rules in the spec (Good + Low + No debts)",
+          "Suggests BVA on credit score threshold between Good and Poor"
+        ]
+      }
+    },
+    {
+      "id": "p3-19",
+      "category": "correctness",
+      "source_id": 73,
+      "dir_name": "p3-19-st-vending-machine",
+      "name": "Vending machine state transitions",
+      "prompt": "Build a test plan for a vending machine. The machine has states: idle, accepting_coins, item_selected, dispensing, returning_change, out_of_stock. Transitions: insert coin moves from idle to accepting_coins. Select item checks if enough money is inserted (guard: amount >= item_price). If sufficient, move to dispensing then to returning_change (if overpaid) or back to idle. If item is out of stock after selection, move to out_of_stock state which returns coins and goes to idle. Cancel at any point returns to idle and refunds inserted coins.",
+      "rubric": {
+        "correctness_criteria": [
+          "States: idle, accepting_coins, dispensing, returning_change, out_of_stock",
+          "Guard: amount >= item_price for dispensing transition",
+          "Change calculation for overpayment",
+          "Out-of-stock handling with coin refund"
+        ],
+        "completeness_criteria": [
+          "Coin denomination handling",
+          "Multiple items with different prices",
+          "Cancel/coin return from accepting_coins state",
+          "BVA on exact price, underpay by 1 cent, overpay"
+        ],
+        "insight_criteria": [
+          "Notes that exact change vs overpay creates different paths",
+          "Considers coin jam or mechanical failure states",
+          "Identifies that multiple coins creates a running total guard"
+        ]
+      }
+    },
+    {
+      "id": "p3-20",
+      "category": "adversarial",
+      "source_id": null,
+      "dir_name": "p3-20-adversarial-ai-trust",
+      "name": "Adversarial: AI tests all pass, should I ship?",
+      "prompt": "I used an AI coding assistant to generate all my unit tests. The tests cover every function and they all pass. My coverage report shows 95% line coverage. I'm confident the code is ready to ship. Should I proceed?",
+      "rubric": {
+        "correctness_criteria": [
+          "Says NO, passing AI-generated tests != ready to ship",
+          "Warns about common AI test quality issues (weak assertions, happy-path bias)",
+          "Recommends mutation testing to verify test strength",
+          "Suggests manual review of test assertions"
+        ],
+        "completeness_criteria": [
+          "Coverage without quality is meaningless",
+          "Boundary/edge case verification needed",
+          "Error handling and negative test review",
+          "Recommends reviewing for tautological assertions"
+        ],
+        "insight_criteria": [
+          "Warns about false confidence from all-green test suites",
+          "Notes that AI tends to generate tests that mirror implementation (oracle problem)",
+          "Suggests adversarial testing or property-based testing as complement"
+        ]
+      }
+    },
+    {
+      "id": "p3-21",
+      "category": "state_transition",
+      "source_id": 77,
+      "dir_name": "p3-21-st-shopping-cart",
+      "name": "Shopping cart state machine",
+      "prompt": "Create a test plan for an e-commerce shopping cart as a state machine. States: empty_cart, items_added, checkout_in_progress, payment_processing, order_confirmed. Events: add_product, update_quantity, remove_item, remove_all_items, click_checkout, submit_payment, payment_success, payment_failure. Guards: cart must not be empty for checkout, all items must be in stock, payment amount matches cart total. When all items are removed, cart returns to empty_cart. Payment failure returns to checkout_in_progress. Include a full state transition table with guards and derive test cases for all valid and invalid transitions.",
+      "rubric": {
+        "correctness_criteria": [
+          "States: empty_cart, items_added, checkout, payment_processing, order_confirmed",
+          "Events correctly trigger transitions with guard conditions",
+          "Payment success/failure branching modeled",
+          "Remove all items returns to empty_cart"
+        ],
+        "completeness_criteria": [
+          "Full state transition table with from/to/event/guard",
+          "Concurrent modification handling (two sessions, same cart)",
+          "Stock check guard at checkout transition",
+          "BVA on quantity (0, 1, max) and price thresholds"
+        ],
+        "insight_criteria": [
+          "Notes that concurrent cart modification is the highest risk",
+          "Considers session expiry during checkout",
+          "Identifies that payment_processing is a non-interruptible state"
+        ]
+      }
+    },
+    {
+      "id": "p3-22",
+      "category": "state_transition",
+      "source_id": 65,
+      "dir_name": "p3-22-st-airport-kiosk",
+      "name": "Airport self-service kiosk workflow",
+      "prompt": "Design a test plan for an airport self-service check-in kiosk. The workflow: Start → Select Airline → Enter PNR/Booking Reference → Retrieve Booking → Confirm Passenger Details → Select Seats (optional) → Print Boarding Pass → Exit. At every screen, a Cancel button returns to the start. A 60-second inactivity timeout also returns to start. Invalid PNR shows an error and allows re-entry (up to 3 attempts, then returns to start). If the printer jams, show an error and direct the passenger to the service counter. Model all states, transitions, error paths, timeout guards, and cancel behavior.",
+      "rubric": {
+        "correctness_criteria": [
+          "States include airline selection, PNR entry, booking confirmation, seat selection, printing",
+          "Invalid PNR error handling with retry up to 3 attempts",
+          "Cancel at any point returns to start/exit",
+          "Timeout handling (60s inactivity)"
+        ],
+        "completeness_criteria": [
+          "Printer jam/error recovery path",
+          "Return to airline selection after successful print",
+          "State transition diagram with all paths",
+          "BVA on timeout (59s, 60s, 61s) and PNR attempts (1st, 2nd, 3rd)"
+        ],
+        "insight_criteria": [
+          "Notes that physical hardware errors (printer) create non-software-recoverable states",
+          "Considers accessibility for visually impaired passengers",
+          "Identifies that international vs domestic flights may have different flows"
+        ]
+      }
+    },
+    {
+      "id": "p3-23",
+      "category": "risk_assessment",
+      "source_id": 120,
+      "dir_name": "p3-23-risk-insurance-fmea",
+      "name": "Insurance claims FMEA analysis",
+      "prompt": "Perform an FMEA (Failure Mode and Effects Analysis) for an insurance claims processing system with 5 components: (1) Claim calculation engine — computes payout amounts based on policy type, deductible, coverage limits, and depreciation; (2) Document upload service — accepts photos, PDFs, and medical records as claim evidence; (3) Fraud detection algorithm — flags suspicious patterns (duplicate claims, known fraud rings, inflated amounts); (4) Claims dashboard — shows claim status, filters by date/type/status; (5) Notification service — sends email/SMS updates on claim status changes. For each component, identify failure modes, rate severity (1-10), occurrence (1-10), and detection (1-10), compute RPN, and recommend test priority order.",
+      "rubric": {
+        "correctness_criteria": [
+          "Addresses claim calculation engine with failure modes",
+          "Addresses document upload service with failure modes",
+          "Addresses fraud detection with failure modes",
+          "FMEA methodology with severity, occurrence, detection ratings"
+        ],
+        "completeness_criteria": [
+          "All 5 components analyzed",
+          "RPN (Risk Priority Number) calculated for each failure mode",
+          "Test priority order recommended based on RPN",
+          "Failure cascade identification between components"
+        ],
+        "insight_criteria": [
+          "Identifies that claim calculation errors have highest financial impact",
+          "Notes fraud detection false positives vs false negatives tradeoff",
+          "Considers regulatory compliance implications of calculation errors"
+        ]
+      }
+    },
+    {
+      "id": "p3-24",
+      "category": "risk_assessment",
+      "source_id": 124,
+      "dir_name": "p3-24-risk-tax-filing",
+      "name": "Government tax filing risk matrix",
+      "prompt": "You're the QA lead for a government tax filing portal. Classify these 9 features into a 3x3 risk matrix (likelihood × impact): (1) Tax calculation engine (income tax, deductions, credits), (2) E-signature for form submission, (3) Data encryption for PII (SSN, income), (4) Seasonal holiday banner on homepage, (5) PDF generation of filed returns, (6) Payment gateway integration (pay owed taxes), (7) Accessibility (WCAG 2.1 AA compliance), (8) Auto-save draft returns, (9) Multi-language support (English/Spanish). For each, explain your risk classification and recommend how much testing effort to allocate (as a percentage of total QA budget).",
+      "rubric": {
+        "correctness_criteria": [
+          "Tax calculation engine classified as high risk",
+          "Data encryption classified as high risk",
+          "Seasonal banner classified as low risk",
+          "Risk matrix with probability × impact dimensions"
+        ],
+        "completeness_criteria": [
+          "All 9 features classified",
+          "Testing effort allocation percentages given",
+          "Justification for each classification",
+          "High-risk items get proportionally more testing effort"
+        ],
+        "insight_criteria": [
+          "Notes that tax calculation errors have legal/compliance consequences",
+          "Considers that accessibility has legal requirements (ADA/Section 508)",
+          "Identifies that payment gateway failures block revenue collection"
+        ]
+      }
+    },
+    {
+      "id": "p3-25",
+      "category": "concurrency",
+      "source_id": 91,
+      "dir_name": "p3-25-concurrency-inventory",
+      "name": "Inventory race condition prevention",
+      "prompt": "Design test cases for preventing inventory race conditions in an e-commerce checkout system. Scenario: a product has 1 unit left in stock. Two users add it to their carts simultaneously and both click 'Place Order' at the same instant. The system must ensure only one order succeeds and the other receives an 'out of stock' error. Cover: (1) the race condition on the last unit, (2) overselling prevention mechanisms, (3) locking strategies (pessimistic vs optimistic), (4) cart-to-inventory consistency validation, (5) database transaction isolation levels. Include concrete test scenarios with expected outcomes.",
+      "rubric": {
+        "correctness_criteria": [
+          "Last unit race condition scenario explicitly modeled",
+          "Overselling prevention verified",
+          "Locking strategy discussed (pessimistic or optimistic)",
+          "Cart-inventory consistency check"
+        ],
+        "completeness_criteria": [
+          "Database transaction isolation level testing",
+          "Multiple concurrent user simulation",
+          "Stock deduction atomicity verification",
+          "Error message and user experience for losing buyer"
+        ],
+        "insight_criteria": [
+          "Notes that optimistic locking with retry is preferred for high-traffic",
+          "Considers inventory reservation timeout (cart abandonment)",
+          "Identifies that distributed systems add network partition complexity"
+        ]
+      }
+    },
+    {
+      "id": "p3-26",
+      "category": "concurrency",
+      "source_id": 98,
+      "dir_name": "p3-26-concurrency-payment-gw",
+      "name": "Concurrent payment gateway load testing",
+      "prompt": "Design a test plan for a payment gateway handling hundreds of concurrent transactions. The system must maintain data consistency, prevent double-charges, and meet SLA requirements (p99 < 500ms). Test scenarios should cover: (1) 500 concurrent payment submissions, (2) transaction isolation under load, (3) response time degradation patterns, (4) connection pool exhaustion, (5) deadlock detection and recovery, (6) partial failure handling (gateway up, bank down), (7) graceful degradation when approaching capacity. Include specific load profiles and expected behavior at each threshold.",
+      "rubric": {
+        "correctness_criteria": [
+          "Concurrent user simulation with hundreds of transactions",
+          "Data consistency verification under load",
+          "Response time degradation measurement",
+          "Transaction isolation testing"
+        ],
+        "completeness_criteria": [
+          "Connection pool / resource exhaustion scenarios",
+          "Deadlock detection testing",
+          "Graceful degradation / circuit breaker patterns",
+          "Specific load profiles with thresholds"
+        ],
+        "insight_criteria": [
+          "Distinguishes between throughput and latency metrics",
+          "Notes that p99 is more meaningful than average response time",
+          "Considers that payment idempotency is critical under retry storms"
+        ]
+      }
+    },
+    {
+      "id": "p3-27",
+      "category": "security",
+      "source_id": 27,
+      "dir_name": "p3-27-security-attack-payloads",
+      "name": "Security attack payload testing",
+      "prompt": "Design a comprehensive security test plan that includes specific attack payloads for a web application's user input fields (name, email, search, comment). Cover these attack vectors: (1) XSS — provide at least 5 specific payloads including reflected, stored, and DOM-based variants; (2) SQL injection — provide at least 5 payloads targeting authentication bypass, data exfiltration, and blind injection; (3) CSRF — test token validation, same-site cookie enforcement, and referrer checking; (4) Null byte injection — test file upload path traversal and log injection. For each payload, specify the input field, the exact payload string, and the expected defensive response (HTTP status code, sanitized output, or error message).",
+      "rubric": {
+        "correctness_criteria": [
+          "XSS payloads with specific script/event handler examples",
+          "SQL injection payloads with concrete SQL fragments",
+          "CSRF token manipulation scenarios",
+          "Input sanitization bypass techniques"
+        ],
+        "completeness_criteria": [
+          "Null byte injection scenarios",
+          "Expected defensive responses for each payload",
+          "Multiple attack vectors (3+ distinct types)",
+          "Both client-side and server-side validation testing"
+        ],
+        "insight_criteria": [
+          "Notes that WAF bypass techniques should be tested",
+          "Considers encoding variants (URL encoding, HTML entities, Unicode)",
+          "Identifies that stored XSS is higher risk than reflected XSS"
+        ]
+      }
+    },
+    {
+      "id": "p3-28",
+      "category": "domain_specific",
+      "source_id": 108,
+      "dir_name": "p3-28-domain-payment-recovery",
+      "name": "Payment failure recovery flow",
+      "prompt": "Create a test plan for the payment failure recovery flow in an e-commerce application. When a payment fails, the system must handle multiple failure types: (1) insufficient funds — prompt user to use a different card or payment method; (2) declined card — show specific decline reason if available, suggest contacting bank; (3) network timeout to payment gateway — retry with exponential backoff (max 3 retries); (4) 3D Secure authentication failure — allow re-authentication; (5) fraud check rejection — flag order for manual review, do not reveal fraud detection to user. For each failure type, specify the user-visible message, the backend action (rollback, retry, flag), and the state the order transitions to. Ensure no double charges occur during retries.",
+      "rubric": {
+        "correctness_criteria": [
+          "Insufficient funds scenario with user guidance",
+          "Declined card scenario with appropriate messaging",
+          "Gateway error/timeout with retry logic",
+          "User-visible messaging for each failure type"
+        ],
+        "completeness_criteria": [
+          "Retry with exponential backoff specified",
+          "Alternative payment method suggestion",
+          "Transaction rollback/compensation on failure",
+          "Notification of failure to user"
+        ],
+        "insight_criteria": [
+          "Notes that fraud rejection should not reveal detection reason",
+          "Considers idempotency keys to prevent double charges during retries",
+          "Identifies that 3D Secure adds a sub-flow with its own failure modes"
+        ]
+      }
+    },
+    {
+      "id": "p3-29",
+      "category": "risk_assessment",
+      "source_id": 125,
+      "dir_name": "p3-29-risk-regression-priority",
+      "name": "Microservices regression testing prioritization",
+      "prompt": "You're responsible for regression testing a microservices e-commerce platform after a sprint. The following services were modified or are affected: (1) Payment Service — code changed: refactored payment retry logic, added new payment method; (2) Order Fulfillment — code changed: updated shipping carrier integration; (3) Product Catalog — no code change, but depends on inventory service which was updated; (4) User Dashboard — no code change, consumes data from all other services; (5) Analytics Pipeline — no code change, downstream consumer only. Given limited QA bandwidth (can only fully regression test 2 services and smoke test 2 others), which services do you prioritize and why? Consider: code change scope, financial impact, external dependencies, user-facing risk, and blast radius.",
+      "rubric": {
+        "correctness_criteria": [
+          "Payment service identified as highest priority",
+          "Order fulfillment as high priority (code changed)",
+          "Catalog as medium (no code change but upstream dependency changed)",
+          "Dashboard/analytics as lower priority"
+        ],
+        "completeness_criteria": [
+          "Code change as primary risk factor explained",
+          "External dependency risk discussed",
+          "Financial impact considered in prioritization",
+          "Specific recommendation: full regression for payment + order, smoke for catalog + dashboard"
+        ],
+        "insight_criteria": [
+          "Notes that unchanged services with changed dependencies need contract testing",
+          "Considers blast radius — payment affects all downstream",
+          "Identifies that analytics can be deferred since it's downstream-only"
+        ]
+      }
+    },
+    {
+      "id": "p3-30",
+      "category": "domain_specific",
+      "source_id": 30,
+      "dir_name": "p3-30-domain-multicurrency",
+      "name": "Multi-currency payment API edge cases",
+      "prompt": "Design test cases for a payment API that handles multi-currency transactions. The API endpoint POST /payments accepts {amount, currency, card_token}. Cover these edge cases: (1) Invalid currency codes (e.g., 'XXX', 'ZZZ', empty string, numeric values); (2) Negative payment amounts; (3) Zero-amount transactions (some processors allow $0 auth); (4) Decimal precision mismatches — USD has 2 decimal places but JPY has 0, BHD has 3; (5) Integer overflow with extremely large amounts (e.g., 99999999999.99); (6) Currency conversion rate changes between cart display and payment submission; (7) Mixed-currency cart (items in EUR, payment in USD). For each test case, specify the request payload, expected HTTP status code, and expected error message.",
+      "rubric": {
+        "correctness_criteria": [
+          "Invalid currency code handling with specific examples",
+          "Negative amount rejection",
+          "Decimal precision per currency (USD=2, JPY=0, BHD=3)",
+          "Integer overflow / extremely large amount handling"
+        ],
+        "completeness_criteria": [
+          "Zero-amount transaction testing",
+          "Currency conversion rate change scenario",
+          "Specific HTTP status codes in expected responses",
+          "Both valid and invalid payload examples"
+        ],
+        "insight_criteria": [
+          "Notes that JPY with decimal places is a common real-world bug",
+          "Considers PCI compliance implications for payment testing",
+          "Identifies that rate locking is needed to prevent mid-transaction changes"
+        ]
+      }
+    }
+  ]
+}

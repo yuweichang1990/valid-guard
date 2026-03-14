@@ -1,0 +1,1712 @@
+# Valid Guard Test Plan — Inventory Race Condition Prevention
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Inventory Race Condition Prevention in E-Commerce Checkout"
+
+feature_description: >
+  Ensures that when a product has limited stock (specifically the last unit),
+  concurrent checkout attempts by multiple users are handled correctly. Only
+  one order must succeed; all others must receive an out-of-stock error. Covers
+  race condition detection, overselling prevention mechanisms, locking strategies
+  (pessimistic vs optimistic), cart-to-inventory consistency validation, and
+  database transaction isolation levels.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # S1: RACE CONDITION ON THE LAST UNIT
+  # ==========================================================================
+
+  - name: "Two simultaneous checkouts for the last unit — only one succeeds"
+    description: >
+      Product has exactly 1 unit in stock. User A and User B both have it in
+      their carts and click Place Order at the same instant. The system must
+      guarantee that exactly one order is confirmed and the other receives an
+      out-of-stock error. No overselling may occur.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — core business logic and data integrity (inventory correctness).
+      Frequency: 2 — occurs during flash sales and limited-edition drops.
+      Consequence: 3 — overselling causes financial loss, fulfillment failure, and customer trust erosion.
+      Detectability: 3 — silent failure; oversold orders appear normal until fulfillment fails.
+      Average: 2.75 → high.
+    techniques:
+      - error_guessing
+      - state_transition
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the known concurrency pitfall of simultaneous last-unit
+      checkout. State transition models the inventory-to-order lifecycle. Cause-effect
+      captures the logical dependency between stock availability and order outcome.
+    preconditions:
+      - "Product SKU-LAST-1 has exactly 1 unit in inventory"
+      - "User A has SKU-LAST-1 in cart with qty 1"
+      - "User B has SKU-LAST-1 in cart with qty 1"
+      - "Both users are authenticated"
+      - "No inventory reservation mechanism has pre-locked stock at cart-add time"
+    examples:
+      - input:
+          product_sku: "SKU-LAST-1"
+          initial_stock: 1
+          user_a_action: "place_order"
+          user_b_action: "place_order"
+          timing: "simultaneous"
+        expected:
+          successful_orders: 1
+          failed_orders: 1
+          final_stock: 0
+          failed_order_error: "OUT_OF_STOCK"
+        description: "Exactly one order succeeds, the other fails with out-of-stock. Final stock is zero."
+      - input:
+          product_sku: "SKU-LAST-1"
+          initial_stock: 1
+          user_a_action: "place_order"
+          user_b_action: "place_order"
+          timing: "user_b_50ms_after_user_a"
+        expected:
+          successful_orders: 1
+          failed_orders: 1
+          final_stock: 0
+          failed_order_error: "OUT_OF_STOCK"
+        description: "Near-simultaneous with slight delay — same correctness guarantee."
+    state_transition:
+      states:
+        - "in_stock_1"
+        - "reserved"
+        - "sold"
+        - "out_of_stock"
+      transitions:
+        - from: "in_stock_1"
+          to: "reserved"
+          trigger: "first_checkout_acquires_lock"
+          guard: "stock >= requested_quantity"
+        - from: "reserved"
+          to: "sold"
+          trigger: "payment_captured"
+          guard: "reservation_valid"
+        - from: "reserved"
+          to: "in_stock_1"
+          trigger: "payment_failed_or_timeout"
+          guard: "reservation_expired"
+        - from: "in_stock_1"
+          to: "out_of_stock"
+          trigger: "second_checkout_attempts_lock"
+          guard: "stock < requested_quantity"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - race-condition
+      - last-unit
+      - critical-path
+
+  - name: "N concurrent checkouts for last unit — exactly one wins"
+    description: >
+      Stress variant of the two-user race condition. N users (e.g., 10, 50, 100)
+      simultaneously attempt to purchase the last unit. The system must ensure
+      exactly one order is created, final stock is zero, and N-1 users receive
+      out-of-stock errors.
+    type: performance
+    risk: high
+    risk_rationale: >
+      Impact: 3 — data integrity under high contention.
+      Frequency: 2 — flash sales and product launches.
+      Consequence: 3 — multiple oversells compound financial damage.
+      Detectability: 3 — volume makes silent overselling harder to catch manually.
+      Average: 2.75 → high.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the system at escalating concurrency levels (2, 10, 50,
+      100 simultaneous requests). Error guessing anticipates contention-related
+      failures like deadlocks and connection pool exhaustion.
+    preconditions:
+      - "Product has exactly 1 unit in stock"
+      - "N authenticated users each have the product in their cart"
+    examples:
+      - input:
+          product_sku: "SKU-FLASH-1"
+          initial_stock: 1
+          concurrent_users: 10
+        expected:
+          successful_orders: 1
+          failed_orders: 9
+          final_stock: 0
+          no_deadlock: true
+        description: "10 concurrent buyers — exactly one wins, no deadlock."
+      - input:
+          product_sku: "SKU-FLASH-1"
+          initial_stock: 1
+          concurrent_users: 100
+        expected:
+          successful_orders: 1
+          failed_orders: 99
+          final_stock: 0
+          no_deadlock: true
+          p99_response_time_ms: "<3000"
+        description: "100 concurrent buyers — one wins, acceptable latency, no deadlock."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - race-condition
+      - stress-test
+      - performance
+
+  - name: "Race condition with exactly 2 units and 3 buyers"
+    description: >
+      Product has 2 units in stock. Three users simultaneously attempt checkout
+      with qty 1 each. Exactly 2 orders must succeed and 1 must fail. Final
+      stock must be zero.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — stock accuracy directly affects order fulfillment.
+      Frequency: 2 — common in limited-stock scenarios.
+      Consequence: 3 — overselling even by one unit has real cost.
+      Detectability: 3 — the third order looks valid without deep inventory audit.
+      Average: 2.75 → high.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the exact boundary where demand exceeds supply.
+      Error guessing anticipates off-by-one errors in stock decrement logic.
+    preconditions:
+      - "Product has exactly 2 units in stock"
+      - "Three authenticated users each have qty 1 in cart"
+    examples:
+      - input:
+          product_sku: "SKU-LIMITED-2"
+          initial_stock: 2
+          concurrent_users: 3
+          qty_per_user: 1
+        expected:
+          successful_orders: 2
+          failed_orders: 1
+          final_stock: 0
+          failed_order_error: "OUT_OF_STOCK"
+        description: "2 units, 3 buyers — exactly 2 succeed, stock reaches zero."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - concurrency
+      - race-condition
+      - boundary
+
+  # ==========================================================================
+  # S2: OVERSELLING PREVENTION MECHANISMS
+  # ==========================================================================
+
+  - name: "Stock counter never goes negative after concurrent decrements"
+    description: >
+      Verifies that the inventory count is protected by atomic operations and
+      can never become negative, regardless of concurrency level. After all
+      concurrent checkout attempts resolve, stock must be >= 0.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — negative stock is a data integrity violation.
+      Frequency: 2 — occurs under concurrent load.
+      Consequence: 3 — negative stock means orders were created for non-existent inventory.
+      Detectability: 3 — negative values may persist silently in the database.
+      Average: 2.75 → high.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the zero-stock boundary. Error guessing targets the
+      classic non-atomic read-then-write pattern that allows negative stock.
+    preconditions:
+      - "Product has N units in stock (test with N=1, 5, 10)"
+      - "M > N concurrent checkout attempts are made"
+    examples:
+      - input:
+          initial_stock: 1
+          concurrent_checkouts: 5
+          qty_per_checkout: 1
+        expected:
+          final_stock: 0
+          final_stock_non_negative: true
+          successful_orders: 1
+        description: "5 attempts on 1 unit — stock must never go below zero."
+      - input:
+          initial_stock: 5
+          concurrent_checkouts: 20
+          qty_per_checkout: 1
+        expected:
+          final_stock: 0
+          final_stock_non_negative: true
+          successful_orders: 5
+        description: "20 attempts on 5 units — exactly 5 succeed, stock reaches zero."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - overselling
+      - data-integrity
+      - atomic-operations
+
+  - name: "Atomic stock decrement prevents check-then-act race"
+    description: >
+      Validates that inventory decrement uses an atomic operation (e.g.,
+      UPDATE ... SET stock = stock - 1 WHERE stock >= 1) rather than a
+      vulnerable read-check-write sequence (SELECT stock; if stock > 0;
+      UPDATE stock = stock - 1). The latter allows TOCTOU (time-of-check-
+      time-of-use) races.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 — fundamental data integrity and correctness mechanism.
+      Frequency: 3 — every single checkout invokes this path.
+      Consequence: 3 — non-atomic operations are the root cause of overselling.
+      Detectability: 3 — passes under low load; fails silently under concurrency.
+      Average: 3.0 → high.
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the well-known TOCTOU vulnerability. Cause-effect
+      maps the relationship between atomicity of the decrement and the outcome
+      correctness.
+    preconditions:
+      - "Product has 1 unit in stock"
+      - "Two concurrent threads execute the checkout flow"
+    examples:
+      - input:
+          operation_type: "atomic_conditional_update"
+          concurrent_threads: 2
+          initial_stock: 1
+        expected:
+          successful_decrements: 1
+          final_stock: 0
+          oversold: false
+        description: "Atomic conditional update ensures exactly one decrement succeeds."
+      - input:
+          operation_type: "non_atomic_read_then_write"
+          concurrent_threads: 2
+          initial_stock: 1
+        expected:
+          risk: "both threads read stock=1, both decrement, final stock=-1"
+          oversold: true
+        description: "Demonstrates the vulnerability: non-atomic pattern allows overselling."
+    decision_table:
+      conditions:
+        - "decrement_is_atomic"
+        - "concurrent_requests_present"
+      actions:
+        - "overselling_possible"
+        - "stock_integrity_maintained"
+      rules:
+        - description: "Atomic decrement under concurrency — safe"
+          condition_values:
+            decrement_is_atomic: true
+            concurrent_requests_present: true
+          expected_actions:
+            overselling_possible: false
+            stock_integrity_maintained: true
+        - description: "Non-atomic decrement under concurrency — vulnerable"
+          condition_values:
+            decrement_is_atomic: false
+            concurrent_requests_present: true
+          expected_actions:
+            overselling_possible: true
+            stock_integrity_maintained: false
+        - description: "Non-atomic decrement without concurrency — safe by luck"
+          condition_values:
+            decrement_is_atomic: false
+            concurrent_requests_present: false
+          expected_actions:
+            overselling_possible: false
+            stock_integrity_maintained: true
+        - description: "Atomic decrement without concurrency — safe"
+          condition_values:
+            decrement_is_atomic: true
+            concurrent_requests_present: false
+          expected_actions:
+            overselling_possible: false
+            stock_integrity_maintained: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - overselling
+      - atomic-operations
+      - toctou
+      - security
+
+  - name: "Idempotent order placement prevents double-charge on retry"
+    description: >
+      If a checkout request times out and the user retries (or the client
+      auto-retries), the system must not create a duplicate order or decrement
+      stock twice. Idempotency keys or deduplication logic must be in place.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 — double charge is a financial and trust issue.
+      Frequency: 2 — network timeouts cause retries regularly.
+      Consequence: 3 — customer is charged twice, stock decremented twice.
+      Detectability: 2 — user may notice double charge but not immediately.
+      Average: 2.5 → high.
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing targets the retry/timeout scenario. Equivalence partitioning
+      separates first-submission from duplicate-submission classes.
+    preconditions:
+      - "Product has 1 unit in stock"
+      - "User submits checkout with idempotency key"
+    examples:
+      - input:
+          idempotency_key: "order-abc-123"
+          submission_count: 2
+          initial_stock: 1
+        expected:
+          orders_created: 1
+          stock_decremented_count: 1
+          second_response: "original_order_returned"
+          final_stock: 0
+        description: "Duplicate submission returns original order, no double decrement."
+      - input:
+          idempotency_key: null
+          submission_count: 2
+          initial_stock: 1
+        expected:
+          orders_created: 1
+          error_on_second: "OUT_OF_STOCK"
+          final_stock: 0
+        description: "Without idempotency key, second attempt correctly fails on stock check."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - idempotency
+      - overselling
+      - retry-safety
+
+  # ==========================================================================
+  # S3: LOCKING STRATEGIES (PESSIMISTIC VS OPTIMISTIC)
+  # ==========================================================================
+
+  - name: "Pessimistic locking — SELECT FOR UPDATE serializes concurrent access"
+    description: >
+      Validates that pessimistic locking (SELECT ... FOR UPDATE) correctly
+      serializes concurrent checkout attempts. The first transaction acquires
+      the row lock, the second blocks until the first completes, then sees
+      the updated stock value and fails if stock is zero.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — locking is the primary concurrency control mechanism.
+      Frequency: 3 — every checkout uses this path.
+      Consequence: 3 — incorrect locking is the root cause of all overselling.
+      Detectability: 3 — lock failures manifest as intermittent overselling.
+      Average: 3.0 → high.
+    techniques:
+      - state_transition
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      State transition models the lock lifecycle (unlocked -> locked -> released).
+      Error guessing targets lock timeout and deadlock scenarios. Cause-effect
+      maps lock acquisition to checkout outcome.
+    preconditions:
+      - "Database supports row-level locking (SELECT FOR UPDATE)"
+      - "Product has 1 unit in stock"
+      - "Two transactions execute concurrently"
+    examples:
+      - input:
+          locking_strategy: "pessimistic"
+          lock_type: "SELECT_FOR_UPDATE"
+          concurrent_transactions: 2
+          initial_stock: 1
+        expected:
+          tx1_acquires_lock: true
+          tx2_blocks: true
+          tx1_decrements_and_commits: true
+          tx2_reads_stock_0: true
+          tx2_result: "OUT_OF_STOCK"
+          final_stock: 0
+        description: "Pessimistic lock serializes access — second transaction sees zero stock."
+      - input:
+          locking_strategy: "pessimistic"
+          lock_type: "SELECT_FOR_UPDATE"
+          concurrent_transactions: 2
+          initial_stock: 1
+          tx1_processing_time_ms: 35000
+          lock_timeout_ms: 30000
+        expected:
+          tx2_result: "LOCK_TIMEOUT"
+          tx2_error: "CHECKOUT_TEMPORARILY_UNAVAILABLE"
+          retry_after_header: true
+        description: "Lock timeout when first transaction holds lock too long."
+    state_transition:
+      states:
+        - "unlocked"
+        - "locked_by_tx1"
+        - "tx2_waiting"
+        - "tx1_committed"
+        - "tx2_acquires_lock"
+        - "tx2_fails_stock_zero"
+      transitions:
+        - from: "unlocked"
+          to: "locked_by_tx1"
+          trigger: "tx1_SELECT_FOR_UPDATE"
+          guard: "stock row exists"
+        - from: "locked_by_tx1"
+          to: "tx2_waiting"
+          trigger: "tx2_SELECT_FOR_UPDATE"
+          guard: "lock held by tx1"
+        - from: "locked_by_tx1"
+          to: "tx1_committed"
+          trigger: "tx1_COMMIT"
+          guard: "stock decremented to 0"
+        - from: "tx2_waiting"
+          to: "tx2_acquires_lock"
+          trigger: "tx1_releases_lock"
+          guard: "tx2_wait_time < lock_timeout"
+        - from: "tx2_acquires_lock"
+          to: "tx2_fails_stock_zero"
+          trigger: "tx2_reads_stock"
+          guard: "stock = 0"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - locking
+      - pessimistic-lock
+      - select-for-update
+      - concurrency
+
+  - name: "Optimistic locking — version conflict triggers retry"
+    description: >
+      Validates that optimistic locking (using a version column or CAS operation)
+      correctly detects concurrent modifications. When two transactions read the
+      same version, only the first to commit succeeds; the second detects the
+      version mismatch and either retries or fails gracefully.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — alternative concurrency control mechanism for high-throughput systems.
+      Frequency: 2 — used when pessimistic locking is too expensive.
+      Consequence: 3 — failed version check must trigger correct retry or error behavior.
+      Detectability: 3 — version conflicts may be silently swallowed if error handling is wrong.
+      Average: 2.75 → high.
+    techniques:
+      - state_transition
+      - error_guessing
+      - decision_table
+    technique_rationale: >
+      State transition models the read-modify-write cycle with version checking.
+      Error guessing targets retry exhaustion and ABA problems. Decision table
+      maps version-match outcomes to system behavior.
+    preconditions:
+      - "Inventory table has a version column"
+      - "Product has 1 unit in stock at version V1"
+      - "Two transactions read stock at version V1 simultaneously"
+    examples:
+      - input:
+          locking_strategy: "optimistic"
+          initial_stock: 1
+          initial_version: 1
+          concurrent_transactions: 2
+        expected:
+          tx1_update_succeeds: true
+          tx1_new_version: 2
+          tx2_version_conflict: true
+          tx2_retry_reads_stock_0: true
+          tx2_result: "OUT_OF_STOCK"
+          final_stock: 0
+        description: "Optimistic lock detects version conflict, second transaction retries and sees zero stock."
+      - input:
+          locking_strategy: "optimistic"
+          initial_stock: 1
+          initial_version: 1
+          concurrent_transactions: 2
+          max_retries: 3
+          all_retries_conflict: true
+        expected:
+          tx2_result: "CHECKOUT_FAILED_RETRY_EXHAUSTED"
+          user_message: "Unable to complete checkout. Please try again."
+        description: "Optimistic lock retry exhaustion — graceful failure after max retries."
+    decision_table:
+      conditions:
+        - "version_matches_on_update"
+        - "stock_sufficient_on_retry"
+        - "retry_count_within_limit"
+      actions:
+        - "order_created"
+        - "retry_triggered"
+        - "error_returned"
+      rules:
+        - description: "Version matches, stock sufficient — order succeeds"
+          condition_values:
+            version_matches_on_update: true
+            stock_sufficient_on_retry: true
+            retry_count_within_limit: true
+          expected_actions:
+            order_created: true
+            retry_triggered: false
+            error_returned: false
+        - description: "Version mismatch, stock still available, retries left — retry"
+          condition_values:
+            version_matches_on_update: false
+            stock_sufficient_on_retry: true
+            retry_count_within_limit: true
+          expected_actions:
+            order_created: false
+            retry_triggered: true
+            error_returned: false
+        - description: "Version mismatch, stock zero on retry — out of stock error"
+          condition_values:
+            version_matches_on_update: false
+            stock_sufficient_on_retry: false
+            retry_count_within_limit: true
+          expected_actions:
+            order_created: false
+            retry_triggered: false
+            error_returned: true
+        - description: "Version mismatch, retries exhausted — failure error"
+          condition_values:
+            version_matches_on_update: false
+            stock_sufficient_on_retry: true
+            retry_count_within_limit: false
+          expected_actions:
+            order_created: false
+            retry_triggered: false
+            error_returned: true
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - locking
+      - optimistic-lock
+      - version-conflict
+      - concurrency
+
+  - name: "Pessimistic vs optimistic locking — deadlock detection and recovery"
+    description: >
+      Tests that the system correctly detects and recovers from deadlocks that
+      can occur with pessimistic locking when two transactions lock resources
+      in different orders (e.g., multi-item carts with shared products). Also
+      verifies that optimistic locking is immune to deadlocks by design.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — deadlocks can freeze the checkout pipeline for all users.
+      Frequency: 1 — deadlocks are rare but devastating when they occur.
+      Consequence: 3 — unresolved deadlocks cause cascading timeouts and order failures.
+      Detectability: 2 — database logs show deadlocks but user sees generic timeout.
+      Average: 2.25 → medium.
+    techniques:
+      - error_guessing
+      - cause_effect
+    technique_rationale: >
+      Error guessing targets the classic multi-resource deadlock pattern. Cause-effect
+      maps lock ordering violations to deadlock occurrence.
+    preconditions:
+      - "Two products (SKU-A, SKU-B) each have 1 unit"
+      - "User 1 cart contains SKU-A then SKU-B"
+      - "User 2 cart contains SKU-B then SKU-A"
+      - "Pessimistic locking acquires locks in cart order"
+    examples:
+      - input:
+          locking_strategy: "pessimistic"
+          user1_cart_order: ["SKU-A", "SKU-B"]
+          user2_cart_order: ["SKU-B", "SKU-A"]
+          deadlock_detection: true
+        expected:
+          deadlock_detected: true
+          one_transaction_rolled_back: true
+          rolled_back_tx_retried: true
+          final_result: "both_orders_attempted_correctly"
+        description: "Deadlock detected by database, one transaction retried successfully."
+      - input:
+          locking_strategy: "pessimistic"
+          lock_ordering: "sorted_by_sku"
+          user1_cart_order: ["SKU-A", "SKU-B"]
+          user2_cart_order: ["SKU-B", "SKU-A"]
+        expected:
+          deadlock_occurred: false
+          both_lock_order: ["SKU-A", "SKU-B"]
+        description: "Consistent lock ordering (sorted by SKU) prevents deadlock entirely."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - locking
+      - deadlock
+      - error-recovery
+      - concurrency
+
+  - name: "Distributed lock with Redis/external lock service"
+    description: >
+      When the system uses distributed locking (e.g., Redis SETNX with TTL)
+      for inventory reservation across multiple application instances, verify
+      lock acquisition, lock expiry, and lock release behavior under concurrent
+      access.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — distributed lock failure undermines all concurrency protection.
+      Frequency: 2 — every checkout in a multi-instance deployment.
+      Consequence: 3 — lock failure means overselling across instances.
+      Detectability: 3 — appears as intermittent overselling, hard to reproduce.
+      Average: 2.75 → high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition models the distributed lock lifecycle (acquire, hold,
+      release, expire). Error guessing targets lock expiry during processing,
+      split-brain, and Redis unavailability.
+    preconditions:
+      - "System runs on 2+ application instances"
+      - "Redis-based distributed lock is configured with TTL"
+    examples:
+      - input:
+          instances: 2
+          product_sku: "SKU-DIST-1"
+          initial_stock: 1
+          instance_a_action: "checkout"
+          instance_b_action: "checkout"
+          timing: "simultaneous"
+        expected:
+          lock_acquired_by_one: true
+          other_instance_blocked: true
+          successful_orders: 1
+          final_stock: 0
+        description: "Distributed lock ensures only one instance processes the last unit."
+      - input:
+          lock_ttl_ms: 5000
+          processing_time_ms: 7000
+          initial_stock: 1
+        expected:
+          lock_expired_during_processing: true
+          second_instance_acquires_lock: true
+          overselling_risk: "detected_and_mitigated"
+          order_rolled_back: true
+        description: "Lock TTL expires during slow processing — system detects and prevents overselling."
+      - input:
+          redis_available: false
+          initial_stock: 1
+          concurrent_checkouts: 2
+        expected:
+          fallback_strategy: "reject_or_queue"
+          error: "LOCK_SERVICE_UNAVAILABLE"
+          no_orders_created_without_lock: true
+        description: "Redis unavailable — system fails safe, no orders placed without lock."
+    state_transition:
+      states:
+        - "lock_free"
+        - "lock_acquired"
+        - "processing"
+        - "lock_released"
+        - "lock_expired"
+      transitions:
+        - from: "lock_free"
+          to: "lock_acquired"
+          trigger: "SETNX_succeeds"
+          guard: "key does not exist"
+        - from: "lock_acquired"
+          to: "processing"
+          trigger: "begin_checkout_logic"
+        - from: "processing"
+          to: "lock_released"
+          trigger: "DEL_key"
+          guard: "processing_complete_before_TTL"
+        - from: "processing"
+          to: "lock_expired"
+          trigger: "TTL_reached"
+          guard: "processing_not_complete"
+        - from: "lock_expired"
+          to: "lock_free"
+          trigger: "Redis_auto_expire"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - distributed-lock
+      - redis
+      - concurrency
+      - infrastructure
+
+  # ==========================================================================
+  # S4: CART-TO-INVENTORY CONSISTENCY VALIDATION
+  # ==========================================================================
+
+  - name: "Cart stock validation at checkout initiation"
+    description: >
+      When the user clicks Place Order, the system must re-validate that all
+      items in the cart are still in stock before proceeding. A stale cart
+      (where stock was depleted after cart-add) must be rejected with a clear
+      message indicating which items are no longer available.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 — first line of defense against overselling.
+      Frequency: 3 — every checkout begins with this validation.
+      Consequence: 3 — skipping validation leads directly to overselling.
+      Detectability: 2 — user sees error message, but missing validation is invisible.
+      Average: 2.75 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning divides cart contents into valid (in-stock) and
+      invalid (out-of-stock, partially-available) classes. Error guessing
+      targets the stale-cart scenario.
+    preconditions:
+      - "User has items in cart"
+      - "Stock levels may have changed since items were added"
+    examples:
+      - input:
+          cart: [{ sku: "SKU-A", qty: 2 }]
+          current_stock_sku_a: 5
+        expected:
+          validation: "passed"
+          checkout_proceeds: true
+        description: "All cart items in stock — validation passes."
+      - input:
+          cart: [{ sku: "SKU-A", qty: 2 }]
+          current_stock_sku_a: 0
+        expected:
+          validation: "failed"
+          error: "OUT_OF_STOCK"
+          unavailable_items: ["SKU-A"]
+        description: "Item went out of stock after cart-add — validation fails."
+      - input:
+          cart: [{ sku: "SKU-A", qty: 5 }]
+          current_stock_sku_a: 3
+        expected:
+          validation: "failed"
+          error: "INSUFFICIENT_STOCK"
+          available_qty: 3
+          requested_qty: 5
+        description: "Partial stock — requested 5 but only 3 available."
+      - input:
+          cart:
+            - { sku: "SKU-A", qty: 1 }
+            - { sku: "SKU-B", qty: 1 }
+          current_stock_sku_a: 1
+          current_stock_sku_b: 0
+        expected:
+          validation: "failed"
+          error: "PARTIAL_CART_UNAVAILABLE"
+          unavailable_items: ["SKU-B"]
+          available_items: ["SKU-A"]
+        description: "Multi-item cart with one unavailable item — clear reporting."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - cart-validation
+      - consistency
+      - stock-check
+
+  - name: "Stock changes between validation and payment capture (TOCTOU window)"
+    description: >
+      Even after initial validation passes, stock can be depleted by another
+      checkout during the payment processing window. The system must perform a
+      final stock check (or rely on the atomic decrement) before confirming the
+      order, not just at validation time.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — the TOCTOU gap is the primary overselling vector.
+      Frequency: 2 — depends on checkout processing duration and traffic.
+      Consequence: 3 — orders confirmed for non-existent stock.
+      Detectability: 3 — initial validation passes, giving false confidence.
+      Average: 2.75 → high.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets the time window between validation and commit.
+      State transition models the checkout pipeline stages where stock can change.
+    preconditions:
+      - "Product has 1 unit in stock"
+      - "User A passes stock validation"
+      - "User B completes checkout between A's validation and A's payment capture"
+    examples:
+      - input:
+          user_a_validation_time: "T0"
+          user_b_checkout_completes: "T0 + 500ms"
+          user_a_payment_capture: "T0 + 1000ms"
+          initial_stock: 1
+        expected:
+          user_b_order: "confirmed"
+          user_a_order: "failed"
+          user_a_error: "OUT_OF_STOCK"
+          final_stock: 0
+        description: "Stock depleted between validation and capture — late checker loses."
+      - input:
+          user_a_validation_time: "T0"
+          user_b_checkout_completes: "T0 + 500ms"
+          user_a_payment_capture: "T0 + 1000ms"
+          initial_stock: 1
+          stock_check_at_capture: false
+        expected:
+          oversold: true
+          final_stock: -1
+        description: "Without final stock check at capture — system oversells (negative test)."
+    state_transition:
+      states:
+        - "cart_validated"
+        - "payment_processing"
+        - "stock_rechecked"
+        - "order_confirmed"
+        - "order_rejected_stock_gone"
+      transitions:
+        - from: "cart_validated"
+          to: "payment_processing"
+          trigger: "payment_submitted"
+        - from: "payment_processing"
+          to: "stock_rechecked"
+          trigger: "payment_captured"
+        - from: "stock_rechecked"
+          to: "order_confirmed"
+          trigger: "atomic_decrement_succeeds"
+          guard: "stock >= requested_quantity"
+        - from: "stock_rechecked"
+          to: "order_rejected_stock_gone"
+          trigger: "atomic_decrement_fails"
+          guard: "stock < requested_quantity"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - toctou
+      - cart-validation
+      - consistency
+      - race-condition
+
+  - name: "Cart reservation expiry and stock release"
+    description: >
+      If a cart reservation or hold mechanism is used, verify that reserved
+      stock is released back to inventory when the reservation expires (e.g.,
+      user abandons checkout, session times out). Other users must be able
+      to purchase the released stock.
+    type: state_transition
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — affects stock availability for other customers but not data integrity.
+      Frequency: 2 — cart abandonment rate is typically 60-80%.
+      Consequence: 2 — unreleased holds cause phantom out-of-stock for other buyers.
+      Detectability: 2 — users see "out of stock" for items that are actually held, not sold.
+      Average: 2.0 → medium.
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the reservation lifecycle (reserved -> expired ->
+      released). Boundary value tests the exact expiry timestamp.
+    preconditions:
+      - "Cart reservation mechanism is enabled"
+      - "Reservation TTL is configured (e.g., 15 minutes)"
+    examples:
+      - input:
+          product_sku: "SKU-HOLD-1"
+          initial_stock: 1
+          user_a_reserves: true
+          reservation_ttl_minutes: 15
+          time_elapsed_minutes: 16
+        expected:
+          reservation_expired: true
+          stock_released: true
+          stock_available_for_others: 1
+        description: "Reservation expires after TTL — stock released to pool."
+      - input:
+          product_sku: "SKU-HOLD-1"
+          initial_stock: 1
+          user_a_reserves: true
+          reservation_ttl_minutes: 15
+          time_elapsed_minutes: 14
+          user_b_attempts_checkout: true
+        expected:
+          user_b_result: "OUT_OF_STOCK"
+          reservation_still_active: true
+        description: "Stock held within TTL — other users cannot purchase."
+      - input:
+          product_sku: "SKU-HOLD-1"
+          initial_stock: 1
+          user_a_reserves: true
+          user_a_completes_checkout: true
+          reservation_ttl_minutes: 15
+          time_elapsed_minutes: 5
+        expected:
+          reservation_converted_to_sale: true
+          stock_not_double_released: true
+          final_stock: 0
+        description: "User completes checkout before expiry — reservation converts to sale, no double-release."
+    state_transition:
+      states:
+        - "available"
+        - "reserved"
+        - "sold"
+        - "released_back"
+      transitions:
+        - from: "available"
+          to: "reserved"
+          trigger: "user_adds_to_cart"
+          guard: "stock > 0 AND reservation_enabled"
+        - from: "reserved"
+          to: "sold"
+          trigger: "checkout_completed"
+          guard: "reservation_not_expired"
+        - from: "reserved"
+          to: "released_back"
+          trigger: "reservation_ttl_expired"
+          guard: "checkout_not_completed"
+        - from: "released_back"
+          to: "available"
+          trigger: "stock_counter_incremented"
+        - from: "reserved"
+          to: "released_back"
+          trigger: "user_removes_from_cart"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - reservation
+      - cart-hold
+      - stock-release
+      - state-machine
+
+  # ==========================================================================
+  # S5: DATABASE TRANSACTION ISOLATION LEVELS
+  # ==========================================================================
+
+  - name: "READ COMMITTED isolation — prevents dirty reads but allows non-repeatable reads"
+    description: >
+      Under READ COMMITTED isolation, a checkout transaction will not see
+      uncommitted stock changes from other transactions (no dirty reads),
+      but may see different stock values if it reads the same row twice
+      within the same transaction (non-repeatable read). Verify behavior
+      and confirm that overselling protection does not rely solely on
+      isolation level.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — isolation level choice directly affects concurrency correctness.
+      Frequency: 3 — READ COMMITTED is the default in PostgreSQL and many databases.
+      Consequence: 3 — wrong assumptions about isolation level lead to overselling.
+      Detectability: 3 — non-repeatable reads cause intermittent failures.
+      Average: 3.0 → high.
+    techniques:
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Decision table maps isolation level x operation pattern to outcome.
+      Error guessing targets the non-repeatable read vulnerability.
+    preconditions:
+      - "Database isolation level is set to READ COMMITTED"
+      - "Product has 1 unit in stock"
+    examples:
+      - input:
+          isolation_level: "READ_COMMITTED"
+          tx1_reads_stock: 1
+          tx2_commits_decrement: true
+          tx1_reads_stock_again: 0
+        expected:
+          non_repeatable_read_occurred: true
+          tx1_sees_committed_change: true
+        description: "READ COMMITTED allows non-repeatable reads — second read sees tx2's commit."
+      - input:
+          isolation_level: "READ_COMMITTED"
+          tx1_reads_stock: 1
+          tx2_uncommitted_decrement: true
+          tx1_reads_stock_during_tx2: 1
+        expected:
+          dirty_read_prevented: true
+          tx1_still_sees_stock_1: true
+        description: "READ COMMITTED prevents dirty reads — tx1 does not see tx2's uncommitted change."
+    decision_table:
+      conditions:
+        - "isolation_level"
+        - "other_tx_committed"
+        - "using_SELECT_FOR_UPDATE"
+      actions:
+        - "dirty_read_possible"
+        - "non_repeatable_read_possible"
+        - "phantom_read_possible"
+        - "overselling_prevented"
+      rules:
+        - description: "READ COMMITTED without explicit locking"
+          condition_values:
+            isolation_level: "READ_COMMITTED"
+            other_tx_committed: true
+            using_SELECT_FOR_UPDATE: false
+          expected_actions:
+            dirty_read_possible: false
+            non_repeatable_read_possible: true
+            phantom_read_possible: true
+            overselling_prevented: false
+        - description: "READ COMMITTED with SELECT FOR UPDATE"
+          condition_values:
+            isolation_level: "READ_COMMITTED"
+            other_tx_committed: true
+            using_SELECT_FOR_UPDATE: true
+          expected_actions:
+            dirty_read_possible: false
+            non_repeatable_read_possible: false
+            phantom_read_possible: true
+            overselling_prevented: true
+        - description: "READ COMMITTED, other tx not yet committed"
+          condition_values:
+            isolation_level: "READ_COMMITTED"
+            other_tx_committed: false
+            using_SELECT_FOR_UPDATE: false
+          expected_actions:
+            dirty_read_possible: false
+            non_repeatable_read_possible: false
+            phantom_read_possible: false
+            overselling_prevented: false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - isolation-level
+      - read-committed
+      - transaction
+      - concurrency
+
+  - name: "REPEATABLE READ isolation — prevents non-repeatable reads but allows serialization anomalies"
+    description: >
+      Under REPEATABLE READ, a transaction sees a consistent snapshot from
+      its start. However, in PostgreSQL, concurrent updates cause serialization
+      errors rather than silent overwrites. Verify that the system handles
+      serialization failures gracefully with retries.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — REPEATABLE READ with retry is a valid concurrency strategy.
+      Frequency: 2 — used in systems that prefer snapshot isolation.
+      Consequence: 3 — unhandled serialization errors cause order failures.
+      Detectability: 2 — serialization errors are visible but may not be retried.
+      Average: 2.5 → high.
+    techniques:
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Decision table maps isolation level behavior to read phenomena. Error
+      guessing targets unhandled serialization errors.
+    preconditions:
+      - "Database isolation level is set to REPEATABLE READ"
+      - "Product has 1 unit in stock"
+    examples:
+      - input:
+          isolation_level: "REPEATABLE_READ"
+          tx1_starts: "T0"
+          tx2_starts: "T0 + 10ms"
+          tx1_decrements_and_commits: "T0 + 100ms"
+          tx2_attempts_decrement: "T0 + 200ms"
+        expected:
+          tx2_sees_snapshot_stock: 1
+          tx2_update_result: "serialization_failure"
+          tx2_retry_succeeds: false
+          tx2_final_result: "OUT_OF_STOCK"
+        description: "REPEATABLE READ — tx2 gets serialization failure, retries, sees zero stock."
+      - input:
+          isolation_level: "REPEATABLE_READ"
+          tx1_starts: "T0"
+          tx1_reads_stock: 1
+          no_concurrent_modification: true
+          tx1_decrements_and_commits: "T0 + 100ms"
+        expected:
+          tx1_succeeds: true
+          final_stock: 0
+        description: "REPEATABLE READ with no contention — normal operation."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - isolation-level
+      - repeatable-read
+      - serialization-failure
+      - transaction
+
+  - name: "SERIALIZABLE isolation — strongest guarantee with performance trade-off"
+    description: >
+      Under SERIALIZABLE isolation, the database guarantees that concurrent
+      transactions produce the same result as if they had run sequentially.
+      Verify that serialization anomalies are prevented and that the system
+      handles the increased rate of serialization failures and retries.
+    type: combinatorial
+    risk: medium
+    risk_rationale: >
+      Impact: 3 — strongest correctness guarantee.
+      Frequency: 1 — rarely used in high-throughput e-commerce due to performance cost.
+      Consequence: 2 — correctness is guaranteed but retry rate increases significantly.
+      Detectability: 1 — serialization errors are immediately visible.
+      Average: 1.75 → medium.
+    techniques:
+      - decision_table
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Decision table compares isolation levels. Error guessing targets retry
+      storms under SERIALIZABLE. Boundary value tests throughput limits.
+    preconditions:
+      - "Database isolation level is set to SERIALIZABLE"
+      - "Product has 1 unit in stock"
+    examples:
+      - input:
+          isolation_level: "SERIALIZABLE"
+          concurrent_transactions: 10
+          initial_stock: 1
+        expected:
+          successful_orders: 1
+          serialization_failures: 9
+          all_failures_retried: true
+          final_stock: 0
+          oversold: false
+        description: "SERIALIZABLE prevents all anomalies — only one transaction succeeds."
+      - input:
+          isolation_level: "SERIALIZABLE"
+          concurrent_transactions: 100
+          initial_stock: 10
+        expected:
+          successful_orders: 10
+          retry_rate_pct: ">50"
+          average_latency_increase_vs_read_committed: ">200%"
+          oversold: false
+        description: "Performance impact of SERIALIZABLE under high concurrency."
+    decision_table:
+      conditions:
+        - "isolation_level"
+        - "concurrent_modifications"
+      actions:
+        - "dirty_read_prevented"
+        - "non_repeatable_read_prevented"
+        - "phantom_read_prevented"
+        - "serialization_anomaly_prevented"
+        - "retry_rate"
+      rules:
+        - description: "SERIALIZABLE with concurrent modifications"
+          condition_values:
+            isolation_level: "SERIALIZABLE"
+            concurrent_modifications: true
+          expected_actions:
+            dirty_read_prevented: true
+            non_repeatable_read_prevented: true
+            phantom_read_prevented: true
+            serialization_anomaly_prevented: true
+            retry_rate: "high"
+        - description: "READ COMMITTED with concurrent modifications"
+          condition_values:
+            isolation_level: "READ_COMMITTED"
+            concurrent_modifications: true
+          expected_actions:
+            dirty_read_prevented: true
+            non_repeatable_read_prevented: false
+            phantom_read_prevented: false
+            serialization_anomaly_prevented: false
+            retry_rate: "low"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - isolation-level
+      - serializable
+      - performance
+      - transaction
+
+  - name: "Isolation level comparison under identical race condition"
+    description: >
+      Runs the same race condition test (1 unit, 2 concurrent buyers) under
+      each isolation level (READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ,
+      SERIALIZABLE) to compare behavior and validate that the application-level
+      locking strategy provides correctness regardless of isolation level.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 — validates that the system works correctly regardless of DB config.
+      Frequency: 2 — isolation level may differ between environments (dev vs prod).
+      Consequence: 3 — environment-dependent overselling is extremely hard to diagnose.
+      Detectability: 3 — passes in one environment, fails silently in another.
+      Average: 2.75 → high.
+    techniques:
+      - pairwise
+      - decision_table
+    technique_rationale: >
+      Pairwise covers the isolation_level x locking_strategy combinations.
+      Decision table maps each combination to expected behavior.
+    preconditions:
+      - "Product has 1 unit in stock"
+      - "Two concurrent checkout attempts"
+    examples:
+      - input:
+          isolation_level: "READ_COMMITTED"
+          locking_strategy: "pessimistic"
+          concurrent_transactions: 2
+          initial_stock: 1
+        expected:
+          oversold: false
+          mechanism: "SELECT FOR UPDATE serializes access"
+        description: "READ COMMITTED + pessimistic lock — safe."
+      - input:
+          isolation_level: "READ_COMMITTED"
+          locking_strategy: "none"
+          concurrent_transactions: 2
+          initial_stock: 1
+        expected:
+          oversold: true
+          mechanism: "no locking, non-repeatable reads allow both to see stock=1"
+        description: "READ COMMITTED without locking — UNSAFE, overselling possible."
+      - input:
+          isolation_level: "READ_COMMITTED"
+          locking_strategy: "optimistic"
+          concurrent_transactions: 2
+          initial_stock: 1
+        expected:
+          oversold: false
+          mechanism: "version check prevents stale update"
+        description: "READ COMMITTED + optimistic lock — safe."
+      - input:
+          isolation_level: "SERIALIZABLE"
+          locking_strategy: "none"
+          concurrent_transactions: 2
+          initial_stock: 1
+        expected:
+          oversold: false
+          mechanism: "database-level serialization prevents anomaly"
+        description: "SERIALIZABLE without explicit locking — safe but higher retry rate."
+    decision_table:
+      conditions:
+        - "isolation_level"
+        - "locking_strategy"
+      actions:
+        - "overselling_prevented"
+        - "deadlock_risk"
+        - "retry_overhead"
+        - "throughput_impact"
+      rules:
+        - description: "READ COMMITTED + pessimistic"
+          condition_values:
+            isolation_level: "READ_COMMITTED"
+            locking_strategy: "pessimistic"
+          expected_actions:
+            overselling_prevented: true
+            deadlock_risk: "medium"
+            retry_overhead: "low"
+            throughput_impact: "medium"
+        - description: "READ COMMITTED + optimistic"
+          condition_values:
+            isolation_level: "READ_COMMITTED"
+            locking_strategy: "optimistic"
+          expected_actions:
+            overselling_prevented: true
+            deadlock_risk: "none"
+            retry_overhead: "medium"
+            throughput_impact: "low"
+        - description: "READ COMMITTED + no locking"
+          condition_values:
+            isolation_level: "READ_COMMITTED"
+            locking_strategy: "none"
+          expected_actions:
+            overselling_prevented: false
+            deadlock_risk: "none"
+            retry_overhead: "none"
+            throughput_impact: "none"
+        - description: "SERIALIZABLE + no locking"
+          condition_values:
+            isolation_level: "SERIALIZABLE"
+            locking_strategy: "none"
+          expected_actions:
+            overselling_prevented: true
+            deadlock_risk: "none"
+            retry_overhead: "high"
+            throughput_impact: "high"
+        - description: "REPEATABLE READ + optimistic"
+          condition_values:
+            isolation_level: "REPEATABLE_READ"
+            locking_strategy: "optimistic"
+          expected_actions:
+            overselling_prevented: true
+            deadlock_risk: "none"
+            retry_overhead: "medium"
+            throughput_impact: "low"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - isolation-level
+      - locking
+      - comparison
+      - pairwise
+
+  # ==========================================================================
+  # S6: ERROR HANDLING AND GRACEFUL DEGRADATION
+  # ==========================================================================
+
+  - name: "Out-of-stock error response format and user messaging"
+    description: >
+      When a checkout fails due to insufficient stock, verify that the error
+      response includes the correct HTTP status code, structured error body
+      with the out-of-stock SKU(s), available quantity, and a user-friendly
+      message. The cart must not be cleared — the user should be able to
+      adjust quantities and retry.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — UX quality for the error path.
+      Frequency: 2 — happens regularly in competitive shopping.
+      Consequence: 2 — poor error messaging leads to abandoned carts and support tickets.
+      Detectability: 1 — error is immediately visible to the user.
+      Average: 1.75 → medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning divides error responses into classes (single item
+      OOS, multiple items OOS, partial availability). Error guessing targets
+      unclear or missing error messages.
+    preconditions:
+      - "User attempts checkout with out-of-stock items"
+    examples:
+      - input:
+          cart: [{ sku: "SKU-OOS", qty: 1 }]
+          stock_sku_oos: 0
+        expected:
+          status: 409
+          error_code: "OUT_OF_STOCK"
+          unavailable_skus: ["SKU-OOS"]
+          cart_preserved: true
+          user_message: "SKU-OOS is no longer available. Please update your cart."
+        description: "Single item out of stock — clear error with SKU identification."
+      - input:
+          cart:
+            - { sku: "SKU-A", qty: 3 }
+            - { sku: "SKU-B", qty: 1 }
+          stock_sku_a: 1
+          stock_sku_b: 1
+        expected:
+          status: 409
+          error_code: "INSUFFICIENT_STOCK"
+          details:
+            - { sku: "SKU-A", requested: 3, available: 1 }
+          cart_preserved: true
+        description: "Partial availability — error includes available vs requested quantities."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - error-handling
+      - user-experience
+      - api-contract
+
+  - name: "Database connection failure during stock check"
+    description: >
+      If the database is unreachable during the stock validation or decrement
+      step, the system must fail safely without creating an order or charging
+      the customer.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 — database failures during checkout are critical.
+      Frequency: 1 — rare but happens during outages and failovers.
+      Consequence: 3 — charging without decrementing stock is a dual-write failure.
+      Detectability: 2 — user sees error but may have been charged.
+      Average: 2.25 → medium.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing targets infrastructure failure scenarios that formal
+      techniques cannot systematically derive.
+    preconditions:
+      - "Database becomes unavailable during checkout"
+    examples:
+      - input:
+          db_available: false
+          cart: [{ sku: "SKU-A", qty: 1 }]
+        expected:
+          order_created: false
+          payment_charged: false
+          error: "SERVICE_TEMPORARILY_UNAVAILABLE"
+          retry_safe: true
+        description: "Database down — no order, no charge, safe to retry."
+      - input:
+          db_fails_after_payment: true
+          payment_captured: true
+        expected:
+          payment_reversed: true
+          order_created: false
+          compensation_triggered: true
+        description: "DB fails after payment capture — payment must be reversed."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - error-handling
+      - infrastructure
+      - fault-tolerance
+
+  - name: "Inventory count consistency after failed transaction rollback"
+    description: >
+      When a checkout transaction fails at any point (payment failure, timeout,
+      application error) and is rolled back, verify that the inventory count
+      is restored to its pre-transaction value. No phantom decrements should
+      persist.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 — phantom decrements reduce sellable inventory.
+      Frequency: 2 — transaction failures happen regularly.
+      Consequence: 2 — lost inventory availability but not overselling.
+      Detectability: 3 — phantom decrements are silent and accumulate over time.
+      Average: 2.5 → high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition models the commit/rollback paths. Error guessing targets
+      scenarios where rollback is incomplete or skipped.
+    preconditions:
+      - "Product has known stock level"
+      - "Checkout transaction begins and acquires resources"
+    examples:
+      - input:
+          initial_stock: 5
+          checkout_starts: true
+          stock_decremented_in_tx: true
+          payment_fails: true
+          transaction_rolled_back: true
+        expected:
+          final_stock: 5
+          stock_restored: true
+        description: "Payment failure triggers rollback — stock restored to 5."
+      - input:
+          initial_stock: 5
+          checkout_starts: true
+          stock_decremented_in_tx: true
+          application_crashes: true
+          transaction_auto_rolled_back: true
+        expected:
+          final_stock: 5
+          stock_restored: true
+        description: "Application crash — database auto-rollback restores stock."
+      - input:
+          initial_stock: 5
+          checkout_starts: true
+          stock_decremented_outside_tx: true
+          payment_fails: true
+        expected:
+          final_stock: 4
+          stock_leaked: true
+          bug_detected: "stock decrement was not within transaction scope"
+        description: "Negative test: decrement outside transaction — rollback does not restore stock (detects bug)."
+    state_transition:
+      states:
+        - "stock_at_N"
+        - "stock_decremented_in_tx"
+        - "tx_committed"
+        - "tx_rolled_back"
+        - "stock_restored"
+      transitions:
+        - from: "stock_at_N"
+          to: "stock_decremented_in_tx"
+          trigger: "checkout_decrements_stock"
+          guard: "within_transaction"
+        - from: "stock_decremented_in_tx"
+          to: "tx_committed"
+          trigger: "payment_succeeds_and_commit"
+        - from: "stock_decremented_in_tx"
+          to: "tx_rolled_back"
+          trigger: "payment_fails_or_error"
+        - from: "tx_rolled_back"
+          to: "stock_restored"
+          trigger: "database_undo"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - rollback
+      - data-integrity
+      - transaction
+
+  # ==========================================================================
+  # S7: ADDITIONAL CONCURRENCY AND EDGE CASE SCENARIOS
+  # ==========================================================================
+
+  - name: "Simultaneous add-to-cart and checkout for the same last unit"
+    description: >
+      User A has the last unit in their cart and proceeds to checkout. Simultaneously,
+      User B attempts to add the same product to their cart. Verify whether the
+      system prevents cart-add when stock is reserved, or allows cart-add but
+      fails at checkout.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — affects user experience but not data integrity if checkout validation is correct.
+      Frequency: 2 — common in high-demand scenarios.
+      Consequence: 2 — user frustration from adding to cart then failing at checkout.
+      Detectability: 1 — user sees "out of stock" at cart-add or checkout.
+      Average: 1.75 → medium.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing targets the cart-add vs checkout timing race. State transition
+      models the product availability lifecycle during this interaction.
+    preconditions:
+      - "Product has 1 unit in stock"
+      - "User A has the item in cart and is checking out"
+    examples:
+      - input:
+          initial_stock: 1
+          user_a_action: "checkout_in_progress"
+          user_b_action: "add_to_cart"
+          reservation_enabled: true
+        expected:
+          user_b_add_to_cart: "failed"
+          user_b_message: "This item is currently reserved by another buyer"
+        description: "With reservation — User B cannot add reserved item to cart."
+      - input:
+          initial_stock: 1
+          user_a_action: "checkout_in_progress"
+          user_b_action: "add_to_cart"
+          reservation_enabled: false
+        expected:
+          user_b_add_to_cart: "succeeded"
+          user_b_checkout_later: "OUT_OF_STOCK"
+        description: "Without reservation — User B adds to cart but fails at checkout."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - concurrency
+      - cart-add
+      - edge-case
+
+  - name: "Quantity update race — user increases cart qty beyond remaining stock"
+    description: >
+      User has 1 unit of a product in cart. Stock is 2. User updates cart quantity
+      to 3. Concurrently, another user buys 1 unit. Verify that the system
+      prevents the quantity update from exceeding available stock.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 — cart quantity validation is important but secondary to checkout validation.
+      Frequency: 2 — quantity updates happen regularly.
+      Consequence: 2 — leads to checkout failure, not overselling (if checkout validates).
+      Detectability: 1 — user sees error on update or at checkout.
+      Average: 1.75 → medium.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the stock boundary during quantity update. Error
+      guessing targets the concurrent stock change during cart modification.
+    preconditions:
+      - "Product has 2 units in stock"
+      - "User has 1 unit in cart"
+    examples:
+      - input:
+          initial_stock: 2
+          current_cart_qty: 1
+          requested_qty: 3
+          concurrent_sale: 0
+        expected:
+          update_result: "failed"
+          error: "INSUFFICIENT_STOCK"
+          max_available: 2
+        description: "Requested 3 but only 2 in stock — rejected."
+      - input:
+          initial_stock: 2
+          current_cart_qty: 1
+          requested_qty: 2
+          concurrent_sale_qty: 1
+        expected:
+          update_result: "depends_on_timing"
+          final_validation_at_checkout: true
+        description: "Concurrent sale reduces stock during qty update — checkout must re-validate."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - cart-update
+      - boundary
+      - concurrency
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As an e-commerce platform operator, I want the checkout system to prevent
+    inventory race conditions so that when multiple users attempt to purchase
+    the last unit of a product simultaneously, only one order succeeds, no
+    overselling occurs, and failed users receive clear out-of-stock feedback.
+  rules:
+    - rule_name: "Only one order may claim the last unit"
+      examples:
+        - "2 users, 1 unit, simultaneous checkout -> exactly 1 order succeeds, 1 gets OUT_OF_STOCK"
+        - "100 users, 1 unit, simultaneous checkout -> exactly 1 order succeeds, 99 get OUT_OF_STOCK"
+        - "3 users, 2 units, simultaneous checkout -> exactly 2 orders succeed, 1 gets OUT_OF_STOCK"
+        - "User retries with same idempotency key -> original order returned, no duplicate"
+
+    - rule_name: "Stock counter must never go negative"
+      examples:
+        - "5 concurrent decrements on 1 unit -> final stock is 0, not -4"
+        - "Atomic conditional update (WHERE stock >= qty) prevents negative stock"
+        - "Non-atomic read-then-write allows negative stock (vulnerability demo)"
+
+    - rule_name: "Locking must serialize concurrent inventory access"
+      examples:
+        - "Pessimistic: SELECT FOR UPDATE blocks second transaction until first commits"
+        - "Optimistic: version conflict on UPDATE triggers retry or failure"
+        - "Distributed: Redis SETNX with TTL ensures only one instance processes"
+        - "Deadlock from inconsistent lock ordering -> detected and one tx retried"
+        - "Lock TTL expires during slow processing -> system detects and fails safe"
+
+    - rule_name: "Cart contents must be validated against live inventory at checkout time"
+      examples:
+        - "Item went out of stock after cart-add -> checkout blocked with clear error"
+        - "Partial availability (requested 5, only 3 left) -> error with available qty"
+        - "Stock changes between validation and payment capture -> atomic decrement is the final guard"
+        - "Cart reservation expires -> stock released back to pool for other buyers"
+
+    - rule_name: "Transaction isolation level must not allow overselling"
+      examples:
+        - "READ COMMITTED + pessimistic lock -> safe"
+        - "READ COMMITTED without locking -> UNSAFE (non-repeatable reads)"
+        - "REPEATABLE READ + optimistic lock -> safe with retry on serialization failure"
+        - "SERIALIZABLE without explicit locking -> safe but high retry overhead"
+        - "Same race condition tested across all isolation levels -> app-level locking must ensure correctness"
+
+    - rule_name: "Failed transactions must fully restore inventory"
+      examples:
+        - "Payment fails -> transaction rollback restores stock to pre-checkout value"
+        - "Application crash -> database auto-rollback restores stock"
+        - "Stock decremented outside transaction scope -> rollback does NOT restore (bug to detect)"
+
+    - rule_name: "Error responses must be clear and actionable"
+      examples:
+        - "Single item OOS -> 409 with SKU, user-friendly message, cart preserved"
+        - "Partial availability -> 409 with per-SKU available vs requested quantities"
+        - "Database failure -> 503 with retry-safe indicator, no charge"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

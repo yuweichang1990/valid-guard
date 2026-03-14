@@ -1,0 +1,563 @@
+---
+test_plan:
+  title: "Government Tax Filing Portal - Risk-Based Test Plan"
+  version: "1.0"
+  date: "2026-03-14"
+  role: "QA Lead"
+  methodology: "3x3 Risk Matrix (Likelihood x Impact)"
+
+  risk_matrix_definitions:
+    likelihood_levels:
+      high:
+        label: "High (3)"
+        description: >
+          Defects are highly probable due to algorithmic complexity,
+          integration with external systems, frequent regulatory changes,
+          or historically defect-prone areas.
+      medium:
+        label: "Medium (2)"
+        description: >
+          Defects are possible due to moderate complexity, some external
+          dependencies, or occasional requirement changes.
+      low:
+        label: "Low (1)"
+        description: >
+          Defects are unlikely due to low complexity, stable requirements,
+          use of well-proven libraries, or minimal integration points.
+
+    impact_levels:
+      high:
+        label: "High (3)"
+        description: >
+          Failure causes legal/regulatory violations, financial loss to
+          taxpayers or the government, exposure of PII, or complete
+          inability to file taxes.
+      medium:
+        label: "Medium (2)"
+        description: >
+          Failure causes significant user inconvenience, partial loss of
+          functionality, accessibility barriers for protected groups,
+          or reputational damage.
+      low:
+        label: "Low (1)"
+        description: >
+          Failure causes minor cosmetic issues, inconvenience with
+          workarounds available, or affects non-critical decorative
+          elements.
+
+    risk_score_formula: "Risk Score = Likelihood x Impact (range 1-9)"
+    risk_tiers:
+      critical: "Score 9 (High x High)"
+      high: "Score 6 (High x Medium or Medium x High)"
+      medium: "Score 3-4 (Medium x Medium, High x Low, Low x High)"
+      low: "Score 1-2 (Low x Low, Low x Medium, Medium x Low)"
+
+  features:
+
+    - id: 1
+      name: "Tax Calculation Engine"
+      description: "Income tax computation including deductions, credits, brackets, and AMT"
+      risk_classification:
+        likelihood: "High (3)"
+        likelihood_rationale: >
+          Tax law is extraordinarily complex with thousands of rules,
+          edge cases, phase-outs, and annual legislative changes. The
+          calculation engine must handle multiple filing statuses, income
+          types, deduction categories, and credit eligibility rules.
+          Combinatorial explosion of input scenarios makes exhaustive
+          testing impossible. Tax code changes annually, requiring
+          frequent updates that risk regressions. Historical data from
+          IRS and commercial tax software shows calculation errors are
+          the most common category of tax software defects.
+        impact: "High (3)"
+        impact_rationale: >
+          Incorrect calculations directly cause taxpayers to overpay or
+          underpay federal taxes. Underpayment exposes citizens to IRS
+          penalties and interest. Overpayment means citizens lose money
+          they are owed. As a government portal, calculation errors
+          could trigger class-action lawsuits, congressional inquiries,
+          and loss of public trust. Regulatory and legal liability is
+          at the maximum level.
+        risk_score: 9
+        risk_tier: "Critical"
+      testing_effort:
+        percentage: 25
+        justification: >
+          Highest risk score demands the largest share of the QA budget.
+          Must cover unit-level formula verification, integration tests
+          across the full filing flow, boundary value analysis on bracket
+          thresholds, equivalence partitioning for filing statuses,
+          regression suites updated each tax year, and comparison testing
+          against IRS-published examples and truth tables.
+        test_types:
+          - "Unit tests for each tax formula and rule"
+          - "Boundary value analysis on tax bracket thresholds"
+          - "Equivalence partitioning by filing status (Single, MFJ, MFS, HoH, QSS)"
+          - "Combinatorial testing of deduction and credit interactions"
+          - "Regression tests against prior-year known-good calculations"
+          - "Cross-validation against IRS Publication 17 examples"
+          - "Negative testing with invalid or extreme income values"
+          - "Performance testing with complex returns (multiple schedules)"
+          - "Year-over-year delta testing when tax law changes"
+
+    - id: 3
+      name: "Data Encryption for PII (SSN, Income)"
+      description: "Encryption at rest and in transit for all personally identifiable information"
+      risk_classification:
+        likelihood: "Medium (2)"
+        likelihood_rationale: >
+          Modern encryption libraries (TLS 1.3, AES-256) are mature and
+          well-tested, reducing the probability of cryptographic failures.
+          However, implementation errors are common: misconfigured TLS,
+          weak key management, plaintext logging of PII, unencrypted
+          database fields, or improper certificate handling. The attack
+          surface is broad (network, storage, logs, backups, caches).
+        impact: "High (3)"
+        impact_rationale: >
+          A PII breach on a government tax portal would be catastrophic.
+          SSNs and income data are the highest-value targets for identity
+          theft. Breach triggers mandatory notification under federal and
+          state laws, potential FISMA/FedRAMP compliance violations,
+          massive reputational damage, and could affect millions of
+          taxpayers. Government portals are held to the highest standard.
+        risk_score: 6
+        risk_tier: "High"
+      testing_effort:
+        percentage: 15
+        justification: >
+          Despite lower likelihood due to mature crypto libraries, the
+          catastrophic impact of a PII breach demands significant testing
+          investment. Focus on verifying correct implementation rather
+          than testing the crypto algorithms themselves.
+        test_types:
+          - "TLS configuration verification (protocol version, cipher suites)"
+          - "Certificate validation and pinning tests"
+          - "Encryption-at-rest verification for databases and file storage"
+          - "Key management and rotation testing"
+          - "PII leakage scanning in logs, error messages, and URLs"
+          - "Penetration testing focused on data exfiltration"
+          - "FIPS 140-2 compliance verification"
+          - "Backup encryption verification"
+          - "Memory dump analysis to check for plaintext PII"
+          - "Third-party security audit coordination"
+
+    - id: 6
+      name: "Payment Gateway Integration"
+      description: "Integration with payment processor for taxpayers to pay owed taxes"
+      risk_classification:
+        likelihood: "High (3)"
+        likelihood_rationale: >
+          Payment integrations involve multiple external dependencies
+          (payment processor APIs, bank networks, fraud detection
+          services) each with their own failure modes. Network timeouts,
+          partial failures, idempotency issues, and race conditions are
+          common. The integration must handle multiple payment methods,
+          currency precision, and reconciliation. External API changes
+          and downtime are outside our control.
+        impact: "High (3)"
+        impact_rationale: >
+          Payment failures can result in double-charging taxpayers,
+          lost payments, incorrect payment amounts, or failure to record
+          payments leading to erroneous IRS penalties. Financial
+          transactions on a government portal carry the highest
+          accountability standards. PCI-DSS compliance violations carry
+          severe penalties.
+        risk_score: 9
+        risk_tier: "Critical"
+      testing_effort:
+        percentage: 20
+        justification: >
+          Second-highest budget allocation due to critical risk score.
+          Financial transactions demand exhaustive testing of both happy
+          paths and failure modes. External dependency makes integration
+          and resilience testing essential.
+        test_types:
+          - "End-to-end payment flow testing (all supported payment methods)"
+          - "Idempotency testing (duplicate submission prevention)"
+          - "Timeout and network failure simulation"
+          - "Partial failure and rollback verification"
+          - "Payment amount precision and rounding tests"
+          - "Reconciliation testing (portal records vs. gateway records)"
+          - "PCI-DSS compliance scanning"
+          - "Load testing under peak filing season volumes"
+          - "Refund and reversal flow testing"
+          - "Gateway failover and retry logic testing"
+          - "Sandbox/staging integration tests with payment processor"
+
+    - id: 2
+      name: "E-Signature for Form Submission"
+      description: "Electronic signature capability for legally binding tax form submission"
+      risk_classification:
+        likelihood: "Medium (2)"
+        likelihood_rationale: >
+          E-signature implementations use established standards (ESIGN
+          Act, UETA) and mature libraries. However, integration
+          complexity exists around identity verification, signature
+          binding to specific document versions, timestamp accuracy,
+          and audit trail completeness. Edge cases around session
+          expiration during signing and multi-signer scenarios add risk.
+        impact: "High (3)"
+        impact_rationale: >
+          If e-signatures are invalid, filed returns may not be legally
+          binding, potentially invalidating thousands of tax filings.
+          This could delay processing, cause taxpayers to miss deadlines,
+          and create legal disputes. Non-repudiation failures undermine
+          the entire filing process.
+        risk_score: 6
+        risk_tier: "High"
+      testing_effort:
+        percentage: 12
+        justification: >
+          High risk tier requires substantial testing. Focus on legal
+          validity of signatures, integrity of the signing process,
+          and proper audit trail generation.
+        test_types:
+          - "Signature binding to document hash verification"
+          - "Timestamp accuracy and timezone handling tests"
+          - "Audit trail completeness and tamper-evidence testing"
+          - "Session expiration during signing process"
+          - "Identity verification flow testing"
+          - "Signature invalidation if document is modified post-signing"
+          - "Legal compliance verification (ESIGN Act, UETA)"
+          - "Cross-browser and cross-device signature rendering"
+          - "Concurrent signing session handling"
+
+    - id: 5
+      name: "PDF Generation of Filed Returns"
+      description: "Generation of PDF copies of completed and filed tax returns"
+      risk_classification:
+        likelihood: "Medium (2)"
+        likelihood_rationale: >
+          PDF generation libraries are mature but can produce formatting
+          issues across different form types, special characters in
+          taxpayer names, and large returns with many schedules.
+          Performance degradation under load during peak filing season
+          is a realistic concern. Data mapping errors between form
+          fields and PDF templates are a common defect category.
+        impact: "Medium (2)"
+        impact_rationale: >
+          Incorrect PDFs could misrepresent filed data, causing confusion
+          if taxpayers reference them during audits. However, the
+          authoritative record is the electronically filed data, not the
+          PDF. Missing or corrupt PDFs inconvenience taxpayers but do not
+          prevent filing. Accessibility of generated PDFs matters for
+          compliance.
+        risk_score: 4
+        risk_tier: "Medium"
+      testing_effort:
+        percentage: 7
+        justification: >
+          Medium risk warrants moderate testing. Focus on data accuracy
+          in generated PDFs and performance under load.
+        test_types:
+          - "Field-by-field data accuracy verification against filed data"
+          - "PDF rendering across all form types and schedules"
+          - "Special character handling in names and addresses"
+          - "Large return PDF generation (many schedules/attachments)"
+          - "PDF accessibility compliance (tagged PDF, screen reader)"
+          - "Concurrent PDF generation load testing"
+          - "PDF download and print fidelity testing"
+          - "Archive format and long-term readability (PDF/A compliance)"
+
+    - id: 7
+      name: "Accessibility (WCAG 2.1 AA Compliance)"
+      description: "Full WCAG 2.1 Level AA compliance across all portal features"
+      risk_classification:
+        likelihood: "High (3)"
+        likelihood_rationale: >
+          Accessibility compliance across an entire tax portal is
+          extremely challenging. Dynamic forms, complex tables, modal
+          dialogs, error handling flows, and PDF outputs all present
+          accessibility pitfalls. Development teams frequently introduce
+          accessibility regressions. The breadth of WCAG 2.1 AA criteria
+          (50 success criteria) across every page and interaction makes
+          full compliance difficult to achieve and maintain.
+        impact: "Medium (2)"
+        impact_rationale: >
+          Non-compliance excludes taxpayers with disabilities from using
+          the portal, violating Section 508 of the Rehabilitation Act
+          and potentially the ADA. Government agencies face DOJ
+          enforcement actions and lawsuits. However, alternative filing
+          methods (paper, phone) exist as fallbacks, somewhat mitigating
+          the immediate impact on individual taxpayers.
+        risk_score: 6
+        risk_tier: "High"
+      testing_effort:
+        percentage: 8
+        justification: >
+          High risk tier due to legal compliance requirements for a
+          government portal. Section 508 compliance is mandatory, not
+          optional. Testing requires specialized tools and expertise.
+        test_types:
+          - "Automated accessibility scanning (axe-core, WAVE)"
+          - "Manual screen reader testing (JAWS, NVDA, VoiceOver)"
+          - "Keyboard-only navigation testing for all flows"
+          - "Color contrast ratio verification"
+          - "Form label and error message association testing"
+          - "Focus management in dynamic content and modals"
+          - "Zoom and text resize testing (up to 200%)"
+          - "Testing with users who have disabilities (usability study)"
+          - "VPAT/ACR documentation verification"
+
+    - id: 8
+      name: "Auto-Save Draft Returns"
+      description: "Automatic periodic saving of in-progress tax return drafts"
+      risk_classification:
+        likelihood: "Medium (2)"
+        likelihood_rationale: >
+          Auto-save involves client-server synchronization with potential
+          for race conditions, conflict resolution challenges, and
+          network interruption handling. Concurrent editing from multiple
+          tabs or devices introduces complexity. However, auto-save is a
+          well-understood pattern with established implementation
+          approaches.
+        impact: "Medium (2)"
+        impact_rationale: >
+          Auto-save failures cause taxpayers to lose work in progress,
+          leading to frustration and potentially causing them to abandon
+          the portal. However, data is not permanently lost from the
+          system (only unsaved in-progress work), and taxpayers can
+          re-enter information. No legal or financial consequences
+          directly, but significant user experience impact during
+          peak filing season.
+        risk_score: 4
+        risk_tier: "Medium"
+      testing_effort:
+        percentage: 5
+        justification: >
+          Medium risk with moderate testing needs. Focus on data
+          integrity during saves and recovery scenarios.
+        test_types:
+          - "Auto-save trigger timing and frequency verification"
+          - "Network interruption during save (offline resilience)"
+          - "Concurrent session conflict resolution"
+          - "Data integrity verification after save/restore cycle"
+          - "Browser crash recovery testing"
+          - "Large form data save performance"
+          - "Save indicator UX accuracy (saved vs. saving vs. error)"
+          - "Draft expiration and cleanup testing"
+
+    - id: 9
+      name: "Multi-Language Support (English/Spanish)"
+      description: "Full portal localization in English and Spanish"
+      risk_classification:
+        likelihood: "Medium (2)"
+        likelihood_rationale: >
+          Localization for two languages is manageable but introduces
+          risks around missing translations, string interpolation errors
+          with dynamic values (dollar amounts, dates), text
+          expansion/truncation breaking layouts, and locale-specific
+          formatting (date formats, number separators). Tax terminology
+          translation requires domain expertise and can be error-prone.
+        impact: "Medium (2)"
+        impact_rationale: >
+          Incorrect translations of tax terminology could mislead
+          Spanish-speaking taxpayers into filing incorrectly. Government
+          portals serving diverse populations have obligations under
+          Executive Order 13166 for limited English proficiency access.
+          However, English remains available as a fallback, and the
+          impact is limited to the Spanish-language experience.
+        risk_score: 4
+        risk_tier: "Medium"
+      testing_effort:
+        percentage: 5
+        justification: >
+          Medium risk requires focused validation of translation
+          accuracy, especially for tax-specific terminology, and UI
+          integrity in both languages.
+        test_types:
+          - "Complete translation coverage audit (no missing strings)"
+          - "Tax terminology accuracy review by bilingual tax expert"
+          - "Dynamic value interpolation in translated strings"
+          - "Date, number, and currency format locale testing"
+          - "UI layout integrity with Spanish text expansion"
+          - "Language switching mid-session state preservation"
+          - "Right-to-left consideration for future language support"
+          - "Form field validation messages in correct language"
+
+    - id: 4
+      name: "Seasonal Holiday Banner on Homepage"
+      description: "Decorative banner displayed on homepage during holidays"
+      risk_classification:
+        likelihood: "Low (1)"
+        likelihood_rationale: >
+          A static or semi-static banner is one of the simplest UI
+          components. It involves minimal logic (date-based display
+          toggling), no external integrations, and no data processing.
+          Implementation is straightforward with standard HTML/CSS.
+        impact: "Low (1)"
+        impact_rationale: >
+          A malfunctioning holiday banner has zero effect on tax filing
+          functionality, security, or compliance. At worst, an incorrect
+          banner is a minor cosmetic issue. It does not handle any
+          user data, financial transactions, or legally significant
+          content. Even complete failure of this feature is invisible
+          to core portal functionality.
+        risk_score: 1
+        risk_tier: "Low"
+      testing_effort:
+        percentage: 1
+        justification: >
+          Minimal risk warrants minimal testing. A quick visual check
+          and date-logic verification is sufficient. Over-investing in
+          testing this feature would be poor budget allocation.
+        test_types:
+          - "Visual rendering check across major browsers"
+          - "Date-based display/hide logic verification"
+          - "Responsive design check (mobile/tablet/desktop)"
+          - "Verify banner does not obscure critical navigation"
+
+    - id: 10
+      name: "Unallocated / Contingency"
+      description: "Reserved QA budget for emergent risks, exploratory testing, and test infrastructure"
+      testing_effort:
+        percentage: 2
+        justification: >
+          A small contingency reserve for unexpected issues discovered
+          during testing, exploratory testing sessions, and maintenance
+          of test automation infrastructure.
+
+  risk_matrix_summary:
+    critical_risk_score_9:
+      features:
+        - "F1: Tax Calculation Engine (Likelihood: High, Impact: High)"
+        - "F6: Payment Gateway Integration (Likelihood: High, Impact: High)"
+      combined_testing_effort: "45%"
+
+    high_risk_score_6:
+      features:
+        - "F3: Data Encryption for PII (Likelihood: Medium, Impact: High)"
+        - "F2: E-Signature for Form Submission (Likelihood: Medium, Impact: High)"
+        - "F7: Accessibility / WCAG 2.1 AA (Likelihood: High, Impact: Medium)"
+      combined_testing_effort: "35%"
+
+    medium_risk_score_3_to_4:
+      features:
+        - "F5: PDF Generation of Filed Returns (Likelihood: Medium, Impact: Medium)"
+        - "F8: Auto-Save Draft Returns (Likelihood: Medium, Impact: Medium)"
+        - "F9: Multi-Language Support (Likelihood: Medium, Impact: Medium)"
+      combined_testing_effort: "17%"
+
+    low_risk_score_1_to_2:
+      features:
+        - "F4: Seasonal Holiday Banner (Likelihood: Low, Impact: Low)"
+      combined_testing_effort: "1%"
+
+  budget_allocation_table:
+    - feature: "F1: Tax Calculation Engine"
+      risk_score: 9
+      risk_tier: "Critical"
+      budget_pct: 25
+    - feature: "F6: Payment Gateway Integration"
+      risk_score: 9
+      risk_tier: "Critical"
+      budget_pct: 20
+    - feature: "F3: Data Encryption for PII"
+      risk_score: 6
+      risk_tier: "High"
+      budget_pct: 15
+    - feature: "F2: E-Signature for Form Submission"
+      risk_score: 6
+      risk_tier: "High"
+      budget_pct: 12
+    - feature: "F7: Accessibility (WCAG 2.1 AA)"
+      risk_score: 6
+      risk_tier: "High"
+      budget_pct: 8
+    - feature: "F5: PDF Generation"
+      risk_score: 4
+      risk_tier: "Medium"
+      budget_pct: 7
+    - feature: "F8: Auto-Save Draft Returns"
+      risk_score: 4
+      risk_tier: "Medium"
+      budget_pct: 5
+    - feature: "F9: Multi-Language Support"
+      risk_score: 4
+      risk_tier: "Medium"
+      budget_pct: 5
+    - feature: "F4: Seasonal Holiday Banner"
+      risk_score: 1
+      risk_tier: "Low"
+      budget_pct: 1
+    - feature: "Contingency / Exploratory"
+      risk_score: "N/A"
+      risk_tier: "N/A"
+      budget_pct: 2
+    - feature: "TOTAL"
+      risk_score: ""
+      risk_tier: ""
+      budget_pct: 100
+
+  visual_risk_matrix:
+    description: >
+      3x3 grid mapping each feature by Likelihood (rows) and Impact (columns).
+    matrix:
+      high_likelihood_high_impact:
+        risk_score: 9
+        features: ["F1: Tax Calculation Engine", "F6: Payment Gateway"]
+      high_likelihood_medium_impact:
+        risk_score: 6
+        features: ["F7: Accessibility (WCAG 2.1 AA)"]
+      high_likelihood_low_impact:
+        risk_score: 3
+        features: []
+      medium_likelihood_high_impact:
+        risk_score: 6
+        features: ["F3: Data Encryption for PII", "F2: E-Signature"]
+      medium_likelihood_medium_impact:
+        risk_score: 4
+        features: ["F5: PDF Generation", "F8: Auto-Save Drafts", "F9: Multi-Language"]
+      medium_likelihood_low_impact:
+        risk_score: 2
+        features: []
+      low_likelihood_high_impact:
+        risk_score: 3
+        features: []
+      low_likelihood_medium_impact:
+        risk_score: 2
+        features: []
+      low_likelihood_low_impact:
+        risk_score: 1
+        features: ["F4: Seasonal Holiday Banner"]
+
+  key_recommendations:
+    - recommendation: "Prioritize tax calculation engine testing above all else"
+      detail: >
+        As the core function of the portal with the highest risk score,
+        the tax calculation engine should receive the most testing
+        resources. Invest in comprehensive automated regression suites
+        that can be re-run each tax year when rules change.
+
+    - recommendation: "Establish continuous security testing for PII protection"
+      detail: >
+        Data encryption testing should not be a one-time activity.
+        Integrate automated security scanning into the CI/CD pipeline
+        and conduct periodic penetration tests, especially before each
+        filing season.
+
+    - recommendation: "Test payment gateway with production-like conditions"
+      detail: >
+        Use the payment processor's sandbox environment extensively.
+        Simulate peak-season load (April 15 deadline) to verify the
+        payment system can handle concurrent transactions without
+        data loss or double-charging.
+
+    - recommendation: "Engage accessibility testing early and continuously"
+      detail: >
+        Accessibility defects found late are expensive to fix. Integrate
+        automated accessibility checks into the development workflow
+        and conduct manual assistive technology testing each sprint.
+
+    - recommendation: "Minimize investment in low-risk decorative features"
+      detail: >
+        The seasonal holiday banner requires only basic smoke testing.
+        Do not allocate specialized QA resources to cosmetic features
+        when critical financial and security features need coverage.
+
+    - recommendation: "Plan for peak filing season load testing"
+      detail: >
+        All features rated Medium or above should be load-tested under
+        conditions simulating April 15 filing deadline traffic volumes.
+        This is especially critical for payment gateway, auto-save,
+        and PDF generation.

@@ -1,0 +1,1883 @@
+# Valid Guard Test Plan
+# Generated: 2026-03-14T00:00:00Z
+# Source: natural language
+#
+# =============================================================================
+# 3x3 Risk Matrix Classification (Likelihood x Impact)
+# =============================================================================
+#
+#                    |  Low Impact      |  Medium Impact         |  High Impact
+# -------------------+------------------+------------------------+---------------------------
+# High Likelihood    |  (9) Multi-lang  |  (7) Accessibility     |  (1) Tax Calc Engine
+#                    |                  |  (8) Auto-save Draft   |  (3) Data Encryption (PII)
+# -------------------+------------------+------------------------+---------------------------
+# Medium Likelihood  |  (4) Holiday     |  (5) PDF Generation    |  (6) Payment Gateway
+#                    |     Banner       |                        |  (2) E-signature
+# -------------------+------------------+------------------------+---------------------------
+# Low Likelihood     |                  |                        |
+# -------------------+------------------+------------------------+---------------------------
+#
+# QA Budget Allocation:
+#   (1) Tax Calculation Engine      — 22%  (high risk, core business)
+#   (3) Data Encryption for PII     — 18%  (high risk, compliance/security)
+#   (6) Payment Gateway Integration — 15%  (high risk, financial)
+#   (2) E-signature                 — 12%  (high risk, legal/compliance)
+#   (7) Accessibility (WCAG 2.1 AA) — 10%  (medium risk, compliance)
+#   (8) Auto-save Draft Returns     —  8%  (medium risk, data loss potential)
+#   (5) PDF Generation              —  7%  (medium risk, user-facing output)
+#   (9) Multi-language Support      —  5%  (medium risk, usability)
+#   (4) Seasonal Holiday Banner     —  3%  (low risk, cosmetic)
+# =============================================================================
+
+feature: "Government Tax Filing Portal — Risk-Based Test Plan"
+
+feature_description: >
+  A government tax filing portal comprising 9 features classified into a 3x3 risk
+  matrix (likelihood x impact). Features include tax calculation engine, e-signature,
+  PII data encryption, seasonal holiday banner, PDF generation, payment gateway,
+  WCAG 2.1 AA accessibility, auto-save draft returns, and multi-language support.
+  Each feature is risk-assessed across Impact, Frequency, Consequence, and Detectability
+  dimensions, with QA budget allocation proportional to risk.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: "User prompt — QA lead risk matrix classification for 9 tax filing portal features"
+
+scenarios:
+  # ===========================================================================
+  # FEATURE 1: Tax Calculation Engine (Income Tax, Deductions, Credits)
+  # Risk Matrix Position: High Likelihood x High Impact
+  # QA Budget: 22%
+  # ===========================================================================
+
+  - name: "F1-S01: Correct income tax computation for standard single filer"
+    description: >
+      Verify that the tax calculation engine correctly computes federal income tax
+      for a single filer with W-2 income, applying the progressive tax bracket
+      schedule (10%, 12%, 22%, 24%, 32%, 35%, 37%).
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (core business logic — incorrect tax amounts cause financial harm).
+      Frequency: 3 (every single user triggers tax calculation on every filing).
+      Consequence: 3 (financial loss, IRS compliance violations, potential legal liability).
+      Detectability: 3 (silent failure — user trusts the portal's math, may not verify).
+      Average: 3.0 → high.
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+      - decision_table
+    technique_rationale: >
+      EP partitions income levels into tax brackets; BVA tests bracket boundaries
+      (e.g., $11,600 boundary between 10% and 12%); DT captures bracket-filing status
+      combinations.
+    preconditions:
+      - "Tax year rates and brackets are configured for current filing year"
+      - "User has entered valid gross income"
+    examples:
+      - input:
+          filing_status: "single"
+          gross_income: 50000
+          standard_deduction: 14600
+          taxable_income: 35400
+        expected:
+          tax_owed: 4002
+          effective_rate: "8.0%"
+        description: "Single filer with $50K income — spans 10% and 12% brackets"
+      - input:
+          filing_status: "single"
+          gross_income: 11600
+          standard_deduction: 14600
+          taxable_income: 0
+        expected:
+          tax_owed: 0
+          effective_rate: "0%"
+        description: "Income at or below standard deduction — zero tax owed"
+      - input:
+          filing_status: "single"
+          gross_income: 615351
+          standard_deduction: 14600
+          taxable_income: 600751
+        expected:
+          bracket: "37%"
+          tax_exceeds_threshold: true
+        description: "Income crossing into highest 37% bracket boundary"
+    decision_table:
+      conditions:
+        - "Filing status (single/married_joint/married_separate/head_of_household)"
+        - "Taxable income bracket"
+        - "Standard vs itemized deduction"
+      actions:
+        - "Apply correct tax rate schedule"
+        - "Compute progressive tax"
+        - "Apply correct standard deduction amount"
+      rules:
+        - description: "Single filer, 10% bracket, standard deduction"
+          condition_values:
+            filing_status: "single"
+            taxable_income_bracket: "10%"
+            deduction_type: "standard"
+          expected_actions:
+            tax_rate: "10%"
+            deduction_amount: 14600
+        - description: "Married filing jointly, 22% bracket, itemized deduction"
+          condition_values:
+            filing_status: "married_joint"
+            taxable_income_bracket: "22%"
+            deduction_type: "itemized"
+          expected_actions:
+            tax_rate: "22%"
+            deduction_amount: "varies"
+        - description: "Head of household, 12% bracket, standard deduction"
+          condition_values:
+            filing_status: "head_of_household"
+            taxable_income_bracket: "12%"
+            deduction_type: "standard"
+          expected_actions:
+            tax_rate: "12%"
+            deduction_amount: 21900
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "tax-calculation"
+      - "core-business"
+      - "high-risk"
+      - "compliance"
+
+  - name: "F1-S02: Tax bracket boundary transitions"
+    description: >
+      Verify correct tax computation at exact bracket boundary values where
+      taxable income transitions from one marginal rate to the next. Off-by-one
+      errors here cause incorrect tax for millions of filers.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 (bracket misclassification directly changes tax owed).
+      Frequency: 3 (many filers have income near bracket boundaries).
+      Consequence: 3 (financial loss, IRS audit risk, compliance violation).
+      Detectability: 3 (small dollar differences are invisible to filers).
+      Average: 3.0 → high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA is essential for testing at exact bracket thresholds (boundary - 1,
+      boundary, boundary + 1). EP ensures each bracket class is represented.
+    preconditions:
+      - "Tax bracket schedule is loaded for the correct filing year"
+    examples:
+      - input:
+          filing_status: "single"
+          taxable_income: 11600
+        expected:
+          marginal_rate: "10%"
+          tax_owed: 1160
+        description: "Exact top of 10% bracket for single filer"
+      - input:
+          filing_status: "single"
+          taxable_income: 11601
+        expected:
+          marginal_rate: "12%"
+          tax_on_first_11600: 1160
+          tax_on_remainder: 0.12
+        description: "One dollar into 12% bracket — boundary + 1"
+      - input:
+          filing_status: "single"
+          taxable_income: 11599
+        expected:
+          marginal_rate: "10%"
+        description: "One dollar below 12% bracket — boundary - 1"
+      - input:
+          filing_status: "single"
+          taxable_income: 0
+        expected:
+          tax_owed: 0
+        description: "Zero taxable income boundary"
+      - input:
+          filing_status: "single"
+          taxable_income: -1
+        expected:
+          tax_owed: 0
+          validation_error: true
+        description: "Negative taxable income — invalid boundary"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "tax-calculation"
+      - "boundary"
+      - "high-risk"
+
+  - name: "F1-S03: Deduction calculation — standard vs itemized"
+    description: >
+      Verify correct computation when taxpayer chooses standard deduction vs.
+      itemized deductions. Ensure system correctly applies the higher of the
+      two when auto-selecting, and handles itemized categories (mortgage interest,
+      state/local tax SALT cap, charitable contributions).
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 (deductions directly reduce tax liability — errors affect every filer).
+      Frequency: 3 (every filer must choose or be auto-assigned a deduction type).
+      Consequence: 3 (over-deduction or under-deduction both cause compliance issues).
+      Detectability: 2 (some filers may notice unexpectedly high/low refunds).
+      Average: 2.75 → high.
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+      - boundary_value
+      - cause_effect
+    technique_rationale: >
+      DT captures combinations of deduction types and categories; EP partitions
+      deduction types; BVA tests SALT cap ($10K limit); CE maps causal logic
+      (itemized > standard → use itemized).
+    preconditions:
+      - "User has entered income and deduction details"
+      - "SALT cap is configured at $10,000"
+    examples:
+      - input:
+          filing_status: "single"
+          standard_deduction: 14600
+          itemized_total: 20000
+          mortgage_interest: 12000
+          salt: 8000
+        expected:
+          deduction_used: "itemized"
+          deduction_amount: 20000
+        description: "Itemized exceeds standard — itemized auto-selected"
+      - input:
+          filing_status: "single"
+          standard_deduction: 14600
+          itemized_total: 10000
+        expected:
+          deduction_used: "standard"
+          deduction_amount: 14600
+        description: "Itemized below standard — standard auto-selected"
+      - input:
+          salt_claimed: 15000
+        expected:
+          salt_applied: 10000
+          salt_capped: true
+        description: "SALT deduction capped at $10,000"
+    decision_table:
+      conditions:
+        - "Itemized total > Standard deduction"
+        - "SALT claimed > $10,000 cap"
+        - "Charitable contributions present"
+        - "Mortgage interest present"
+      actions:
+        - "Select deduction type"
+        - "Apply SALT cap"
+        - "Compute total deduction"
+      rules:
+        - description: "Itemized exceeds standard, SALT over cap"
+          condition_values:
+            itemized_gt_standard: true
+            salt_over_cap: true
+            charitable: true
+            mortgage: true
+          expected_actions:
+            deduction_type: "itemized"
+            salt_capped: true
+            total_deduction: "sum of capped components"
+        - description: "Itemized below standard, no SALT issue"
+          condition_values:
+            itemized_gt_standard: false
+            salt_over_cap: false
+            charitable: false
+            mortgage: false
+          expected_actions:
+            deduction_type: "standard"
+            salt_capped: false
+            total_deduction: "standard deduction amount"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "tax-calculation"
+      - "deductions"
+      - "high-risk"
+      - "compliance"
+
+  - name: "F1-S04: Tax credit application (Child Tax Credit, EITC, education)"
+    description: >
+      Verify that tax credits are correctly applied after tax computation.
+      Refundable credits (EITC, Additional Child Tax Credit) can reduce tax below
+      zero resulting in a refund; non-refundable credits cannot. Phase-out
+      thresholds must be correctly enforced.
+    type: combinatorial
+    risk: high
+    risk_rationale: >
+      Impact: 3 (credits are often thousands of dollars — errors significantly affect filers).
+      Frequency: 3 (majority of filers claim at least one credit).
+      Consequence: 3 (incorrect credits trigger IRS audits and clawbacks).
+      Detectability: 3 (silent — filers trust the computed refund amount).
+      Average: 3.0 → high.
+    techniques:
+      - decision_table
+      - boundary_value
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      DT covers credit eligibility combinations; BVA tests income phase-out
+      thresholds; EP partitions credit types (refundable vs non-refundable);
+      CE maps eligibility conditions to credit amounts.
+    preconditions:
+      - "Tax liability has been computed"
+      - "Dependent and income information is available"
+    examples:
+      - input:
+          tax_owed_before_credits: 5000
+          child_tax_credit_eligible: 2
+          children_ages: [5, 10]
+          agi: 75000
+        expected:
+          child_tax_credit: 4000
+          tax_after_credits: 1000
+        description: "Two qualifying children — $2K credit each, non-refundable portion"
+      - input:
+          agi: 200001
+          filing_status: "single"
+          child_tax_credit_eligible: 1
+        expected:
+          credit_phaseout_applies: true
+          credit_reduced: true
+        description: "AGI above phase-out threshold — credit begins reducing"
+      - input:
+          tax_owed_before_credits: 500
+          eitc_eligible: true
+          eitc_amount: 3000
+        expected:
+          tax_after_credits: 0
+          refund_from_eitc: 2500
+        description: "Refundable EITC exceeds tax liability — generates refund"
+    decision_table:
+      conditions:
+        - "Has qualifying children"
+        - "AGI below phase-out threshold"
+        - "Credit type (refundable/non-refundable)"
+        - "Tax liability > 0"
+      actions:
+        - "Apply credit amount"
+        - "Apply phase-out reduction"
+        - "Generate refund (if refundable and credit > liability)"
+      rules:
+        - description: "Qualifying children, below threshold, non-refundable, has liability"
+          condition_values:
+            has_children: true
+            below_phaseout: true
+            credit_type: "non-refundable"
+            has_liability: true
+          expected_actions:
+            apply_credit: "full amount"
+            phaseout: "none"
+            refund: "no"
+        - description: "Qualifying children, above threshold, refundable"
+          condition_values:
+            has_children: true
+            below_phaseout: false
+            credit_type: "refundable"
+            has_liability: true
+          expected_actions:
+            apply_credit: "reduced amount"
+            phaseout: "applied"
+            refund: "possible"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "tax-calculation"
+      - "credits"
+      - "high-risk"
+      - "compliance"
+
+  - name: "F1-S05: Tax calculation with invalid or missing inputs"
+    description: >
+      Verify the tax calculation engine gracefully handles missing, malformed,
+      or nonsensical inputs: null income, negative values, non-numeric strings,
+      extremely large numbers, and incomplete form data.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (corrupt calculations from bad input could be filed to IRS).
+      Frequency: 2 (not every user enters bad data, but form errors are common).
+      Consequence: 3 (garbage-in-garbage-out could produce legally binding incorrect filings).
+      Detectability: 2 (validation errors should be visible, but silent corruption is the risk).
+      Average: 2.5 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      EP partitions inputs into valid/invalid classes; EG anticipates common data
+      entry errors (nulls, negatives, overflow); BVA tests max income value limits.
+    preconditions:
+      - "User is on the tax computation form"
+    examples:
+      - input:
+          gross_income: null
+        expected:
+          validation_error: "Income is required"
+          calculation_blocked: true
+        description: "Null income should block calculation"
+      - input:
+          gross_income: -50000
+        expected:
+          validation_error: "Income cannot be negative"
+        description: "Negative income rejected"
+      - input:
+          gross_income: "abc"
+        expected:
+          validation_error: "Income must be a number"
+        description: "Non-numeric input rejected"
+      - input:
+          gross_income: 999999999999
+        expected:
+          validation_error: "Income exceeds maximum allowed value"
+        description: "Extremely large income value boundary"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "tax-calculation"
+      - "error-handling"
+      - "high-risk"
+      - "input-validation"
+
+  - name: "F1-S06: Tax calculation rounding and precision"
+    description: >
+      Verify that all monetary calculations use proper rounding (IRS requires
+      rounding to whole dollars on filed returns) and that floating-point
+      precision errors do not accumulate across bracket computations.
+    type: edge_case
+    risk: high
+    risk_rationale: >
+      Impact: 3 (rounding errors on tax returns are compliance violations).
+      Frequency: 3 (every calculation involves rounding).
+      Consequence: 2 (small rounding errors unlikely to cause large financial harm).
+      Detectability: 3 (penny-level errors are invisible to users).
+      Average: 2.75 → high.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      BVA tests values that produce half-penny boundaries requiring rounding decisions;
+      EG anticipates floating-point precision issues common in financial software.
+    preconditions:
+      - "Tax calculation engine is processing monetary values"
+    examples:
+      - input:
+          taxable_income: 33333
+          rate: 0.12
+        expected:
+          raw_tax: 3999.96
+          rounded_tax: 4000
+        description: "Tax amount rounds up to nearest dollar per IRS rules"
+      - input:
+          taxable_income: 33334
+          rate: 0.12
+        expected:
+          raw_tax: 4000.08
+          rounded_tax: 4000
+        description: "Tax amount rounds down"
+      - input:
+          computation: "0.1 + 0.2"
+        expected:
+          result_not: 0.30000000000000004
+          result: 0.30
+        description: "Floating-point precision handled correctly"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "tax-calculation"
+      - "precision"
+      - "high-risk"
+      - "edge-case"
+
+  # ===========================================================================
+  # FEATURE 2: E-signature for Form Submission
+  # Risk Matrix Position: Medium Likelihood x High Impact
+  # QA Budget: 12%
+  # ===========================================================================
+
+  - name: "F2-S01: Successful e-signature application to tax return"
+    description: >
+      Verify that a valid e-signature (PIN-based or identity-verified) is
+      successfully applied to the tax return, creating a legally binding
+      submission. The signature must be timestamped, associated with the
+      filer's identity, and stored as an immutable audit record.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (e-signature creates a legally binding document — failure means invalid filing).
+      Frequency: 2 (each filer signs once per filing, not repeated action).
+      Consequence: 3 (unsigned returns are rejected by IRS — compliance failure).
+      Detectability: 2 (user sees confirmation, but backend recording could silently fail).
+      Average: 2.5 → high.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      ST models the return's lifecycle (draft → signed → submitted); EP partitions
+      signature types (PIN, identity-verified, prior-year AGI); EG anticipates
+      signature tampering and replay attacks.
+    preconditions:
+      - "Tax return is complete and validated"
+      - "User identity has been verified"
+    examples:
+      - input:
+          signature_method: "5-digit PIN"
+          pin: "12345"
+          identity_verified: true
+          return_complete: true
+        expected:
+          signature_applied: true
+          timestamp_recorded: true
+          audit_trail_created: true
+        description: "Valid PIN-based e-signature on complete return"
+      - input:
+          signature_method: "prior_year_agi"
+          agi_match: true
+        expected:
+          signature_applied: true
+          identity_confirmed: true
+        description: "Prior-year AGI identity verification succeeds"
+    state_transition:
+      states:
+        - "draft"
+        - "validated"
+        - "signature_pending"
+        - "signed"
+        - "submitted"
+        - "rejected"
+      transitions:
+        - from: "draft"
+          to: "validated"
+          trigger: "Return passes all validation checks"
+          guard: "All required fields populated"
+        - from: "validated"
+          to: "signature_pending"
+          trigger: "User initiates e-signature"
+          guard: "Identity verification started"
+        - from: "signature_pending"
+          to: "signed"
+          trigger: "Valid PIN or identity verification provided"
+          guard: "Signature credentials verified"
+        - from: "signed"
+          to: "submitted"
+          trigger: "User confirms submission"
+          guard: "Signature is valid and timestamped"
+        - from: "signature_pending"
+          to: "rejected"
+          trigger: "Invalid PIN or failed identity verification"
+          guard: "Maximum retry attempts exceeded"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "e-signature"
+      - "legal-compliance"
+      - "high-risk"
+
+  - name: "F2-S02: E-signature with invalid or expired credentials"
+    description: >
+      Verify that the system rejects invalid PINs, expired identity tokens,
+      and mismatched prior-year AGI values, preventing unauthorized signatures
+      on tax returns.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (accepting an invalid signature creates a fraudulent filing).
+      Frequency: 2 (some users will mistype PINs or have expired tokens).
+      Consequence: 3 (fraudulent or unauthorized filings have severe legal consequences).
+      Detectability: 2 (user sees rejection, but false acceptance is silent).
+      Average: 2.5 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      EP partitions credential types (valid/invalid/expired/revoked); EG anticipates
+      replay attacks and brute-force PIN guessing; BVA tests PIN length boundaries
+      and retry count limits.
+    preconditions:
+      - "User is at the e-signature step"
+    examples:
+      - input:
+          pin: "00000"
+          valid_pin: "12345"
+        expected:
+          signature_rejected: true
+          error_message: "Invalid PIN"
+          remaining_attempts: 2
+        description: "Wrong PIN entered — rejection with retry counter"
+      - input:
+          pin_attempts: 3
+        expected:
+          account_locked: true
+          lockout_duration: "30 minutes"
+        description: "Maximum PIN attempts exceeded — lockout enforced"
+      - input:
+          identity_token_expired: true
+        expected:
+          signature_rejected: true
+          error_message: "Session expired, please re-verify identity"
+        description: "Expired identity verification token"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "e-signature"
+      - "security"
+      - "high-risk"
+      - "error-handling"
+
+  - name: "F2-S03: E-signature non-repudiation and audit trail"
+    description: >
+      Verify that once an e-signature is applied, the system creates an
+      immutable, timestamped audit record that cannot be altered. The filer
+      cannot later deny having signed the return.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (non-repudiation is a legal requirement for e-filed returns).
+      Frequency: 2 (audit trail created once per signature).
+      Consequence: 3 (without audit trail, IRS cannot prove the filer signed).
+      Detectability: 3 (audit trail failures are invisible until a dispute arises).
+      Average: 2.75 → high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST verifies the signed state cannot transition back to unsigned;
+      EG anticipates tampering, deletion, and time manipulation attacks.
+    preconditions:
+      - "E-signature has been successfully applied"
+    examples:
+      - input:
+          action: "attempt to modify return after signing"
+        expected:
+          modification_blocked: true
+          error_message: "Cannot modify a signed return"
+        description: "Signed return is immutable"
+      - input:
+          action: "query audit log for signature"
+        expected:
+          audit_record_present: true
+          fields_present:
+            - "signer_identity"
+            - "timestamp"
+            - "ip_address"
+            - "document_hash"
+        description: "Audit trail contains all required non-repudiation fields"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "e-signature"
+      - "non-repudiation"
+      - "security"
+      - "high-risk"
+
+  # ===========================================================================
+  # FEATURE 3: Data Encryption for PII (SSN, Income)
+  # Risk Matrix Position: High Likelihood x High Impact
+  # QA Budget: 18%
+  # ===========================================================================
+
+  - name: "F3-S01: PII encryption at rest"
+    description: >
+      Verify that all personally identifiable information (SSN, income figures,
+      bank account numbers) is encrypted at rest using AES-256 or equivalent.
+      Data must never be stored in plaintext in any database, log file, or
+      temporary storage.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (PII exposure is a catastrophic security breach under federal law).
+      Frequency: 3 (every single filer's data must be encrypted — 100% of records).
+      Consequence: 3 (data breach triggers FISMA/FedRAMP violations, lawsuits, identity theft).
+      Detectability: 3 (plaintext storage is silent until a breach occurs).
+      Average: 3.0 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions PII types (SSN, income, bank info) and storage locations
+      (database, cache, logs, temp files); EG anticipates common encryption
+      failures (key leakage, algorithm downgrade, log exposure).
+    preconditions:
+      - "System has stored user PII data"
+      - "Encryption keys are managed by a key management service"
+    examples:
+      - input:
+          data_type: "SSN"
+          value: "123-45-6789"
+          storage: "database"
+        expected:
+          stored_value_encrypted: true
+          plaintext_not_present: true
+          encryption_algorithm: "AES-256"
+        description: "SSN stored encrypted in database — plaintext never appears"
+      - input:
+          data_type: "SSN"
+          value: "123-45-6789"
+          storage: "application_logs"
+        expected:
+          plaintext_not_in_logs: true
+          log_contains_masked: "***-**-6789"
+        description: "SSN never appears in plaintext in application logs"
+      - input:
+          data_type: "income"
+          value: 85000
+          storage: "redis_cache"
+        expected:
+          cached_value_encrypted: true
+        description: "Income data encrypted in cache layer"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "encryption"
+      - "pii"
+      - "security"
+      - "high-risk"
+      - "compliance"
+
+  - name: "F3-S02: PII encryption in transit (TLS)"
+    description: >
+      Verify that all data transmission between client and server uses TLS 1.2+
+      with strong cipher suites. No PII should be transmitted over unencrypted
+      channels. Verify HSTS headers and certificate pinning.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (intercepted PII in transit enables identity theft).
+      Frequency: 3 (every HTTP request/response carries potential PII).
+      Consequence: 3 (man-in-the-middle exposure of SSNs/income is catastrophic).
+      Detectability: 3 (users cannot tell if TLS is improperly configured).
+      Average: 3.0 → high.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions connection types (TLS 1.2, TLS 1.3, no TLS, weak cipher);
+      EG anticipates protocol downgrade attacks and certificate issues.
+    preconditions:
+      - "Application is deployed with TLS certificates"
+    examples:
+      - input:
+          connection: "TLS 1.3"
+          cipher: "TLS_AES_256_GCM_SHA384"
+        expected:
+          connection_accepted: true
+          data_encrypted: true
+        description: "Strong TLS 1.3 connection accepted"
+      - input:
+          connection: "TLS 1.0"
+        expected:
+          connection_rejected: true
+          error: "Protocol version not supported"
+        description: "Legacy TLS 1.0 connection rejected"
+      - input:
+          connection: "HTTP (no TLS)"
+        expected:
+          redirect_to_https: true
+          hsts_header_present: true
+        description: "Plain HTTP redirected to HTTPS with HSTS"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "encryption"
+      - "tls"
+      - "security"
+      - "high-risk"
+
+  - name: "F3-S03: Encryption key management and rotation"
+    description: >
+      Verify that encryption keys are stored in a hardware security module (HSM)
+      or cloud KMS, never in source code or environment variables. Key rotation
+      must re-encrypt existing data without downtime or data loss.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (key compromise means all encrypted PII is exposed).
+      Frequency: 1 (key rotation is infrequent — monthly or quarterly).
+      Consequence: 3 (total breach of all encrypted records).
+      Detectability: 3 (key leakage is silent until exploited).
+      Average: 2.5 → high.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST models key lifecycle (active → rotating → retired → destroyed);
+      EG anticipates key leakage vectors and rotation failures.
+    preconditions:
+      - "Key management service is configured"
+      - "Data has been encrypted with current key version"
+    examples:
+      - input:
+          action: "rotate encryption key"
+          current_key_version: "v3"
+          new_key_version: "v4"
+        expected:
+          existing_data_re_encrypted: true
+          old_key_deactivated: true
+          data_accessible: true
+          downtime: 0
+        description: "Key rotation re-encrypts data with zero downtime"
+      - input:
+          action: "access data with retired key"
+        expected:
+          access_denied: true
+          error: "Key version retired"
+        description: "Retired key cannot decrypt data"
+    state_transition:
+      states:
+        - "active"
+        - "rotating"
+        - "retired"
+        - "destroyed"
+      transitions:
+        - from: "active"
+          to: "rotating"
+          trigger: "Key rotation initiated"
+          guard: "New key generated and validated"
+        - from: "rotating"
+          to: "active"
+          trigger: "All data re-encrypted with new key"
+          guard: "Re-encryption complete and verified"
+        - from: "active"
+          to: "retired"
+          trigger: "Key rotation policy triggers retirement"
+          guard: "No data encrypted with this key version"
+        - from: "retired"
+          to: "destroyed"
+          trigger: "Key retention period expired"
+          guard: "Compliance retention requirements met"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "encryption"
+      - "key-management"
+      - "security"
+      - "high-risk"
+
+  - name: "F3-S04: PII data masking in UI and API responses"
+    description: >
+      Verify that PII is masked in all user-facing displays (SSN shown as
+      ***-**-6789) and API responses. Only the minimum necessary PII should
+      be exposed, and full values should require explicit user action.
+    type: security
+    risk: high
+    risk_rationale: >
+      Impact: 3 (unmasked PII on screen enables shoulder-surfing and screen capture theft).
+      Frequency: 3 (every page load displaying PII must mask it).
+      Consequence: 2 (exposure limited to single user session, not mass breach).
+      Detectability: 1 (masking failures are visually obvious to the user).
+      Average: 2.25 → medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions display contexts (UI, API response, PDF, email notification);
+      EG anticipates masking bypass via API manipulation or developer tools.
+    preconditions:
+      - "User is viewing a page that contains PII"
+    examples:
+      - input:
+          field: "SSN"
+          full_value: "123-45-6789"
+          display_context: "return_summary_page"
+        expected:
+          displayed_value: "***-**-6789"
+        description: "SSN masked on return summary page"
+      - input:
+          field: "SSN"
+          api_endpoint: "GET /api/returns/123"
+        expected:
+          response_ssn: "***-**-6789"
+          full_ssn_not_in_response: true
+        description: "SSN masked in API response"
+      - input:
+          action: "user clicks 'Show full SSN'"
+          mfa_completed: true
+        expected:
+          full_ssn_displayed_temporarily: true
+          auto_hide_after_seconds: 10
+        description: "Full SSN shown only after MFA, auto-hides"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "encryption"
+      - "masking"
+      - "pii"
+      - "medium-risk"
+
+  # ===========================================================================
+  # FEATURE 4: Seasonal Holiday Banner on Homepage
+  # Risk Matrix Position: Medium Likelihood x Low Impact
+  # QA Budget: 3%
+  # ===========================================================================
+
+  - name: "F4-S01: Holiday banner displays correctly during configured dates"
+    description: >
+      Verify that the seasonal holiday banner appears on the homepage during
+      the configured date range and does not appear outside of it. Banner should
+      render correctly across supported browsers and screen sizes.
+    type: happy_path
+    risk: low
+    risk_rationale: >
+      Impact: 1 (cosmetic display element — no effect on tax filing functionality).
+      Frequency: 1 (only displays during holiday periods — a few weeks per year).
+      Consequence: 1 (missing banner causes zero functional harm).
+      Detectability: 1 (immediately visible whether banner is present or not).
+      Average: 1.0 → low.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA tests date boundaries (day before holiday, first day, last day, day after);
+      EP partitions time periods (before, during, after holiday).
+    preconditions:
+      - "Holiday banner is configured with start and end dates"
+    examples:
+      - input:
+          current_date: "2026-12-25"
+          banner_start: "2026-12-20"
+          banner_end: "2026-12-31"
+        expected:
+          banner_visible: true
+          banner_content: "Holiday hours notice"
+        description: "Banner visible during configured holiday period"
+      - input:
+          current_date: "2026-12-19"
+          banner_start: "2026-12-20"
+        expected:
+          banner_visible: false
+        description: "Banner not visible one day before start — boundary"
+      - input:
+          current_date: "2027-01-01"
+          banner_end: "2026-12-31"
+        expected:
+          banner_visible: false
+        description: "Banner not visible one day after end — boundary"
+    test_ref: ""
+    status: uncovered
+    priority: 5
+    tags:
+      - "holiday-banner"
+      - "ui"
+      - "low-risk"
+      - "cosmetic"
+
+  - name: "F4-S02: Holiday banner does not interfere with critical functionality"
+    description: >
+      Verify that the banner overlay does not obstruct critical UI elements
+      (login button, form submission, error messages) and can be dismissed.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1 (banner is a non-functional element).
+      Frequency: 1 (only during holiday periods).
+      Consequence: 2 (could block critical controls if poorly positioned — slight escalation).
+      Detectability: 1 (immediately visible if it blocks something).
+      Average: 1.25 → low.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      EG anticipates UI overlay conflicts and z-index issues from experience
+      with banner implementations.
+    preconditions:
+      - "Holiday banner is actively displayed"
+    examples:
+      - input:
+          banner_displayed: true
+          action: "click login button"
+        expected:
+          login_button_accessible: true
+          banner_does_not_overlap: true
+        description: "Login button remains clickable when banner is shown"
+      - input:
+          action: "dismiss banner"
+        expected:
+          banner_hidden: true
+          page_content_unaffected: true
+        description: "Banner can be dismissed by user"
+    test_ref: ""
+    status: uncovered
+    priority: 5
+    tags:
+      - "holiday-banner"
+      - "ui"
+      - "low-risk"
+
+  # ===========================================================================
+  # FEATURE 5: PDF Generation of Filed Returns
+  # Risk Matrix Position: Medium Likelihood x Medium Impact
+  # QA Budget: 7%
+  # ===========================================================================
+
+  - name: "F5-S01: Accurate PDF generation matching filed return data"
+    description: >
+      Verify that the generated PDF exactly matches the data submitted in the
+      tax return. All income figures, deductions, credits, personal information,
+      and computed tax amounts must match the database record.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (PDF is a record copy — does not affect the actual filing, but filer relies on it).
+      Frequency: 2 (most filers download their PDF, but it is a one-time action per filing).
+      Consequence: 2 (inaccurate PDF could cause confusion but the actual IRS filing is separate).
+      Detectability: 2 (filer may or may not compare PDF to online view).
+      Average: 2.0 → medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions return types (simple W-2, self-employment, multiple income sources);
+      EG anticipates data mapping errors and character encoding issues in PDF rendering.
+    preconditions:
+      - "Tax return has been filed and accepted"
+    examples:
+      - input:
+          return_type: "1040"
+          gross_income: 75000
+          deductions: 14600
+          tax_owed: 8240
+        expected:
+          pdf_generated: true
+          pdf_income_matches: 75000
+          pdf_deductions_matches: 14600
+          pdf_tax_matches: 8240
+        description: "PDF data matches filed return exactly"
+      - input:
+          return_type: "1040"
+          filer_name: "Jose Garcia-Lopez"
+        expected:
+          pdf_name_correct: true
+          special_characters_rendered: true
+        description: "Names with hyphens and accented characters render correctly"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "pdf-generation"
+      - "medium-risk"
+      - "data-integrity"
+
+  - name: "F5-S02: PDF generation for edge case returns"
+    description: >
+      Verify PDF generation handles edge cases: returns with many dependents
+      (overflow to additional pages), extremely large income values, special
+      characters in names, and amended returns.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (incorrect PDF for edge cases affects a subset of filers).
+      Frequency: 1 (edge cases are rare by definition).
+      Consequence: 2 (filer gets a malformed document but actual filing unaffected).
+      Detectability: 1 (visual PDF issues are immediately apparent).
+      Average: 1.5 → medium.
+    techniques:
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      BVA tests dependent count boundaries that trigger page overflow;
+      EG anticipates rendering failures with large numbers and Unicode.
+    preconditions:
+      - "Return with edge case data has been filed"
+    examples:
+      - input:
+          dependents_count: 15
+        expected:
+          pdf_pages: ">1"
+          all_dependents_listed: true
+          overflow_page_generated: true
+        description: "Many dependents overflow to additional PDF pages"
+      - input:
+          income: 99999999
+        expected:
+          number_formatted: true
+          no_field_overflow: true
+        description: "Very large income value fits in PDF field without overflow"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "pdf-generation"
+      - "edge-case"
+      - "medium-risk"
+
+  - name: "F5-S03: PDF security — no PII leakage in metadata"
+    description: >
+      Verify that the generated PDF does not leak PII in file metadata (author,
+      title, keywords), embedded JavaScript, or form fields that might expose
+      SSNs or income to unauthorized viewers.
+    type: security
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (PII in metadata is a secondary exposure vector).
+      Frequency: 2 (every PDF generation could leak metadata).
+      Consequence: 2 (metadata PII leakage is less severe than database breach).
+      Detectability: 3 (metadata is invisible to casual users).
+      Average: 2.25 → medium.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      EG anticipates metadata leakage, embedded JavaScript in PDFs, and
+      unintended form field exposure — common PDF security pitfalls.
+    preconditions:
+      - "PDF has been generated for a filed return"
+    examples:
+      - input:
+          action: "inspect PDF metadata"
+        expected:
+          author_field_generic: true
+          no_ssn_in_metadata: true
+          no_embedded_javascript: true
+        description: "PDF metadata does not contain PII or active content"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "pdf-generation"
+      - "security"
+      - "medium-risk"
+
+  # ===========================================================================
+  # FEATURE 6: Payment Gateway Integration (Pay Owed Taxes)
+  # Risk Matrix Position: Medium Likelihood x High Impact
+  # QA Budget: 15%
+  # ===========================================================================
+
+  - name: "F6-S01: Successful tax payment via credit/debit card"
+    description: >
+      Verify that a taxpayer can successfully pay owed taxes via credit or
+      debit card through the integrated payment gateway. Payment amount must
+      exactly match the computed tax owed. Confirmation number must be returned.
+    type: happy_path
+    risk: high
+    risk_rationale: >
+      Impact: 3 (payment processing involves real money — errors cause financial harm).
+      Frequency: 2 (not all filers owe taxes, but those who do rely on this).
+      Consequence: 3 (double-charging, under-payment, or lost payments have direct financial impact).
+      Detectability: 2 (confirmation number provides some visibility, but backend errors may be silent).
+      Average: 2.5 → high.
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      ST models payment lifecycle (initiated → processing → completed/failed);
+      EP partitions payment methods (credit, debit, ACH); EG anticipates
+      gateway timeouts, double charges, and partial failures.
+    preconditions:
+      - "Tax return shows amount owed > $0"
+      - "Payment gateway is configured and accessible"
+    examples:
+      - input:
+          amount_owed: 5000
+          payment_method: "credit_card"
+          card_number: "4111111111111111"
+          expiry: "12/27"
+          cvv: "123"
+        expected:
+          payment_status: "completed"
+          confirmation_number_returned: true
+          amount_charged: 5000
+          irs_payment_recorded: true
+        description: "Successful credit card payment for exact tax owed"
+      - input:
+          amount_owed: 5000
+          payment_method: "ach_direct_debit"
+          routing_number: "021000021"
+          account_number: "123456789"
+        expected:
+          payment_status: "pending"
+          ach_initiated: true
+        description: "ACH direct debit payment initiated"
+    state_transition:
+      states:
+        - "not_initiated"
+        - "payment_initiated"
+        - "processing"
+        - "completed"
+        - "failed"
+        - "refunded"
+      transitions:
+        - from: "not_initiated"
+          to: "payment_initiated"
+          trigger: "User submits payment form"
+          guard: "Amount > 0 and payment details valid"
+        - from: "payment_initiated"
+          to: "processing"
+          trigger: "Gateway accepts payment request"
+          guard: "Gateway connectivity confirmed"
+        - from: "processing"
+          to: "completed"
+          trigger: "Gateway returns success response"
+          guard: "Charge amount matches requested amount"
+        - from: "processing"
+          to: "failed"
+          trigger: "Gateway returns failure or timeout"
+          guard: "Error code received or timeout exceeded"
+        - from: "completed"
+          to: "refunded"
+          trigger: "Refund requested and approved"
+          guard: "Within refund eligibility window"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-gateway"
+      - "financial"
+      - "high-risk"
+
+  - name: "F6-S02: Payment gateway failure and retry handling"
+    description: >
+      Verify correct behavior when the payment gateway returns errors: declined
+      card, insufficient funds, network timeout, gateway downtime. The system
+      must never charge the user without recording the payment, and must never
+      record a payment that was not charged.
+    type: error_handling
+    risk: high
+    risk_rationale: >
+      Impact: 3 (payment errors directly affect user finances).
+      Frequency: 2 (gateway errors are infrequent but inevitable).
+      Consequence: 3 (double-charge or lost payment is severe financial harm).
+      Detectability: 2 (user sees error, but charge-without-record is silent).
+      Average: 2.5 → high.
+    techniques:
+      - error_guessing
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      EG anticipates specific gateway failure modes (timeout, 5xx, declined);
+      ST verifies no money-losing state transitions; EP partitions error types.
+    preconditions:
+      - "User is on payment submission step"
+    examples:
+      - input:
+          gateway_response: "card_declined"
+          decline_code: "insufficient_funds"
+        expected:
+          payment_status: "failed"
+          user_charged: false
+          error_message: "Card declined — insufficient funds"
+          retry_allowed: true
+        description: "Declined card — user not charged, clear error shown"
+      - input:
+          gateway_response: "timeout"
+          timeout_ms: 30000
+        expected:
+          payment_status: "unknown"
+          idempotency_key_preserved: true
+          auto_query_status: true
+        description: "Gateway timeout — system queries status before retrying"
+      - input:
+          action: "user clicks pay twice quickly"
+        expected:
+          idempotency_enforced: true
+          single_charge_only: true
+        description: "Double-click protection via idempotency key"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-gateway"
+      - "error-handling"
+      - "idempotency"
+      - "high-risk"
+
+  - name: "F6-S03: Payment amount validation"
+    description: >
+      Verify that the payment amount matches the computed tax owed, that partial
+      payments are handled correctly if allowed, and that overpayment or zero
+      payment is rejected or handled per IRS rules.
+    type: boundary
+    risk: high
+    risk_rationale: >
+      Impact: 3 (incorrect payment amounts affect IRS compliance).
+      Frequency: 2 (every paying filer submits an amount).
+      Consequence: 3 (under-payment accrues penalties; over-payment requires refund processing).
+      Detectability: 2 (user sees amount but may not verify against computed value).
+      Average: 2.5 → high.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      BVA tests payment amount boundaries ($0, $1, exact owed, over owed, max limit);
+      EP partitions payment amount categories; EG anticipates floating-point rounding
+      in payment amounts.
+    preconditions:
+      - "Tax owed has been computed"
+    examples:
+      - input:
+          tax_owed: 5000
+          payment_amount: 0
+        expected:
+          validation_error: "Payment amount must be greater than zero"
+        description: "Zero payment rejected"
+      - input:
+          tax_owed: 5000
+          payment_amount: -100
+        expected:
+          validation_error: "Payment amount cannot be negative"
+        description: "Negative payment rejected"
+      - input:
+          tax_owed: 5000
+          payment_amount: 5000.005
+        expected:
+          rounded_to: 5000.01
+          or_rejected: true
+        description: "Sub-penny payment amount handling"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - "payment-gateway"
+      - "validation"
+      - "boundary"
+      - "high-risk"
+
+  # ===========================================================================
+  # FEATURE 7: Accessibility (WCAG 2.1 AA Compliance)
+  # Risk Matrix Position: High Likelihood x Medium Impact
+  # QA Budget: 10%
+  # ===========================================================================
+
+  - name: "F7-S01: Keyboard navigation for all interactive elements"
+    description: >
+      Verify that all interactive elements (forms, buttons, links, menus, modals)
+      are fully operable via keyboard alone. Tab order must be logical, focus
+      indicators must be visible, and no keyboard traps exist.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (accessibility failures block specific user populations, not all users).
+      Frequency: 3 (every page load, every interaction for keyboard-only users).
+      Consequence: 2 (users cannot complete filing — workaround may exist via phone filing).
+      Detectability: 1 (keyboard users immediately notice navigation failures).
+      Average: 2.0 → medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST models focus states (focused, unfocused, trapped); EG anticipates
+      common keyboard trap patterns (modals, date pickers, custom dropdowns).
+    preconditions:
+      - "User is navigating the portal with keyboard only"
+    examples:
+      - input:
+          page: "tax_return_form"
+          action: "tab through all fields"
+        expected:
+          all_fields_reachable: true
+          tab_order_logical: true
+          focus_indicator_visible: true
+        description: "All form fields reachable via Tab key in logical order"
+      - input:
+          page: "modal_dialog"
+          action: "press Escape"
+        expected:
+          modal_closed: true
+          focus_returned_to_trigger: true
+        description: "Modal can be closed with Escape and focus returns"
+      - input:
+          component: "date_picker"
+          action: "keyboard navigation"
+        expected:
+          date_selectable_via_keyboard: true
+          no_keyboard_trap: true
+        description: "Date picker is fully keyboard accessible"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "accessibility"
+      - "wcag-2.1-aa"
+      - "keyboard"
+      - "medium-risk"
+
+  - name: "F7-S02: Screen reader compatibility and ARIA labels"
+    description: >
+      Verify that all content is accessible to screen readers. Form fields must
+      have associated labels, images must have alt text, dynamic content changes
+      must be announced via ARIA live regions, and error messages must be
+      programmatically associated with their fields.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (screen reader users cannot file taxes without proper ARIA support).
+      Frequency: 3 (every element on every page must be properly labeled).
+      Consequence: 2 (blind users blocked from filing — alternative channels exist but are burdensome).
+      Detectability: 2 (screen reader users notice immediately, but sighted QA may miss it).
+      Average: 2.25 → medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions element types (form fields, buttons, images, dynamic content,
+      error messages); EG anticipates missing labels, unlabeled icons, and
+      silent AJAX updates.
+    preconditions:
+      - "Screen reader (NVDA/JAWS/VoiceOver) is active"
+    examples:
+      - input:
+          element: "income input field"
+        expected:
+          aria_label_present: true
+          label_text: "Gross income"
+          associated_help_text: "Enter your total income before deductions"
+        description: "Income field has descriptive ARIA label and help text"
+      - input:
+          action: "form validation error occurs"
+        expected:
+          error_announced: true
+          aria_invalid: true
+          error_linked_to_field: true
+        description: "Validation errors announced by screen reader and linked to field"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "accessibility"
+      - "wcag-2.1-aa"
+      - "screen-reader"
+      - "medium-risk"
+
+  - name: "F7-S03: Color contrast and visual accessibility"
+    description: >
+      Verify that all text and interactive elements meet WCAG 2.1 AA color
+      contrast ratios (4.5:1 for normal text, 3:1 for large text). Information
+      must not be conveyed by color alone.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (low contrast makes content difficult for visually impaired users).
+      Frequency: 3 (every visual element on every page).
+      Consequence: 1 (content still readable with effort — inconvenience, not blocker).
+      Detectability: 1 (contrast failures are visually testable with automated tools).
+      Average: 1.75 → medium.
+    techniques:
+      - boundary_value
+      - equivalence_partitioning
+    technique_rationale: >
+      BVA tests contrast ratios at the 4.5:1 and 3:1 boundaries;
+      EP partitions text sizes (normal, large) and element types.
+    preconditions:
+      - "Pages are rendered with production CSS"
+    examples:
+      - input:
+          element: "body text"
+          foreground: "#333333"
+          background: "#FFFFFF"
+        expected:
+          contrast_ratio: 12.63
+          passes_aa: true
+        description: "Body text has sufficient contrast ratio"
+      - input:
+          element: "error message"
+          color: "red"
+          icon: "exclamation mark"
+        expected:
+          not_color_only: true
+          has_text_label: true
+          has_icon: true
+        description: "Error state conveyed by color, text, and icon — not color alone"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "accessibility"
+      - "wcag-2.1-aa"
+      - "contrast"
+      - "medium-risk"
+
+  # ===========================================================================
+  # FEATURE 8: Auto-save Draft Returns
+  # Risk Matrix Position: High Likelihood x Medium Impact
+  # QA Budget: 8%
+  # ===========================================================================
+
+  - name: "F8-S01: Auto-save triggers on form input changes"
+    description: >
+      Verify that the system automatically saves draft return data at regular
+      intervals and on each significant form field change. Save must be
+      non-blocking and not interfere with user input.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (data loss from failed auto-save is frustrating but recoverable by re-entry).
+      Frequency: 3 (auto-save triggers continuously during every filing session).
+      Consequence: 2 (lost draft data wastes user time but does not affect submitted returns).
+      Detectability: 2 (auto-save indicator shows status, but silent failures possible).
+      Average: 2.25 → medium.
+    techniques:
+      - state_transition
+      - boundary_value
+      - error_guessing
+    technique_rationale: >
+      ST models draft states (unsaved → saving → saved → stale); BVA tests
+      save interval boundaries and data size limits; EG anticipates race
+      conditions between auto-save and manual save.
+    preconditions:
+      - "User is editing a tax return form"
+    examples:
+      - input:
+          action: "user types income value"
+          idle_seconds: 5
+        expected:
+          auto_save_triggered: true
+          save_indicator: "Draft saved"
+          user_input_not_blocked: true
+        description: "Auto-save triggers after 5 seconds of idle time"
+      - input:
+          action: "user switches browser tabs"
+        expected:
+          save_triggered_on_blur: true
+          data_persisted: true
+        description: "Draft saved when user navigates away from tab"
+    state_transition:
+      states:
+        - "unsaved_changes"
+        - "saving"
+        - "saved"
+        - "save_failed"
+        - "stale"
+      transitions:
+        - from: "unsaved_changes"
+          to: "saving"
+          trigger: "Auto-save interval elapsed or field blur"
+          guard: "Changes detected since last save"
+        - from: "saving"
+          to: "saved"
+          trigger: "Server acknowledges save"
+          guard: "Response status 200"
+        - from: "saving"
+          to: "save_failed"
+          trigger: "Server error or network failure"
+          guard: "Error response or timeout"
+        - from: "saved"
+          to: "unsaved_changes"
+          trigger: "User makes additional edits"
+          guard: "New input detected"
+        - from: "save_failed"
+          to: "saving"
+          trigger: "Retry timer expires"
+          guard: "Retry count < max retries"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "auto-save"
+      - "draft"
+      - "medium-risk"
+
+  - name: "F8-S02: Draft recovery after session interruption"
+    description: >
+      Verify that a user can resume their tax return from the last auto-saved
+      draft after browser crash, session timeout, accidental navigation, or
+      power loss. All previously saved data must be accurately restored.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (lost progress causes significant user frustration).
+      Frequency: 2 (browser crashes and timeouts happen occasionally).
+      Consequence: 2 (user must re-enter data — time loss but no financial harm).
+      Detectability: 1 (user immediately sees whether draft was recovered or not).
+      Average: 1.75 → medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST models session lifecycle (active → interrupted → recovered);
+      EG anticipates partial saves, corrupted drafts, and concurrent session conflicts.
+    preconditions:
+      - "User had an active draft with auto-saved data"
+      - "Session was interrupted"
+    examples:
+      - input:
+          scenario: "browser crash during form entry"
+          last_auto_save: "2 minutes ago"
+        expected:
+          draft_available_on_login: true
+          data_matches_last_save: true
+          prompt_to_resume: true
+        description: "Draft recovered after browser crash"
+      - input:
+          scenario: "session timeout after 30 minutes idle"
+        expected:
+          draft_preserved: true
+          re_authentication_required: true
+          data_intact_after_login: true
+        description: "Draft survives session timeout"
+      - input:
+          scenario: "two browser tabs editing same return"
+        expected:
+          conflict_detected: true
+          most_recent_save_wins: true
+          user_notified_of_conflict: true
+        description: "Concurrent edit conflict detection"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "auto-save"
+      - "recovery"
+      - "medium-risk"
+
+  - name: "F8-S03: Auto-save with network failure"
+    description: >
+      Verify that auto-save handles network disconnection gracefully: queues
+      changes locally, retries when connection restores, and clearly indicates
+      save status to the user.
+    type: error_handling
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (offline data could be lost if user closes browser).
+      Frequency: 2 (network interruptions occur occasionally).
+      Consequence: 2 (data loss limited to unsaved changes since last successful save).
+      Detectability: 2 (save status indicator should show, but user may not notice).
+      Average: 2.0 → medium.
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      EG anticipates network failure modes (intermittent, full disconnect, slow);
+      ST models the online/offline save state machine.
+    preconditions:
+      - "User is editing a return and network connectivity is unstable"
+    examples:
+      - input:
+          network_status: "disconnected"
+          unsaved_changes: true
+        expected:
+          local_queue_active: true
+          status_indicator: "Offline — changes queued"
+          data_not_lost: true
+        description: "Changes queued locally during network outage"
+      - input:
+          network_status: "restored"
+          queued_changes: 5
+        expected:
+          auto_sync_triggered: true
+          all_changes_saved: true
+          status_indicator: "All changes saved"
+        description: "Queued changes sync when network restores"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - "auto-save"
+      - "offline"
+      - "error-handling"
+      - "medium-risk"
+
+  # ===========================================================================
+  # FEATURE 9: Multi-language Support (English/Spanish)
+  # Risk Matrix Position: High Likelihood x Low Impact
+  # QA Budget: 5%
+  # ===========================================================================
+
+  - name: "F9-S01: Complete UI translation for Spanish"
+    description: >
+      Verify that all UI elements — labels, buttons, error messages, help text,
+      tooltips, and system notifications — are correctly translated to Spanish
+      when the user selects Spanish as their language preference.
+    type: happy_path
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (incomplete translation confuses Spanish-speaking users).
+      Frequency: 3 (Spanish is the second most common language — many users rely on it).
+      Consequence: 1 (English fallback available — inconvenience, not blocker).
+      Detectability: 1 (untranslated strings are immediately visible).
+      Average: 1.75 → medium.
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      EP partitions UI element types to ensure coverage across all translatable content;
+      EG anticipates missing translations, untranslated error messages, and
+      hardcoded English strings.
+    preconditions:
+      - "Spanish language pack is loaded"
+      - "User has selected Spanish as preferred language"
+    examples:
+      - input:
+          language: "es"
+          page: "login"
+        expected:
+          all_labels_in_spanish: true
+          no_english_fallback_visible: true
+        description: "Login page fully translated to Spanish"
+      - input:
+          language: "es"
+          action: "trigger validation error"
+        expected:
+          error_message_in_spanish: true
+        description: "Validation error messages displayed in Spanish"
+      - input:
+          language: "es"
+          page: "tax_form_1040"
+        expected:
+          field_labels_in_spanish: true
+          help_tooltips_in_spanish: true
+          legal_text_in_spanish: true
+        description: "Tax form 1040 fully translated including help text"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "multi-language"
+      - "i18n"
+      - "medium-risk"
+
+  - name: "F9-S02: Language switching preserves form data"
+    description: >
+      Verify that switching language mid-session (English to Spanish or vice
+      versa) preserves all entered form data and does not trigger form resets,
+      data loss, or navigation away from the current page.
+    type: edge_case
+    risk: medium
+    risk_rationale: >
+      Impact: 2 (data loss on language switch would be very frustrating).
+      Frequency: 2 (some users may switch languages during a session).
+      Consequence: 2 (lost form data requires re-entry).
+      Detectability: 1 (user immediately notices if data disappears).
+      Average: 1.75 → medium.
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      ST models the language state (en → es → en); EG anticipates page reload
+      data loss and form state reset on language change.
+    preconditions:
+      - "User has entered data in a form"
+    examples:
+      - input:
+          current_language: "en"
+          switch_to: "es"
+          form_data_entered:
+            income: 50000
+            name: "John Smith"
+        expected:
+          language_changed: true
+          form_data_preserved: true
+          page_not_reloaded: true
+        description: "Language switch preserves all entered form data"
+    state_transition:
+      states:
+        - "english"
+        - "spanish"
+      transitions:
+        - from: "english"
+          to: "spanish"
+          trigger: "User selects Spanish from language picker"
+          guard: "Spanish language pack loaded"
+        - from: "spanish"
+          to: "english"
+          trigger: "User selects English from language picker"
+          guard: "English language pack loaded"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - "multi-language"
+      - "i18n"
+      - "edge-case"
+      - "medium-risk"
+
+  - name: "F9-S03: Spanish text layout and rendering"
+    description: >
+      Verify that Spanish translations do not break UI layouts. Spanish text
+      is typically 20-30% longer than English equivalents, which may cause
+      button overflow, label truncation, or layout shifts.
+    type: edge_case
+    risk: low
+    risk_rationale: >
+      Impact: 1 (layout issues are cosmetic and do not block functionality).
+      Frequency: 2 (affects all Spanish users but only visually).
+      Consequence: 1 (truncated labels are confusing but workarounds exist).
+      Detectability: 1 (layout issues are immediately visible).
+      Average: 1.25 → low.
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      EG anticipates text overflow and layout break issues common in localized
+      UIs where translated strings are longer than source language.
+    preconditions:
+      - "UI is rendered in Spanish"
+    examples:
+      - input:
+          language: "es"
+          component: "submit button"
+          english_text: "Submit"
+          spanish_text: "Enviar declaracion de impuestos"
+        expected:
+          button_text_fully_visible: true
+          no_overflow: true
+          no_truncation: true
+        description: "Longer Spanish button text does not overflow"
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - "multi-language"
+      - "i18n"
+      - "layout"
+      - "low-risk"
+
+# =============================================================================
+# Example Mapping
+# =============================================================================
+example_mapping:
+  story: >
+    As a QA lead for a government tax filing portal, I need to classify 9 features
+    into a 3x3 risk matrix (likelihood x impact) and allocate testing effort
+    proportional to risk so that the highest-risk features receive the most
+    thorough testing coverage.
+  rules:
+    - rule_name: "High Likelihood x High Impact = Highest Risk (Budget: 40%)"
+      examples:
+        - "Tax Calculation Engine (22%): Core business logic used by every filer — errors cause incorrect tax amounts, IRS compliance violations, and financial harm. Silent failures mean users trust wrong numbers. Testing must cover all brackets, deduction types, credits, edge cases, and rounding."
+        - "Data Encryption for PII (18%): Every record contains SSNs and income data that must be encrypted at rest and in transit. Breach consequences include FISMA violations, identity theft at scale, and catastrophic reputational damage. Testing must cover encryption algorithms, key management, log masking, and TLS configuration."
+    - rule_name: "Medium Likelihood x High Impact = High Risk (Budget: 27%)"
+      examples:
+        - "Payment Gateway Integration (15%): Financial transactions with real money. Double-charges, lost payments, and gateway failures have direct financial impact. Idempotency, timeout handling, and amount validation are critical. Not every filer owes taxes, reducing likelihood."
+        - "E-signature for Form Submission (12%): Creates legally binding documents. Invalid signatures mean rejected filings. Non-repudiation and audit trail are legal requirements. Each filer signs once, reducing frequency."
+    - rule_name: "High Likelihood x Medium Impact = Medium-High Risk (Budget: 18%)"
+      examples:
+        - "Accessibility WCAG 2.1 AA (10%): Government portals are legally required to be accessible (Section 508). Every page, every interaction must comply. Impact is medium because alternative filing channels exist, but compliance violations invite lawsuits."
+        - "Auto-save Draft Returns (8%): Used by every filer during every session. Failure means lost work but not lost filings. Network failure, concurrent edits, and session recovery are key scenarios."
+    - rule_name: "Medium Likelihood x Medium Impact = Medium Risk (Budget: 7%)"
+      examples:
+        - "PDF Generation (7%): Most filers download a PDF copy. Accuracy matters for record-keeping but the actual IRS filing is separate. Edge cases include large returns, special characters, and metadata security."
+    - rule_name: "High Likelihood x Low Impact = Low-Medium Risk (Budget: 5%)"
+      examples:
+        - "Multi-language Support English/Spanish (5%): Many users rely on Spanish, but English fallback always available. Layout issues and missing translations are annoying but not blocking. Translation completeness is the primary concern."
+    - rule_name: "Medium Likelihood x Low Impact = Low Risk (Budget: 3%)"
+      examples:
+        - "Seasonal Holiday Banner (3%): Pure cosmetic feature with zero functional impact. Only displays a few weeks per year. Only risk is if it obscures critical UI elements, which is immediately visible. Minimal testing sufficient."
+
+# =============================================================================
+# Metadata
+# =============================================================================
+metadata:
+  created_at: "2026-03-14T00:00:00Z"
+  updated_at: "2026-03-14T00:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

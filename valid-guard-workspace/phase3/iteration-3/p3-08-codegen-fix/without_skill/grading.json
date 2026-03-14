@@ -1,0 +1,52 @@
+{
+  "eval_key": "p3-08-codegen-fix",
+  "eval_name": "Weak assertion detection and fix",
+  "category": "codegen",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "Identifies assertTrue(result != null) as weak/tautological",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: weak"
+    },
+    {
+      "text": "Explains mutations would survive",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: arithmetic"
+    },
+    {
+      "text": "Provides assertEquals(5, result) or equivalent",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: expected value of 5"
+    },
+    {
+      "text": "Provides additional test cases beyond add(2,3)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: zero"
+    },
+    {
+      "text": "Explains coverage vs quality distinction",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "References mutation testing",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "total": 6,
+    "pass_rate": 0.667,
+    "weighted_score": 0.8,
+    "content_score": 0.8,
+    "structural_score": 0
+  }
+}

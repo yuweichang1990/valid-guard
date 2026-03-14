@@ -1,0 +1,112 @@
+analysis:
+  test_under_review: |
+    result = calculator.add(2, 3);
+    assertTrue(result != null);
+
+  is_effective: false
+
+  problems:
+    - id: weak-assertion
+      severity: critical
+      description: >
+        The assertion only checks that the result is not null. It does not
+        verify that the actual computed value equals the expected value of 5.
+        Any non-null return value (e.g., 0, -1, 999) would pass this test,
+        meaning the add function could return a completely wrong answer and
+        the test would still be green.
+
+    - id: false-confidence-from-coverage
+      severity: high
+      description: >
+        100% line coverage means every line of the add method was executed,
+        but it says nothing about whether the output was validated correctly.
+        Coverage measures execution, not correctness. A test that calls a
+        function and ignores or weakly checks the result will still produce
+        full line coverage while catching zero logic bugs.
+
+    - id: single-test-case
+      severity: medium
+      description: >
+        Even with a correct assertion, a single input pair (2, 3) is
+        insufficient. Edge cases such as negative numbers, zero, large
+        values, and overflow scenarios are untested.
+
+  root_cause: >
+    The test confuses "code was reached" with "code behaves correctly."
+    The null check is a existence assertion, not a correctness assertion.
+    Effective tests must assert on the expected output value for given inputs.
+
+corrected_test_code:
+  language: java
+  framework: JUnit 5
+  code: |
+    import static org.junit.jupiter.api.Assertions.*;
+    import org.junit.jupiter.api.BeforeEach;
+    import org.junit.jupiter.api.Test;
+
+    class CalculatorAddTest {
+
+        private Calculator calculator;
+
+        @BeforeEach
+        void setUp() {
+            calculator = new Calculator();
+        }
+
+        @Test
+        void addPositiveNumbers() {
+            int result = calculator.add(2, 3);
+            assertEquals(5, result, "2 + 3 should equal 5");
+        }
+
+        @Test
+        void addWithZero() {
+            assertEquals(2, calculator.add(2, 0), "adding zero should return the other operand");
+            assertEquals(0, calculator.add(0, 0), "0 + 0 should equal 0");
+        }
+
+        @Test
+        void addNegativeNumbers() {
+            assertEquals(-5, calculator.add(-2, -3), "-2 + -3 should equal -5");
+        }
+
+        @Test
+        void addMixedSignNumbers() {
+            assertEquals(-1, calculator.add(2, -3), "2 + (-3) should equal -1");
+            assertEquals(1, calculator.add(-2, 3), "-2 + 3 should equal 1");
+        }
+
+        @Test
+        void addLargeNumbers() {
+            assertEquals(2_000_000_000, calculator.add(1_000_000_000, 1_000_000_000),
+                "should handle large values correctly");
+        }
+    }
+
+  key_corrections:
+    - replaced: "assertTrue(result != null)"
+      with: "assertEquals(5, result)"
+      reason: >
+        assertEquals directly verifies the computed value matches the
+        expected value, catching any arithmetic logic error.
+
+    - added: "multiple test methods covering edge cases"
+      reason: >
+        A single happy-path input is insufficient. Tests for zero,
+        negative numbers, mixed signs, and large values increase
+        confidence that the add function is correct across its input
+        domain.
+
+    - added: "descriptive assertion messages"
+      reason: >
+        When a test fails, the message immediately explains what was
+        expected, reducing debugging time.
+
+summary: >
+  The original test is ineffective despite achieving 100% line coverage.
+  Its only assertion (result != null) never checks the actual computed
+  value, so the add function could return any non-null number and the
+  test would pass. The corrected version uses assertEquals to verify
+  exact expected outputs and adds multiple test cases covering zero,
+  negative, mixed-sign, and large-number scenarios to ensure the add
+  function is truly correct.

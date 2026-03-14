@@ -1,0 +1,928 @@
+test_plan:
+  title: "ATM PIN Entry System - State Transition Test Plan"
+  system_under_test: "ATM PIN Entry System"
+  description: >
+    Complete state transition test plan for an ATM PIN entry system covering
+    all states, transitions, guard conditions, and derived test cases for
+    valid and invalid scenarios.
+
+# ==============================================================================
+# STATE MODEL
+# ==============================================================================
+
+states:
+  - id: S0
+    name: idle
+    description: >
+      The ATM is idle and waiting for a card to be inserted. The screen
+      displays a welcome message.
+    type: initial
+
+  - id: S1
+    name: waiting_for_pin
+    description: >
+      A card has been inserted and the ATM is prompting the user to enter
+      their PIN. The attempt counter is initialized to 0.
+    entry_action: "Display 'Enter your PIN' prompt; initialize attempt_count to 0"
+
+  - id: S2
+    name: pin_attempt_1_failed
+    description: >
+      The user has entered an incorrect PIN on the first attempt. The system
+      allows a second attempt. attempt_count = 1.
+    entry_action: "Display 'Incorrect PIN. 2 attempts remaining.'; increment attempt_count to 1"
+
+  - id: S3
+    name: pin_attempt_2_failed
+    description: >
+      The user has entered an incorrect PIN on the second attempt. The system
+      allows a third and final attempt. attempt_count = 2.
+    entry_action: "Display 'Incorrect PIN. 1 attempt remaining.'; increment attempt_count to 2"
+
+  - id: S4
+    name: account_access
+    description: >
+      The user has entered the correct PIN and now has access to their account.
+      The main menu is displayed.
+    entry_action: "Display account menu; grant access to account operations"
+    type: success
+
+  - id: S5
+    name: card_confiscated
+    description: >
+      The user has failed all 3 PIN attempts. The card is retained by the ATM
+      and the account is blocked.
+    entry_action: "Confiscate card; block account; display 'Card retained. Contact your bank.'"
+    type: terminal_failure
+
+# ==============================================================================
+# TRANSITIONS
+# ==============================================================================
+
+transitions:
+  - id: T1
+    name: card_inserted
+    from: idle
+    to: waiting_for_pin
+    trigger: "User inserts a valid bank card"
+    guard: "Card is readable and recognized by the system"
+    action: "Read card data; initialize PIN entry session; set attempt_count = 0"
+
+  - id: T2
+    name: correct_pin_attempt_1
+    from: waiting_for_pin
+    to: account_access
+    trigger: "User enters PIN"
+    guard: "entered_pin == correct_pin AND attempt_count == 0"
+    action: "Authenticate user; grant account access"
+
+  - id: T3
+    name: incorrect_pin_attempt_1
+    from: waiting_for_pin
+    to: pin_attempt_1_failed
+    trigger: "User enters PIN"
+    guard: "entered_pin != correct_pin AND attempt_count == 0"
+    action: "Increment attempt_count to 1; display error message with remaining attempts"
+
+  - id: T4
+    name: correct_pin_attempt_2
+    from: pin_attempt_1_failed
+    to: account_access
+    trigger: "User enters PIN"
+    guard: "entered_pin == correct_pin AND attempt_count == 1"
+    action: "Authenticate user; grant account access"
+
+  - id: T5
+    name: incorrect_pin_attempt_2
+    from: pin_attempt_1_failed
+    to: pin_attempt_2_failed
+    trigger: "User enters PIN"
+    guard: "entered_pin != correct_pin AND attempt_count == 1"
+    action: "Increment attempt_count to 2; display error message with remaining attempts"
+
+  - id: T6
+    name: correct_pin_attempt_3
+    from: pin_attempt_2_failed
+    to: account_access
+    trigger: "User enters PIN"
+    guard: "entered_pin == correct_pin AND attempt_count == 2"
+    action: "Authenticate user; grant account access"
+
+  - id: T7
+    name: incorrect_pin_attempt_3
+    from: pin_attempt_2_failed
+    to: card_confiscated
+    trigger: "User enters PIN"
+    guard: "entered_pin != correct_pin AND attempt_count == 2"
+    action: "Confiscate card; block account; increment attempt_count to 3"
+
+  - id: T8
+    name: session_end_from_access
+    from: account_access
+    to: idle
+    trigger: "User completes transactions and removes card, or session times out"
+    guard: "User selects 'Exit' or session_timeout reached"
+    action: "Eject card; clear session data; return to welcome screen"
+
+  - id: T9
+    name: return_to_idle_after_confiscation
+    from: card_confiscated
+    to: idle
+    trigger: "Confiscation message acknowledged or timeout"
+    guard: "Message display timeout elapsed"
+    action: "Clear session data; return to welcome screen"
+
+  - id: T10
+    name: card_ejected_cancel
+    from: waiting_for_pin
+    to: idle
+    trigger: "User presses Cancel button"
+    guard: "Cancel button pressed before PIN submission"
+    action: "Eject card; clear session data"
+
+  - id: T11
+    name: card_ejected_cancel_after_fail_1
+    from: pin_attempt_1_failed
+    to: idle
+    trigger: "User presses Cancel button"
+    guard: "Cancel button pressed before next PIN submission"
+    action: "Eject card; clear session data"
+
+  - id: T12
+    name: card_ejected_cancel_after_fail_2
+    from: pin_attempt_2_failed
+    to: idle
+    trigger: "User presses Cancel button"
+    guard: "Cancel button pressed before next PIN submission"
+    action: "Eject card; clear session data"
+
+# ==============================================================================
+# GUARD CONDITIONS SUMMARY
+# ==============================================================================
+
+guard_conditions:
+  - id: G1
+    name: card_valid
+    description: "The inserted card is readable, not expired, and recognized by the banking network"
+    applies_to: [T1]
+
+  - id: G2
+    name: pin_correct
+    description: "The entered PIN matches the correct PIN stored for the card's account"
+    applies_to: [T2, T4, T6]
+
+  - id: G3
+    name: pin_incorrect
+    description: "The entered PIN does NOT match the correct PIN stored for the card's account"
+    applies_to: [T3, T5, T7]
+
+  - id: G4
+    name: attempt_count_0
+    description: "This is the first PIN entry attempt (attempt_count == 0)"
+    applies_to: [T2, T3]
+
+  - id: G5
+    name: attempt_count_1
+    description: "This is the second PIN entry attempt (attempt_count == 1)"
+    applies_to: [T4, T5]
+
+  - id: G6
+    name: attempt_count_2
+    description: "This is the third and final PIN entry attempt (attempt_count == 2)"
+    applies_to: [T6, T7]
+
+  - id: G7
+    name: cancel_pressed
+    description: "The user has pressed the Cancel button to abort the transaction"
+    applies_to: [T10, T11, T12]
+
+  - id: G8
+    name: session_complete_or_timeout
+    description: "The user has finished their session or the inactivity timeout has been reached"
+    applies_to: [T8, T9]
+
+# ==============================================================================
+# STATE TRANSITION TABLE
+# ==============================================================================
+
+state_transition_table:
+  - current_state: idle
+    event: card_inserted
+    guard: card_valid
+    next_state: waiting_for_pin
+    transition: T1
+
+  - current_state: waiting_for_pin
+    event: pin_entered
+    guard: pin_correct AND attempt_count == 0
+    next_state: account_access
+    transition: T2
+
+  - current_state: waiting_for_pin
+    event: pin_entered
+    guard: pin_incorrect AND attempt_count == 0
+    next_state: pin_attempt_1_failed
+    transition: T3
+
+  - current_state: waiting_for_pin
+    event: cancel_pressed
+    guard: cancel_pressed
+    next_state: idle
+    transition: T10
+
+  - current_state: pin_attempt_1_failed
+    event: pin_entered
+    guard: pin_correct AND attempt_count == 1
+    next_state: account_access
+    transition: T4
+
+  - current_state: pin_attempt_1_failed
+    event: pin_entered
+    guard: pin_incorrect AND attempt_count == 1
+    next_state: pin_attempt_2_failed
+    transition: T5
+
+  - current_state: pin_attempt_1_failed
+    event: cancel_pressed
+    guard: cancel_pressed
+    next_state: idle
+    transition: T11
+
+  - current_state: pin_attempt_2_failed
+    event: pin_entered
+    guard: pin_correct AND attempt_count == 2
+    next_state: account_access
+    transition: T6
+
+  - current_state: pin_attempt_2_failed
+    event: pin_entered
+    guard: pin_incorrect AND attempt_count == 2
+    next_state: card_confiscated
+    transition: T7
+
+  - current_state: pin_attempt_2_failed
+    event: cancel_pressed
+    guard: cancel_pressed
+    next_state: idle
+    transition: T12
+
+  - current_state: account_access
+    event: session_end
+    guard: session_complete_or_timeout
+    next_state: idle
+    transition: T8
+
+  - current_state: card_confiscated
+    event: timeout
+    guard: message_timeout_elapsed
+    next_state: idle
+    transition: T9
+
+# ==============================================================================
+# TEST CASES
+# ==============================================================================
+
+test_cases:
+  valid_test_cases:
+    - id: VTC-01
+      title: "Correct PIN on first attempt - happy path"
+      description: "User inserts card and enters the correct PIN on the first try"
+      priority: critical
+      path: "idle -> waiting_for_pin -> account_access"
+      transitions_covered: [T1, T2]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid and account is active"
+        - "Correct PIN is '1234'"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Enter PIN '1234'"
+          expected_state: account_access
+          expected_result: "PIN is validated; user is granted access to account menu"
+      postconditions:
+        - "User has full access to account operations"
+        - "attempt_count == 0 (no failed attempts)"
+
+    - id: VTC-02
+      title: "Correct PIN on second attempt"
+      description: "User enters wrong PIN once, then enters the correct PIN"
+      priority: high
+      path: "idle -> waiting_for_pin -> pin_attempt_1_failed -> account_access"
+      transitions_covered: [T1, T3, T4]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid and account is active"
+        - "Correct PIN is '1234'"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Enter incorrect PIN '0000'"
+          expected_state: pin_attempt_1_failed
+          expected_result: "Display 'Incorrect PIN. 2 attempts remaining.'"
+        - step: 3
+          action: "Enter correct PIN '1234'"
+          expected_state: account_access
+          expected_result: "PIN is validated; user is granted access to account menu"
+      postconditions:
+        - "User has full access to account operations"
+        - "attempt_count == 1"
+
+    - id: VTC-03
+      title: "Correct PIN on third attempt"
+      description: "User enters wrong PIN twice, then enters the correct PIN on the last attempt"
+      priority: high
+      path: "idle -> waiting_for_pin -> pin_attempt_1_failed -> pin_attempt_2_failed -> account_access"
+      transitions_covered: [T1, T3, T5, T6]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid and account is active"
+        - "Correct PIN is '1234'"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Enter incorrect PIN '0000'"
+          expected_state: pin_attempt_1_failed
+          expected_result: "Display 'Incorrect PIN. 2 attempts remaining.'"
+        - step: 3
+          action: "Enter incorrect PIN '9999'"
+          expected_state: pin_attempt_2_failed
+          expected_result: "Display 'Incorrect PIN. 1 attempt remaining.'"
+        - step: 4
+          action: "Enter correct PIN '1234'"
+          expected_state: account_access
+          expected_result: "PIN is validated; user is granted access to account menu"
+      postconditions:
+        - "User has full access to account operations"
+        - "attempt_count == 2"
+
+    - id: VTC-04
+      title: "Three incorrect PINs - card confiscation"
+      description: "User enters the wrong PIN three times, card is confiscated and account blocked"
+      priority: critical
+      path: "idle -> waiting_for_pin -> pin_attempt_1_failed -> pin_attempt_2_failed -> card_confiscated"
+      transitions_covered: [T1, T3, T5, T7]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid and account is active"
+        - "Correct PIN is '1234'"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Enter incorrect PIN '0000'"
+          expected_state: pin_attempt_1_failed
+          expected_result: "Display 'Incorrect PIN. 2 attempts remaining.'"
+        - step: 3
+          action: "Enter incorrect PIN '9999'"
+          expected_state: pin_attempt_2_failed
+          expected_result: "Display 'Incorrect PIN. 1 attempt remaining.'"
+        - step: 4
+          action: "Enter incorrect PIN '5555'"
+          expected_state: card_confiscated
+          expected_result: "Card is confiscated; account is blocked; display 'Card retained. Contact your bank.'"
+      postconditions:
+        - "Card is physically retained by the ATM"
+        - "Account is blocked in the banking system"
+        - "attempt_count == 3"
+
+    - id: VTC-05
+      title: "Cancel during PIN entry (no failed attempts)"
+      description: "User inserts card, then presses Cancel before entering any PIN"
+      priority: medium
+      path: "idle -> waiting_for_pin -> idle"
+      transitions_covered: [T1, T10]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Press Cancel button"
+          expected_state: idle
+          expected_result: "Card is ejected; ATM returns to welcome screen"
+      postconditions:
+        - "Card is returned to user"
+        - "No account lockout or penalty"
+
+    - id: VTC-06
+      title: "Cancel after one failed PIN attempt"
+      description: "User enters wrong PIN once, then cancels"
+      priority: medium
+      path: "idle -> waiting_for_pin -> pin_attempt_1_failed -> idle"
+      transitions_covered: [T1, T3, T11]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid"
+        - "Correct PIN is '1234'"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Enter incorrect PIN '0000'"
+          expected_state: pin_attempt_1_failed
+          expected_result: "Display 'Incorrect PIN. 2 attempts remaining.'"
+        - step: 3
+          action: "Press Cancel button"
+          expected_state: idle
+          expected_result: "Card is ejected; ATM returns to welcome screen"
+      postconditions:
+        - "Card is returned to user"
+        - "Account is not blocked"
+
+    - id: VTC-07
+      title: "Cancel after two failed PIN attempts"
+      description: "User enters wrong PIN twice, then cancels on the last attempt"
+      priority: medium
+      path: "idle -> waiting_for_pin -> pin_attempt_1_failed -> pin_attempt_2_failed -> idle"
+      transitions_covered: [T1, T3, T5, T12]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid"
+        - "Correct PIN is '1234'"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Enter incorrect PIN '0000'"
+          expected_state: pin_attempt_1_failed
+          expected_result: "Display 'Incorrect PIN. 2 attempts remaining.'"
+        - step: 3
+          action: "Enter incorrect PIN '9999'"
+          expected_state: pin_attempt_2_failed
+          expected_result: "Display 'Incorrect PIN. 1 attempt remaining.'"
+        - step: 4
+          action: "Press Cancel button"
+          expected_state: idle
+          expected_result: "Card is ejected; ATM returns to welcome screen"
+      postconditions:
+        - "Card is returned to user"
+        - "Account is not blocked"
+
+    - id: VTC-08
+      title: "Successful session end after account access"
+      description: "User completes a full successful session from card insertion to exit"
+      priority: high
+      path: "idle -> waiting_for_pin -> account_access -> idle"
+      transitions_covered: [T1, T2, T8]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid and account is active"
+        - "Correct PIN is '1234'"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Enter correct PIN '1234'"
+          expected_state: account_access
+          expected_result: "PIN is validated; user is granted access to account menu"
+        - step: 3
+          action: "Select 'Exit' from account menu"
+          expected_state: idle
+          expected_result: "Card is ejected; session data cleared; ATM returns to welcome screen"
+      postconditions:
+        - "Card is returned to user"
+        - "Session data is fully cleared"
+
+    - id: VTC-09
+      title: "ATM returns to idle after card confiscation timeout"
+      description: "After card confiscation, the ATM returns to idle after the message timeout"
+      priority: medium
+      path: "idle -> waiting_for_pin -> pin_attempt_1_failed -> pin_attempt_2_failed -> card_confiscated -> idle"
+      transitions_covered: [T1, T3, T5, T7, T9]
+      preconditions:
+        - "ATM is in idle state"
+        - "Card is valid and account is active"
+        - "Correct PIN is '1234'"
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM reads card and displays 'Enter your PIN' prompt"
+        - step: 2
+          action: "Enter incorrect PIN '0000'"
+          expected_state: pin_attempt_1_failed
+          expected_result: "Display 'Incorrect PIN. 2 attempts remaining.'"
+        - step: 3
+          action: "Enter incorrect PIN '9999'"
+          expected_state: pin_attempt_2_failed
+          expected_result: "Display 'Incorrect PIN. 1 attempt remaining.'"
+        - step: 4
+          action: "Enter incorrect PIN '5555'"
+          expected_state: card_confiscated
+          expected_result: "Card is confiscated; account blocked; display confiscation message"
+        - step: 5
+          action: "Wait for message timeout to elapse"
+          expected_state: idle
+          expected_result: "ATM clears session and returns to welcome screen"
+      postconditions:
+        - "ATM is ready for next customer"
+        - "Previous session data is fully cleared"
+
+    - id: VTC-10
+      title: "Consecutive sessions - second card after successful first session"
+      description: "Verify the ATM correctly handles a second card insertion after a successful session"
+      priority: medium
+      path: "idle -> waiting_for_pin -> account_access -> idle -> waiting_for_pin -> account_access"
+      transitions_covered: [T1, T2, T8, T1, T2]
+      preconditions:
+        - "ATM is in idle state"
+        - "Two different valid cards available"
+      steps:
+        - step: 1
+          action: "Insert first valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN"
+        - step: 2
+          action: "Enter correct PIN for first card"
+          expected_state: account_access
+          expected_result: "Access granted to first account"
+        - step: 3
+          action: "Select 'Exit'"
+          expected_state: idle
+          expected_result: "Card ejected; ATM returns to idle"
+        - step: 4
+          action: "Insert second valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN (no carryover from previous session)"
+        - step: 5
+          action: "Enter correct PIN for second card"
+          expected_state: account_access
+          expected_result: "Access granted to second account"
+      postconditions:
+        - "Second session is completely independent of first"
+        - "No data leakage between sessions"
+
+  invalid_test_cases:
+    - id: ITC-01
+      title: "PIN entry in idle state (no card inserted)"
+      description: "Attempt to enter a PIN when no card has been inserted"
+      priority: high
+      category: "Invalid state transition"
+      initial_state: idle
+      steps:
+        - step: 1
+          action: "Attempt to enter PIN '1234' without inserting a card"
+          expected_state: idle
+          expected_result: "System ignores PIN input; remains in idle state; no transition occurs"
+      rationale: "PIN entry is only valid in waiting_for_pin, pin_attempt_1_failed, or pin_attempt_2_failed states"
+
+    - id: ITC-02
+      title: "Card insertion while already in waiting_for_pin state"
+      description: "Attempt to insert a second card while the first card's PIN is being entered"
+      priority: medium
+      category: "Invalid state transition"
+      initial_state: waiting_for_pin
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN"
+        - step: 2
+          action: "Attempt to insert a second card"
+          expected_state: waiting_for_pin
+          expected_result: "Second card is rejected or physically blocked; system remains in current state"
+      rationale: "Card insertion is only valid from the idle state"
+
+    - id: ITC-03
+      title: "Fourth PIN attempt after two failures (should not be possible)"
+      description: "Verify that no more than 3 attempts are allowed"
+      priority: critical
+      category: "Guard condition violation"
+      initial_state: idle
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN"
+        - step: 2
+          action: "Enter incorrect PIN '0000'"
+          expected_state: pin_attempt_1_failed
+          expected_result: "First failure recorded"
+        - step: 3
+          action: "Enter incorrect PIN '1111'"
+          expected_state: pin_attempt_2_failed
+          expected_result: "Second failure recorded"
+        - step: 4
+          action: "Enter incorrect PIN '2222'"
+          expected_state: card_confiscated
+          expected_result: "Card confiscated; no further PIN entry possible"
+        - step: 5
+          action: "Attempt to enter PIN '1234' (the correct PIN)"
+          expected_state: card_confiscated
+          expected_result: "System does not accept input; card is already confiscated; no transition to account_access"
+      rationale: "Once in card_confiscated state, no PIN entry transition exists; the card is retained"
+
+    - id: ITC-04
+      title: "Access account operations from card_confiscated state"
+      description: "Verify that account access is impossible after card confiscation"
+      priority: critical
+      category: "Invalid state transition"
+      initial_state: card_confiscated
+      steps:
+        - step: 1
+          action: "Attempt to access account menu"
+          expected_state: card_confiscated
+          expected_result: "No account access; system only displays confiscation message"
+      rationale: "There is no transition from card_confiscated to account_access"
+
+    - id: ITC-05
+      title: "Cancel button in idle state"
+      description: "Press Cancel when no card is inserted and ATM is idle"
+      priority: low
+      category: "Invalid trigger in current state"
+      initial_state: idle
+      steps:
+        - step: 1
+          action: "Press Cancel button"
+          expected_state: idle
+          expected_result: "System ignores Cancel; remains in idle state"
+      rationale: "Cancel is only meaningful when a card session is active"
+
+    - id: ITC-06
+      title: "Cancel button in account_access state"
+      description: "Press Cancel when user has already authenticated"
+      priority: low
+      category: "Invalid trigger in current state"
+      initial_state: account_access
+      steps:
+        - step: 1
+          action: "Enter correct PIN to reach account_access state"
+          expected_state: account_access
+          expected_result: "User has access to account"
+        - step: 2
+          action: "Press Cancel button"
+          expected_state: account_access
+          expected_result: "Cancel does not eject card from account_access; user must use Exit option (or session timeout occurs)"
+      rationale: "Cancel is defined for waiting_for_pin and failed attempt states only; in account_access, the user exits via the menu"
+
+    - id: ITC-07
+      title: "Invalid card insertion"
+      description: "Insert an unreadable, expired, or unrecognized card"
+      priority: high
+      category: "Guard condition failure"
+      initial_state: idle
+      steps:
+        - step: 1
+          action: "Insert an invalid/unreadable card"
+          expected_state: idle
+          expected_result: "Card is ejected with an error message; ATM remains in idle state"
+      rationale: "Guard condition G1 (card_valid) is not satisfied; transition T1 does not fire"
+
+    - id: ITC-08
+      title: "Empty PIN submission"
+      description: "Submit an empty PIN (no digits entered)"
+      priority: medium
+      category: "Invalid input"
+      initial_state: waiting_for_pin
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN"
+        - step: 2
+          action: "Press Enter/Submit without entering any digits"
+          expected_state: waiting_for_pin
+          expected_result: "System rejects empty input; displays 'Please enter your PIN'; does not count as an attempt"
+      rationale: "Empty input should be rejected before guard evaluation; it should not consume an attempt"
+
+    - id: ITC-09
+      title: "PIN with incorrect length (too short)"
+      description: "Enter a PIN with fewer digits than required (e.g., 2 digits instead of 4)"
+      priority: medium
+      category: "Invalid input"
+      initial_state: waiting_for_pin
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN"
+        - step: 2
+          action: "Enter PIN '12' (only 2 digits)"
+          expected_state: waiting_for_pin
+          expected_result: "System rejects short PIN; displays format error; does not count as an attempt"
+      rationale: "PIN format validation should occur before the PIN comparison guard"
+
+    - id: ITC-10
+      title: "PIN with non-numeric characters"
+      description: "Enter characters that are not digits in the PIN field"
+      priority: medium
+      category: "Invalid input"
+      initial_state: waiting_for_pin
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN"
+        - step: 2
+          action: "Attempt to enter 'ABCD' as PIN"
+          expected_state: waiting_for_pin
+          expected_result: "System does not accept non-numeric input; keypad only allows digits"
+      rationale: "ATM keypad should only accept numeric input; non-numeric characters should be physically impossible or filtered"
+
+    - id: ITC-11
+      title: "Card insertion during card_confiscated state"
+      description: "Attempt to insert another card while confiscation message is displayed"
+      priority: medium
+      category: "Invalid state transition"
+      initial_state: card_confiscated
+      steps:
+        - step: 1
+          action: "Trigger card confiscation through 3 failed PINs"
+          expected_state: card_confiscated
+          expected_result: "Card confiscated; message displayed"
+        - step: 2
+          action: "Attempt to insert a new card"
+          expected_state: card_confiscated
+          expected_result: "System rejects new card insertion; must wait for return to idle state"
+      rationale: "Card insertion transition T1 is only defined from idle state"
+
+    - id: ITC-12
+      title: "Session timeout during PIN entry"
+      description: "User inserts card but does not enter PIN within the allowed time"
+      priority: medium
+      category: "Timeout boundary"
+      initial_state: waiting_for_pin
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN"
+        - step: 2
+          action: "Wait for inactivity timeout (e.g., 30 seconds) without entering PIN"
+          expected_state: idle
+          expected_result: "Card is ejected due to timeout; ATM returns to idle state"
+      rationale: "Inactivity timeout should safely return the ATM to idle and eject the card"
+
+    - id: ITC-13
+      title: "Attempt to bypass PIN entry and directly access account"
+      description: "Verify there is no path from waiting_for_pin to account_access without correct PIN"
+      priority: critical
+      category: "Security - unauthorized state transition"
+      initial_state: waiting_for_pin
+      steps:
+        - step: 1
+          action: "Insert valid bank card"
+          expected_state: waiting_for_pin
+          expected_result: "ATM prompts for PIN"
+        - step: 2
+          action: "Attempt to navigate to account menu without entering PIN"
+          expected_state: waiting_for_pin
+          expected_result: "Access denied; system requires PIN validation before granting access"
+      rationale: "Guard G2 (pin_correct) must be satisfied for any transition to account_access"
+
+    - id: ITC-14
+      title: "Re-insert confiscated card in a new session"
+      description: "After confiscation and return to idle, attempt to use another card for the same blocked account"
+      priority: high
+      category: "Post-confiscation account state"
+      initial_state: idle
+      steps:
+        - step: 1
+          action: "Trigger card confiscation for account A (3 failed PINs)"
+          expected_state: card_confiscated
+          expected_result: "Card confiscated; account A is blocked"
+        - step: 2
+          action: "Wait for ATM to return to idle"
+          expected_state: idle
+          expected_result: "ATM is idle and ready"
+        - step: 3
+          action: "Insert a different card linked to the same blocked account A"
+          expected_state: idle
+          expected_result: "Card is recognized but account is blocked; system rejects the card with 'Account blocked' message"
+      rationale: "Account block should persist beyond the confiscation session; any card for that account should be rejected"
+
+# ==============================================================================
+# TRANSITION COVERAGE MATRIX
+# ==============================================================================
+
+transition_coverage:
+  summary: "All 12 transitions are covered across the test cases"
+  matrix:
+    - transition: T1
+      description: "idle -> waiting_for_pin (card inserted)"
+      covered_by: [VTC-01, VTC-02, VTC-03, VTC-04, VTC-05, VTC-06, VTC-07, VTC-08, VTC-09, VTC-10]
+
+    - transition: T2
+      description: "waiting_for_pin -> account_access (correct PIN, attempt 1)"
+      covered_by: [VTC-01, VTC-08, VTC-10]
+
+    - transition: T3
+      description: "waiting_for_pin -> pin_attempt_1_failed (incorrect PIN, attempt 1)"
+      covered_by: [VTC-02, VTC-03, VTC-04, VTC-06, VTC-07, VTC-09]
+
+    - transition: T4
+      description: "pin_attempt_1_failed -> account_access (correct PIN, attempt 2)"
+      covered_by: [VTC-02]
+
+    - transition: T5
+      description: "pin_attempt_1_failed -> pin_attempt_2_failed (incorrect PIN, attempt 2)"
+      covered_by: [VTC-03, VTC-04, VTC-07, VTC-09]
+
+    - transition: T6
+      description: "pin_attempt_2_failed -> account_access (correct PIN, attempt 3)"
+      covered_by: [VTC-03]
+
+    - transition: T7
+      description: "pin_attempt_2_failed -> card_confiscated (incorrect PIN, attempt 3)"
+      covered_by: [VTC-04, VTC-09]
+
+    - transition: T8
+      description: "account_access -> idle (session end)"
+      covered_by: [VTC-08, VTC-10]
+
+    - transition: T9
+      description: "card_confiscated -> idle (timeout)"
+      covered_by: [VTC-09]
+
+    - transition: T10
+      description: "waiting_for_pin -> idle (cancel, no failures)"
+      covered_by: [VTC-05]
+
+    - transition: T11
+      description: "pin_attempt_1_failed -> idle (cancel after 1 failure)"
+      covered_by: [VTC-06]
+
+    - transition: T12
+      description: "pin_attempt_2_failed -> idle (cancel after 2 failures)"
+      covered_by: [VTC-07]
+
+# ==============================================================================
+# BOUNDARY AND EDGE CASES
+# ==============================================================================
+
+boundary_edge_cases:
+  - id: BEC-01
+    title: "PIN attempt counter boundary at exactly 3"
+    description: "Verify the system blocks on exactly the 3rd failed attempt, not before or after"
+    related_tests: [VTC-04, ITC-03]
+
+  - id: BEC-02
+    title: "Correct PIN on the boundary (3rd attempt)"
+    description: "Verify the system accepts a correct PIN on the very last allowed attempt"
+    related_tests: [VTC-03]
+
+  - id: BEC-03
+    title: "Rapid repeated incorrect PIN entries"
+    description: "Enter incorrect PINs in rapid succession to verify counter increments correctly"
+    related_tests: [VTC-04]
+
+  - id: BEC-04
+    title: "Cancel at each failure boundary"
+    description: "Verify cancel works at every point: 0 failures, 1 failure, 2 failures"
+    related_tests: [VTC-05, VTC-06, VTC-07]
+
+  - id: BEC-05
+    title: "Same incorrect PIN entered all 3 times"
+    description: "Verify the system counts each attempt even when the same wrong PIN is repeated"
+    steps:
+      - "Insert card"
+      - "Enter '0000' (incorrect) - attempt 1"
+      - "Enter '0000' (incorrect) - attempt 2"
+      - "Enter '0000' (incorrect) - attempt 3"
+    expected_result: "Card confiscated after 3rd entry of '0000'"
+
+  - id: BEC-06
+    title: "ATM state after power cycle during PIN entry"
+    description: "If ATM loses power during waiting_for_pin, verify it returns to idle on reboot and ejects the card"
+    expected_result: "ATM boots to idle state; card is ejected if physically present"
+
+# ==============================================================================
+# TESTING SUMMARY
+# ==============================================================================
+
+testing_summary:
+  total_states: 6
+  total_transitions: 12
+  total_guard_conditions: 8
+  total_valid_test_cases: 10
+  total_invalid_test_cases: 14
+  total_boundary_edge_cases: 6
+  state_coverage: "100% - All 6 states are visited across the test suite"
+  transition_coverage: "100% - All 12 transitions are exercised by at least one test case"
+  guard_coverage: "100% - All 8 guard conditions are tested (both satisfied and unsatisfied)"
+  key_risk_areas:
+    - "Security: Ensuring no bypass from waiting_for_pin to account_access without correct PIN"
+    - "Counter integrity: Ensuring attempt_count increments correctly and blocks at exactly 3"
+    - "State isolation: Ensuring session data does not leak between consecutive customers"
+    - "Account blocking persistence: Ensuring blocked accounts remain blocked across sessions"

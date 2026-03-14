@@ -1,0 +1,529 @@
+# Valid Guard Test Plan — User Authentication
+# Demonstrates login/logout flows, password validation, account lockout,
+# MFA scenarios, and session management.
+
+feature: "User Authentication"
+
+feature_description: >
+  Authentication system supporting email/password login, multi-factor
+  authentication (TOTP and SMS), session management with refresh tokens,
+  account lockout after failed attempts, and password policy enforcement.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: prd
+  path: "docs/prd/auth-system-v3.md"
+
+scenarios:
+  # ---------- Happy Path ---------------------------------------------------
+  - name: "Successful login with valid credentials"
+    description: "Registered user logs in with correct email and password."
+    type: happy_path
+    risk: high
+    risk_rationale: "Core authentication gate — failure locks all users out."
+    techniques:
+      - equivalence_partitioning
+    preconditions:
+      - "User account exists and is active"
+      - "Password matches stored bcrypt hash"
+    examples:
+      - input:
+          email: "alice@example.com"
+          password: "Str0ng!Pass#42"
+        expected:
+          status: 200
+          access_token: "non-empty"
+          refresh_token: "non-empty"
+          token_type: "Bearer"
+        description: "Standard successful login."
+    test_ref: "tests/auth/test_login.py::test_successful_login"
+    status: covered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+
+  - name: "Successful logout invalidates tokens"
+    description: "User logs out and both access and refresh tokens are revoked."
+    type: happy_path
+    risk: high
+    risk_rationale: "Failure to revoke tokens leaves sessions open after logout."
+    techniques:
+      - equivalence_partitioning
+    preconditions:
+      - "User is currently authenticated with valid tokens"
+    examples:
+      - input:
+          action: "logout"
+          access_token: "valid-token"
+        expected:
+          status: 200
+          access_token_valid: false
+          refresh_token_valid: false
+        description: "Both tokens invalidated on logout."
+    test_ref: "tests/auth/test_logout.py::test_logout_revokes_tokens"
+    status: covered
+    priority: 1
+    tags:
+      - critical-path
+
+  - name: "Login with MFA (TOTP)"
+    description: >
+      User with TOTP-based MFA enabled provides valid password then valid
+      6-digit TOTP code.
+    type: happy_path
+    risk: high
+    risk_rationale: "MFA bypass would negate the security benefit entirely."
+    techniques:
+      - equivalence_partitioning
+    preconditions:
+      - "User has MFA enabled with TOTP method"
+      - "TOTP secret is stored and synced"
+    examples:
+      - input:
+          email: "bob@example.com"
+          password: "B0bSecure!99"
+          totp_code: "482901"
+        expected:
+          status: 200
+          mfa_verified: true
+          access_token: "non-empty"
+        description: "Password then TOTP — both valid."
+    test_ref: "tests/auth/test_mfa.py::test_totp_login"
+    status: covered
+    priority: 1
+    tags:
+      - mfa
+      - critical-path
+
+  # ---------- Error Handling -----------------------------------------------
+  - name: "Login with incorrect password"
+    description: "Valid email, wrong password."
+    type: error_handling
+    risk: high
+    risk_rationale: "Error response must not leak whether the email exists."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    examples:
+      - input:
+          email: "alice@example.com"
+          password: "WrongPassword1!"
+        expected:
+          status: 401
+          error: "INVALID_CREDENTIALS"
+          message: "Email or password is incorrect."
+        description: "Generic error prevents email enumeration."
+    test_ref: "tests/auth/test_login.py::test_wrong_password"
+    status: covered
+    priority: 1
+    tags:
+      - security
+
+  - name: "Login with non-existent email"
+    description: "Email that has no associated account."
+    type: error_handling
+    risk: high
+    risk_rationale: "Different error message or timing could enable email enumeration."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: "Error guessing covers timing side-channel attacks."
+    examples:
+      - input:
+          email: "nobody@example.com"
+          password: "AnyPass1!"
+        expected:
+          status: 401
+          error: "INVALID_CREDENTIALS"
+          response_time_delta_ms: "<50"
+        description: "Same error and similar timing as wrong-password case."
+    test_ref: "tests/auth/test_login.py::test_nonexistent_email"
+    status: covered
+    priority: 1
+    tags:
+      - security
+      - enumeration
+
+  - name: "Login with invalid MFA code"
+    description: "Correct password but wrong TOTP code."
+    type: error_handling
+    risk: high
+    risk_rationale: "Accepting invalid MFA codes defeats two-factor protection."
+    techniques:
+      - equivalence_partitioning
+    examples:
+      - input:
+          email: "bob@example.com"
+          password: "B0bSecure!99"
+          totp_code: "000000"
+        expected:
+          status: 401
+          error: "INVALID_MFA_CODE"
+          access_token: null
+        description: "Invalid TOTP — no token issued."
+    test_ref: "tests/auth/test_mfa.py::test_invalid_totp"
+    status: covered
+    priority: 1
+    tags:
+      - mfa
+      - security
+
+  - name: "SMS MFA code delivery failure"
+    description: "SMS provider fails to deliver the MFA code."
+    type: error_handling
+    risk: medium
+    risk_rationale: "User is locked out of their account until SMS works again."
+    techniques:
+      - error_guessing
+    preconditions:
+      - "User has SMS-based MFA enabled"
+      - "SMS provider returns 5xx error"
+    examples:
+      - input:
+          email: "carol@example.com"
+          sms_provider_status: 503
+        expected:
+          status: 503
+          error: "MFA_DELIVERY_FAILED"
+          fallback_offered: true
+          fallback_method: "email"
+        description: "SMS fails — system offers email fallback."
+    status: uncovered
+    priority: 2
+    tags:
+      - mfa
+      - reliability
+
+  # ---------- Boundary Values — Password Validation ------------------------
+  - name: "Password length at minimum boundary (8 characters)"
+    description: "Password policy requires minimum 8 characters."
+    type: boundary
+    risk: medium
+    risk_rationale: "Too-short passwords accepted would weaken account security."
+    techniques:
+      - boundary_value
+    technique_rationale: "Exact boundary testing at the policy threshold."
+    examples:
+      - input:
+          password: "Aa1!xyzw"
+        expected:
+          valid: true
+        description: "Exactly 8 characters — accepted."
+      - input:
+          password: "Aa1!xyz"
+        expected:
+          valid: false
+          error: "PASSWORD_TOO_SHORT"
+        description: "7 characters — rejected."
+    test_ref: "tests/auth/test_password_policy.py::test_min_length"
+    status: covered
+    priority: 2
+    tags:
+      - password-policy
+      - boundary
+
+  - name: "Password length at maximum boundary (128 characters)"
+    description: "Passwords over 128 characters are rejected to prevent DoS via bcrypt."
+    type: boundary
+    risk: medium
+    risk_rationale: "Very long passwords can cause bcrypt to consume excessive CPU."
+    techniques:
+      - boundary_value
+    examples:
+      - input:
+          password_length: 128
+        expected:
+          valid: true
+        description: "128 characters — accepted."
+      - input:
+          password_length: 129
+        expected:
+          valid: false
+          error: "PASSWORD_TOO_LONG"
+        description: "129 characters — rejected."
+    status: uncovered
+    priority: 3
+    tags:
+      - password-policy
+      - boundary
+      - security
+
+  - name: "Password complexity requirements"
+    description: >
+      Password must contain at least: one uppercase letter, one lowercase
+      letter, one digit, and one special character.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Weak passwords lead to credential stuffing success."
+    techniques:
+      - equivalence_partitioning
+      - cause_effect
+    technique_rationale: >
+      Equivalence partitioning groups passwords by which requirement they
+      violate; cause-effect maps each missing requirement to the error.
+    examples:
+      - input:
+          password: "alllowercase1!"
+        expected:
+          valid: false
+          error: "PASSWORD_MISSING_UPPERCASE"
+        description: "No uppercase letter."
+      - input:
+          password: "ALLUPPERCASE1!"
+        expected:
+          valid: false
+          error: "PASSWORD_MISSING_LOWERCASE"
+        description: "No lowercase letter."
+      - input:
+          password: "NoDigitsHere!!"
+        expected:
+          valid: false
+          error: "PASSWORD_MISSING_DIGIT"
+        description: "No digit."
+      - input:
+          password: "NoSpecial123Aa"
+        expected:
+          valid: false
+          error: "PASSWORD_MISSING_SPECIAL"
+        description: "No special character."
+    test_ref: "tests/auth/test_password_policy.py::test_complexity"
+    status: failing
+    priority: 2
+    tags:
+      - password-policy
+
+  # ---------- State Transition — Account Lockout ---------------------------
+  - name: "Account lockout after failed login attempts"
+    description: >
+      After 5 consecutive failed login attempts, the account is locked for
+      15 minutes. Successful login resets the counter.
+    type: state_transition
+    risk: high
+    risk_rationale: "Missing lockout allows brute-force attacks; over-eager lockout causes DoS."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the lockout lifecycle; boundary value tests
+      the exact attempt thresholds.
+    state_transition:
+      states:
+        - active
+        - warning
+        - locked
+        - locked_permanent
+      transitions:
+        - from: active
+          to: active
+          trigger: "successful_login"
+        - from: active
+          to: warning
+          trigger: "failed_login"
+          guard: "failed_count == 3"
+        - from: warning
+          to: active
+          trigger: "successful_login"
+        - from: warning
+          to: locked
+          trigger: "failed_login"
+          guard: "failed_count == 5"
+        - from: locked
+          to: active
+          trigger: "lockout_timer_expired"
+          guard: "15 minutes elapsed"
+        - from: locked
+          to: locked_permanent
+          trigger: "failed_login"
+          guard: "locked_count >= 3 (3 lockout cycles)"
+        - from: locked_permanent
+          to: active
+          trigger: "admin_unlock"
+    examples:
+      - input:
+          failed_attempts: 4
+          next_attempt: "wrong_password"
+        expected:
+          account_state: "locked"
+          lockout_duration_min: 15
+        description: "5th failed attempt triggers lockout."
+      - input:
+          failed_attempts: 4
+          next_attempt: "correct_password"
+        expected:
+          account_state: "active"
+          failed_count_reset: true
+        description: "Correct password on 5th attempt resets counter."
+      - input:
+          failed_attempts: 2
+        expected:
+          account_state: "active"
+          remaining_attempts: 3
+        description: "Below threshold — still active."
+    test_ref: "tests/auth/test_lockout.py::test_account_lockout_lifecycle"
+    status: covered
+    priority: 1
+    tags:
+      - security
+      - state-machine
+      - brute-force
+
+  # ---------- Session Management -------------------------------------------
+  - name: "Access token expiry and refresh"
+    description: >
+      Access token expires after 15 minutes. Client uses refresh token to
+      obtain a new access token without re-authentication.
+    type: happy_path
+    risk: high
+    risk_rationale: "Broken refresh flow forces users to re-login constantly."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: "Boundary at the 15-minute mark; state transition for token lifecycle."
+    examples:
+      - input:
+          access_token_age_min: 16
+          refresh_token: "valid-refresh"
+        expected:
+          new_access_token: "non-empty"
+          refresh_token_rotated: true
+        description: "Expired access token refreshed successfully."
+      - input:
+          access_token_age_min: 14
+        expected:
+          token_valid: true
+        description: "Token still within lifetime — no refresh needed."
+    test_ref: "tests/auth/test_session.py::test_token_refresh"
+    status: covered
+    priority: 1
+    tags:
+      - session
+      - tokens
+
+  - name: "Refresh token reuse detection (rotation)"
+    description: >
+      If a refresh token is used after it has already been rotated, all tokens
+      for that session family are revoked (potential theft detected).
+    type: security
+    risk: high
+    risk_rationale: "Token theft without rotation detection gives attacker persistent access."
+    techniques:
+      - error_guessing
+      - state_transition
+    examples:
+      - input:
+          refresh_token: "already-rotated-token"
+        expected:
+          status: 401
+          error: "TOKEN_REUSE_DETECTED"
+          all_family_tokens_revoked: true
+        description: "Reused refresh token triggers full session family revocation."
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - tokens
+      - critical-path
+
+  - name: "Concurrent sessions limit"
+    description: >
+      A user may have at most 5 active sessions. Creating a 6th session
+      invalidates the oldest one.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Unlimited sessions increase attack surface from stolen credentials."
+    techniques:
+      - boundary_value
+    examples:
+      - input:
+          active_sessions: 5
+          action: "new_login"
+        expected:
+          total_sessions: 5
+          oldest_session_revoked: true
+        description: "6th login evicts the oldest session."
+      - input:
+          active_sessions: 4
+          action: "new_login"
+        expected:
+          total_sessions: 5
+          oldest_session_revoked: false
+        description: "5th login — no eviction needed."
+    status: uncovered
+    priority: 2
+    tags:
+      - session
+      - boundary
+
+  - name: "Session invalidation on password change"
+    description: "All active sessions except the current one are revoked when user changes password."
+    type: security
+    risk: high
+    risk_rationale: "Stolen sessions persist if not revoked on credential change."
+    techniques:
+      - equivalence_partitioning
+    preconditions:
+      - "User has 3 active sessions"
+    examples:
+      - input:
+          action: "change_password"
+          current_session_id: "sess-3"
+        expected:
+          revoked_sessions: ["sess-1", "sess-2"]
+          active_sessions: ["sess-3"]
+        description: "Only the current session survives password change."
+    test_ref: "tests/auth/test_session.py::test_password_change_revokes_others"
+    status: covered
+    priority: 1
+    tags:
+      - security
+      - session
+
+# ---------------------------------------------------------------------------
+# Example Mapping
+# ---------------------------------------------------------------------------
+example_mapping:
+  story: >
+    As a user, I want to securely log in to my account so that I can access
+    my personalized content and data.
+  rules:
+    - rule_name: "Credentials must match a registered, active account"
+      examples:
+        - "Valid email + correct password -> login success, tokens issued"
+        - "Valid email + wrong password -> 401, generic error"
+        - "Non-existent email -> 401, same generic error, similar timing"
+        - "Disabled account + correct password -> 403, account disabled"
+
+    - rule_name: "MFA is required when enabled on the account"
+      examples:
+        - "MFA enabled + valid TOTP -> login complete"
+        - "MFA enabled + invalid TOTP -> 401, no tokens"
+        - "MFA via SMS + provider down -> 503, email fallback offered"
+        - "MFA not enabled -> skip MFA step entirely"
+
+    - rule_name: "Account locks after 5 consecutive failures"
+      examples:
+        - "5th failed attempt -> account locked for 15 minutes"
+        - "4 failures then success -> counter resets"
+        - "Locked account + correct password -> still locked"
+        - "3 lockout cycles -> permanent lock, admin unlock required"
+
+    - rule_name: "Sessions are managed with rotating refresh tokens"
+      examples:
+        - "Access token expired -> refresh token issues new pair"
+        - "Refresh token reused -> all family tokens revoked"
+        - "Password changed -> all other sessions revoked"
+        - "6th concurrent session -> oldest session evicted"
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+metadata:
+  created_at: "2026-03-13T10:30:00Z"
+  updated_at: "2026-03-13T10:30:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

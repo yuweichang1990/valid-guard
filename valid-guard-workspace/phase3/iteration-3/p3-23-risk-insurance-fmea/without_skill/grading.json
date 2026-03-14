@@ -1,0 +1,64 @@
+{
+  "eval_key": "p3-23-risk-insurance-fmea",
+  "eval_name": "Insurance claims FMEA analysis",
+  "category": "risk_assessment",
+  "is_guidance": true,
+  "checks": [
+    {
+      "text": "Addresses claim calculation engine",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ENGINE"
+    },
+    {
+      "text": "Addresses document upload",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: UPLOAD"
+    },
+    {
+      "text": "Addresses fraud detection",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ALGORITHM"
+    },
+    {
+      "text": "Addresses claims dashboard",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: CLAIMS DASHBOARD"
+    },
+    {
+      "text": "Addresses notification emails",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: ('email', 'claim')"
+    },
+    {
+      "text": "FMEA methodology applied",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: fmea"
+    },
+    {
+      "text": "Risk prioritization of components",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Critical"
+    },
+    {
+      "text": "Failure cascade identification",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: depend"
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "total": 8,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 0
+  }
+}

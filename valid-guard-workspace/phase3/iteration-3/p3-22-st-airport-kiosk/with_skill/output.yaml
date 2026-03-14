@@ -1,0 +1,2003 @@
+# Valid Guard Test Plan — Airport Self-Service Check-In Kiosk
+# Generated: 2026-03-14T09:00:00Z
+# Source: natural language
+
+feature: "Airport Self-Service Check-In Kiosk"
+
+feature_description: >
+  A self-service airport check-in kiosk that guides passengers through a
+  multi-step workflow: airline selection, PNR/booking reference entry,
+  booking retrieval, passenger detail confirmation, optional seat selection,
+  and boarding pass printing. Every screen features a Cancel button returning
+  to Start. A 60-second inactivity timeout on any screen returns to Start.
+  Invalid PNR entry allows up to 3 re-entry attempts before returning to
+  Start. Printer jam errors direct the passenger to the service counter.
+
+risk_level: high
+
+entry_point: greenfield
+
+source:
+  type: natural_language
+  path: ""
+
+scenarios:
+  # ==========================================================================
+  # HAPPY PATH SCENARIOS
+  # ==========================================================================
+
+  - name: "Complete check-in workflow with seat selection"
+    description: >
+      Passenger completes the full workflow: Start -> Select Airline ->
+      Enter PNR -> Retrieve Booking -> Confirm Passenger Details ->
+      Select Seats -> Print Boarding Pass -> Exit. This is the primary
+      end-to-end happy path including the optional seat selection step.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. This is the core workflow every passenger uses; failure means nobody can check in."
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition models the full multi-screen workflow lifecycle.
+      Equivalence partitioning covers valid PNR formats and valid airline
+      selections as representative valid-class inputs.
+    preconditions:
+      - "Kiosk is powered on and in idle (Start) state"
+      - "Printer has paper and is operational"
+      - "Network connectivity to airline booking system is available"
+    examples:
+      - input:
+          airline: "Delta Air Lines"
+          pnr: "ABC123"
+          seat_selection: "14A"
+        expected:
+          boarding_pass_printed: true
+          final_state: "exit"
+          seat_assigned: "14A"
+        description: "Full workflow with seat selection completes successfully."
+    state_transition:
+      states:
+        - "start"
+        - "select_airline"
+        - "enter_pnr"
+        - "retrieve_booking"
+        - "confirm_details"
+        - "select_seats"
+        - "print_boarding_pass"
+        - "exit"
+      transitions:
+        - from: "start"
+          to: "select_airline"
+          trigger: "passenger_touches_screen"
+          guard: "Kiosk is idle"
+        - from: "select_airline"
+          to: "enter_pnr"
+          trigger: "airline_selected"
+          guard: "Valid airline chosen from list"
+        - from: "enter_pnr"
+          to: "retrieve_booking"
+          trigger: "pnr_submitted"
+          guard: "PNR format is valid"
+        - from: "retrieve_booking"
+          to: "confirm_details"
+          trigger: "booking_found"
+          guard: "PNR matches a valid booking in airline system"
+        - from: "confirm_details"
+          to: "select_seats"
+          trigger: "details_confirmed_with_seat_selection"
+          guard: "Passenger confirms details and chooses to select seat"
+        - from: "confirm_details"
+          to: "print_boarding_pass"
+          trigger: "details_confirmed_skip_seats"
+          guard: "Passenger confirms details and skips seat selection"
+        - from: "select_seats"
+          to: "print_boarding_pass"
+          trigger: "seat_selected"
+          guard: "Selected seat is available"
+        - from: "print_boarding_pass"
+          to: "exit"
+          trigger: "boarding_pass_printed"
+          guard: "Printer completes successfully"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - e2e
+
+  - name: "Complete check-in workflow without seat selection"
+    description: >
+      Passenger completes the workflow skipping the optional seat selection
+      step: Start -> Select Airline -> Enter PNR -> Retrieve Booking ->
+      Confirm Passenger Details -> Print Boarding Pass -> Exit.
+    type: happy_path
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. Skipping seat selection is an equally common path; must work reliably."
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition covers the skip-seat branch of the workflow.
+      Equivalence partitioning validates a representative valid PNR.
+    preconditions:
+      - "Kiosk is powered on and in idle (Start) state"
+      - "Printer has paper and is operational"
+      - "Network connectivity to airline booking system is available"
+    examples:
+      - input:
+          airline: "United Airlines"
+          pnr: "XYZ789"
+          seat_selection: "skip"
+        expected:
+          boarding_pass_printed: true
+          final_state: "exit"
+          seat_assigned: "pre-assigned"
+        description: "Full workflow without seat selection completes successfully."
+    state_transition:
+      states:
+        - "start"
+        - "select_airline"
+        - "enter_pnr"
+        - "retrieve_booking"
+        - "confirm_details"
+        - "print_boarding_pass"
+        - "exit"
+      transitions:
+        - from: "confirm_details"
+          to: "print_boarding_pass"
+          trigger: "details_confirmed_skip_seats"
+          guard: "Passenger confirms and declines seat selection"
+        - from: "print_boarding_pass"
+          to: "exit"
+          trigger: "boarding_pass_printed"
+          guard: "Printer completes successfully"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - smoke
+      - critical-path
+      - e2e
+
+  # ==========================================================================
+  # CANCEL BEHAVIOR SCENARIOS
+  # ==========================================================================
+
+  - name: "Cancel from Select Airline screen returns to Start"
+    description: >
+      Passenger presses the Cancel button while on the Select Airline screen.
+      The kiosk immediately returns to the Start screen, discarding any
+      partial state.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Cancel is a secondary but important UX flow; failure traps users on a screen."
+    techniques:
+      - state_transition
+      - equivalence_partitioning
+    technique_rationale: >
+      State transition models the cancel-triggered return to start.
+      Equivalence partitioning treats all cancel actions as equivalent
+      regardless of screen content.
+    preconditions:
+      - "Kiosk is on the Select Airline screen"
+    examples:
+      - input:
+          current_screen: "select_airline"
+          action: "cancel"
+        expected:
+          next_screen: "start"
+          session_data_cleared: true
+        description: "Cancel from Select Airline returns to Start."
+    state_transition:
+      states:
+        - "select_airline"
+        - "start"
+      transitions:
+        - from: "select_airline"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button is visible and enabled"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - cancel
+      - navigation
+
+  - name: "Cancel from Enter PNR screen returns to Start"
+    description: >
+      Passenger presses the Cancel button while on the Enter PNR screen.
+      Any partially typed PNR is discarded and kiosk returns to Start.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. User may have typed partial data; must be fully cleared."
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition validates the cancel transition from this specific
+      screen and verifies partial input cleanup.
+    preconditions:
+      - "Kiosk is on the Enter PNR screen"
+      - "Passenger may have partially entered a PNR"
+    examples:
+      - input:
+          current_screen: "enter_pnr"
+          partial_pnr: "AB"
+          action: "cancel"
+        expected:
+          next_screen: "start"
+          session_data_cleared: true
+          pnr_input_cleared: true
+        description: "Cancel from Enter PNR with partial input returns to Start."
+    state_transition:
+      states:
+        - "enter_pnr"
+        - "start"
+      transitions:
+        - from: "enter_pnr"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button is visible and enabled"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - cancel
+      - navigation
+      - data-cleanup
+
+  - name: "Cancel from Retrieve Booking screen returns to Start"
+    description: >
+      Passenger presses Cancel while the system is retrieving the booking
+      or after retrieval results are shown. Returns to Start.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Cancelling during retrieval must cleanly abort the operation."
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition validates the cancel path from a mid-workflow screen
+      with potential in-flight API calls.
+    preconditions:
+      - "Kiosk is on the Retrieve Booking screen"
+    examples:
+      - input:
+          current_screen: "retrieve_booking"
+          action: "cancel"
+        expected:
+          next_screen: "start"
+          session_data_cleared: true
+          api_call_aborted: true
+        description: "Cancel during booking retrieval returns to Start."
+    state_transition:
+      states:
+        - "retrieve_booking"
+        - "start"
+      transitions:
+        - from: "retrieve_booking"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button is visible and enabled"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - cancel
+      - navigation
+
+  - name: "Cancel from Confirm Passenger Details screen returns to Start"
+    description: >
+      Passenger presses Cancel on the Confirm Passenger Details screen
+      after reviewing their booking information. Returns to Start.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Passenger may want to abort after seeing wrong booking."
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition models the cancel return from a screen that holds
+      retrieved passenger data requiring cleanup.
+    preconditions:
+      - "Kiosk has retrieved and is displaying passenger details"
+    examples:
+      - input:
+          current_screen: "confirm_details"
+          action: "cancel"
+        expected:
+          next_screen: "start"
+          session_data_cleared: true
+          booking_data_discarded: true
+        description: "Cancel from Confirm Details returns to Start."
+    state_transition:
+      states:
+        - "confirm_details"
+        - "start"
+      transitions:
+        - from: "confirm_details"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button is visible and enabled"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - cancel
+      - navigation
+      - data-cleanup
+
+  - name: "Cancel from Select Seats screen returns to Start"
+    description: >
+      Passenger presses Cancel during the optional seat selection screen.
+      Any seat selection in progress is discarded. Returns to Start.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Partial seat selection must not persist."
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition models the cancel from the optional step, verifying
+      no partial seat assignment is persisted.
+    preconditions:
+      - "Kiosk is on the Select Seats screen"
+    examples:
+      - input:
+          current_screen: "select_seats"
+          tentative_seat: "22B"
+          action: "cancel"
+        expected:
+          next_screen: "start"
+          session_data_cleared: true
+          seat_not_reserved: true
+        description: "Cancel from Select Seats discards tentative selection."
+    state_transition:
+      states:
+        - "select_seats"
+        - "start"
+      transitions:
+        - from: "select_seats"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button is visible and enabled"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - cancel
+      - navigation
+      - data-cleanup
+
+  - name: "Cancel from Print Boarding Pass screen returns to Start"
+    description: >
+      Passenger presses Cancel while the boarding pass is being printed
+      or before print starts. Returns to Start. If printing has already
+      begun, the cancel should still reset the session.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.50 -> medium. Rare but important — partially printed pass state must be handled."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition covers the cancel path. Error guessing considers
+      the race condition of cancelling mid-print.
+    preconditions:
+      - "Kiosk is on the Print Boarding Pass screen"
+    examples:
+      - input:
+          current_screen: "print_boarding_pass"
+          print_status: "not_started"
+          action: "cancel"
+        expected:
+          next_screen: "start"
+          session_data_cleared: true
+        description: "Cancel before print begins returns to Start."
+    state_transition:
+      states:
+        - "print_boarding_pass"
+        - "start"
+      transitions:
+        - from: "print_boarding_pass"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button is visible and enabled"
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - cancel
+      - navigation
+      - edge-case
+
+  # ==========================================================================
+  # TIMEOUT SCENARIOS
+  # ==========================================================================
+
+  - name: "Inactivity timeout on Select Airline screen"
+    description: >
+      If the passenger does not interact with the Select Airline screen
+      for 60 seconds, the kiosk automatically returns to the Start screen.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 2, Frequency: 3, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Without timeout, abandoned sessions block the kiosk for the next passenger, and may expose prior session data."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the timeout-triggered return. Boundary value
+      tests the exact 60-second threshold (59s, 60s, 61s).
+    preconditions:
+      - "Kiosk is on the Select Airline screen"
+      - "No user interaction occurring"
+    examples:
+      - input:
+          current_screen: "select_airline"
+          inactivity_seconds: 59
+        expected:
+          screen_remains: "select_airline"
+          timeout_triggered: false
+        description: "At 59 seconds of inactivity, kiosk remains on current screen."
+      - input:
+          current_screen: "select_airline"
+          inactivity_seconds: 60
+        expected:
+          next_screen: "start"
+          timeout_triggered: true
+          session_data_cleared: true
+        description: "At exactly 60 seconds, timeout fires and returns to Start."
+      - input:
+          current_screen: "select_airline"
+          inactivity_seconds: 61
+        expected:
+          next_screen: "start"
+          timeout_triggered: true
+          session_data_cleared: true
+        description: "At 61 seconds, timeout has already fired."
+    state_transition:
+      states:
+        - "select_airline"
+        - "start"
+      transitions:
+        - from: "select_airline"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds elapsed without user interaction"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - timeout
+      - security
+      - boundary
+
+  - name: "Inactivity timeout on Enter PNR screen"
+    description: >
+      If the passenger does not interact with the Enter PNR screen for
+      60 seconds (e.g., walks away mid-entry), the kiosk returns to Start.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 2, Frequency: 3, Consequence: 3, Detectability: 3. Average: 2.75 -> high. Abandoned PNR entry screen could expose partial booking data."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition for the timeout event. Boundary value for the
+      60-second threshold precision.
+    preconditions:
+      - "Kiosk is on the Enter PNR screen"
+      - "No user interaction for 60 seconds"
+    examples:
+      - input:
+          current_screen: "enter_pnr"
+          inactivity_seconds: 60
+        expected:
+          next_screen: "start"
+          timeout_triggered: true
+          partial_pnr_cleared: true
+        description: "Timeout at 60s clears partial PNR and returns to Start."
+    state_transition:
+      states:
+        - "enter_pnr"
+        - "start"
+      transitions:
+        - from: "enter_pnr"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds elapsed without user interaction"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - timeout
+      - security
+
+  - name: "Inactivity timeout on Confirm Details screen"
+    description: >
+      If the passenger does not interact with the Confirm Passenger Details
+      screen for 60 seconds, the kiosk returns to Start. This is critical
+      because passenger PII is displayed.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 -> high. PII (name, flight, passport) is displayed; timeout prevents data exposure to next user."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the timeout. Boundary value ensures exact
+      60-second enforcement. Privacy risk elevates importance.
+    preconditions:
+      - "Kiosk is displaying passenger details (PII visible)"
+      - "No user interaction for 60 seconds"
+    examples:
+      - input:
+          current_screen: "confirm_details"
+          inactivity_seconds: 60
+          pii_displayed: true
+        expected:
+          next_screen: "start"
+          timeout_triggered: true
+          pii_cleared_from_screen: true
+          session_data_cleared: true
+        description: "Timeout clears PII from screen and returns to Start."
+    state_transition:
+      states:
+        - "confirm_details"
+        - "start"
+      transitions:
+        - from: "confirm_details"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds elapsed without user interaction"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - timeout
+      - security
+      - privacy
+
+  - name: "Inactivity timeout on Select Seats screen"
+    description: >
+      If the passenger does not interact with the Select Seats screen
+      for 60 seconds, the kiosk returns to Start.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 3. Average: 2.25 -> medium. Seat map is less sensitive data but session still must not hang."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition for the timeout event. Boundary value to verify
+      the 60-second threshold.
+    preconditions:
+      - "Kiosk is on the Select Seats screen"
+      - "No user interaction for 60 seconds"
+    examples:
+      - input:
+          current_screen: "select_seats"
+          inactivity_seconds: 60
+        expected:
+          next_screen: "start"
+          timeout_triggered: true
+          tentative_seat_released: true
+        description: "Timeout on seat selection releases any tentative hold."
+    state_transition:
+      states:
+        - "select_seats"
+        - "start"
+      transitions:
+        - from: "select_seats"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds elapsed without user interaction"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - timeout
+      - navigation
+
+  - name: "Inactivity timeout on Print Boarding Pass screen"
+    description: >
+      If the passenger does not interact with the Print Boarding Pass
+      screen for 60 seconds (e.g., walks away without collecting the pass),
+      the kiosk returns to Start.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.00 -> medium. Printed pass may be left; kiosk must still reset for next user."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition for the timeout event. Boundary value for the
+      60-second threshold.
+    preconditions:
+      - "Kiosk is on the Print Boarding Pass screen"
+      - "Boarding pass may or may not have been collected"
+    examples:
+      - input:
+          current_screen: "print_boarding_pass"
+          inactivity_seconds: 60
+          pass_collected: false
+        expected:
+          next_screen: "start"
+          timeout_triggered: true
+          session_data_cleared: true
+        description: "Timeout after print returns to Start even if pass not collected."
+    state_transition:
+      states:
+        - "print_boarding_pass"
+        - "start"
+      transitions:
+        - from: "print_boarding_pass"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds elapsed without user interaction"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - timeout
+      - navigation
+
+  - name: "Inactivity timer resets on any user interaction"
+    description: >
+      Any touch, keypress, or interaction on the current screen resets
+      the 60-second inactivity timer back to zero.
+    type: edge_case
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. If the timer does not reset properly, active passengers get kicked out mid-workflow."
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value tests the reset at edge timing (interaction at 59s).
+      State transition verifies the timer reset does not cause a state change.
+    preconditions:
+      - "Kiosk is on any workflow screen"
+      - "Inactivity timer is counting"
+    examples:
+      - input:
+          current_screen: "enter_pnr"
+          inactivity_seconds: 55
+          action: "keypress"
+          wait_after_action_seconds: 30
+        expected:
+          timeout_triggered: false
+          screen_remains: "enter_pnr"
+          timer_reset_to: 0
+        description: "Interaction at 55s resets timer; 30s more wait does not timeout."
+      - input:
+          current_screen: "enter_pnr"
+          inactivity_seconds: 59
+          action: "touch_screen"
+          wait_after_action_seconds: 59
+        expected:
+          timeout_triggered: false
+          screen_remains: "enter_pnr"
+        description: "Interaction at 59s resets timer; another 59s still safe."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - timeout
+      - boundary
+      - critical-path
+
+  # ==========================================================================
+  # PNR VALIDATION AND ERROR HANDLING
+  # ==========================================================================
+
+  - name: "Invalid PNR entry - first attempt with error and re-entry"
+    description: >
+      Passenger enters an invalid PNR (not found in airline system). The
+      kiosk displays an error message and allows the passenger to re-enter
+      the PNR. This is the first failed attempt out of 3 allowed.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 2, Detectability: 1. Average: 2.25 -> medium. But upgraded to high because PNR lookup is on the critical path and typos are extremely common."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+      - boundary_value
+    technique_rationale: >
+      Equivalence partitioning categorizes PNR inputs (valid format/found,
+      valid format/not found, invalid format). Error guessing anticipates
+      common typo patterns. Boundary value tests the attempt counter.
+    preconditions:
+      - "Kiosk is on the Enter PNR screen"
+      - "This is the first PNR entry attempt"
+    examples:
+      - input:
+          pnr: "ZZZZZ9"
+          attempt_number: 1
+        expected:
+          error_displayed: true
+          error_message: "Booking not found. Please check your reference and try again."
+          remaining_attempts: 2
+          screen_remains: "enter_pnr"
+          pnr_input_cleared: true
+        description: "First invalid PNR shows error, allows re-entry, 2 attempts left."
+      - input:
+          pnr: ""
+          attempt_number: 1
+        expected:
+          error_displayed: true
+          error_message: "Please enter a valid booking reference."
+          remaining_attempts: 2
+          screen_remains: "enter_pnr"
+        description: "Empty PNR submission shows validation error."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - pnr-validation
+      - error-handling
+      - critical-path
+
+  - name: "Invalid PNR entry - second attempt"
+    description: >
+      Passenger enters an invalid PNR for the second consecutive time.
+      Error message displayed, one attempt remaining.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Second attempt handling must track counter correctly."
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value tests the counter at attempt 2 of 3. State transition
+      tracks the progression through retry states.
+    preconditions:
+      - "Kiosk is on the Enter PNR screen"
+      - "One previous failed PNR attempt has occurred"
+    examples:
+      - input:
+          pnr: "INVALID"
+          attempt_number: 2
+        expected:
+          error_displayed: true
+          error_message: "Booking not found. You have 1 attempt remaining."
+          remaining_attempts: 1
+          screen_remains: "enter_pnr"
+        description: "Second invalid PNR warns of 1 remaining attempt."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - pnr-validation
+      - error-handling
+      - boundary
+
+  - name: "Invalid PNR entry - third attempt triggers return to Start"
+    description: >
+      Passenger enters an invalid PNR for the third consecutive time. The
+      kiosk displays a final error message and automatically returns to
+      the Start screen after a brief delay.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.25 -> medium. Upgraded to high because failure here could leave the kiosk stuck or allow infinite retries."
+    techniques:
+      - boundary_value
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      Boundary value tests the exact 3-attempt limit. State transition
+      models the forced return to Start. Error guessing considers what
+      happens if the counter is not properly tracked.
+    preconditions:
+      - "Kiosk is on the Enter PNR screen"
+      - "Two previous failed PNR attempts have occurred"
+    examples:
+      - input:
+          pnr: "WRONG3"
+          attempt_number: 3
+        expected:
+          error_displayed: true
+          error_message: "Maximum attempts reached. Please visit the check-in counter for assistance."
+          next_screen: "start"
+          session_data_cleared: true
+          attempt_counter_reset: true
+        description: "Third failed attempt forces return to Start."
+    state_transition:
+      states:
+        - "enter_pnr"
+        - "pnr_error"
+        - "start"
+      transitions:
+        - from: "enter_pnr"
+          to: "pnr_error"
+          trigger: "invalid_pnr_submitted"
+          guard: "attempt_count < 3"
+        - from: "pnr_error"
+          to: "enter_pnr"
+          trigger: "retry_allowed"
+          guard: "attempt_count < 3"
+        - from: "pnr_error"
+          to: "start"
+          trigger: "max_attempts_reached"
+          guard: "attempt_count >= 3"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - pnr-validation
+      - error-handling
+      - boundary
+      - critical-path
+
+  - name: "Valid PNR after previous failed attempts"
+    description: >
+      Passenger enters a valid PNR on the second or third attempt after
+      one or two prior failures. The system should accept it and proceed.
+    type: happy_path
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Counter must not block valid entries after prior failures."
+    techniques:
+      - equivalence_partitioning
+      - state_transition
+    technique_rationale: >
+      Equivalence partitioning tests valid PNR after invalid attempts.
+      State transition verifies recovery from error state.
+    preconditions:
+      - "Kiosk is on the Enter PNR screen"
+      - "One or two previous failed PNR attempts have occurred"
+    examples:
+      - input:
+          previous_failed_attempts: 2
+          pnr: "VALID1"
+          attempt_number: 3
+        expected:
+          booking_retrieved: true
+          next_screen: "confirm_details"
+          attempt_counter_reset: true
+        description: "Valid PNR on third attempt proceeds normally."
+      - input:
+          previous_failed_attempts: 1
+          pnr: "VALID2"
+          attempt_number: 2
+        expected:
+          booking_retrieved: true
+          next_screen: "confirm_details"
+        description: "Valid PNR on second attempt proceeds normally."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - pnr-validation
+      - recovery
+
+  - name: "PNR format validation - equivalence classes"
+    description: >
+      Tests various PNR format classes: valid alphanumeric 6-character PNR,
+      PNR with special characters, PNR too short, PNR too long, numeric-only
+      PNR (some airlines use these), and PNRs with whitespace.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Format validation prevents unnecessary API calls for malformed input."
+    techniques:
+      - equivalence_partitioning
+      - boundary_value
+    technique_rationale: >
+      Equivalence partitioning categorizes PNR formats into valid and
+      invalid classes. Boundary value tests length limits.
+    preconditions:
+      - "Kiosk is on the Enter PNR screen"
+    examples:
+      - input:
+          pnr: "ABC123"
+        expected:
+          format_valid: true
+          lookup_initiated: true
+        description: "Standard 6-character alphanumeric PNR accepted."
+      - input:
+          pnr: "AB@#12"
+        expected:
+          format_valid: false
+          error_message: "Please enter a valid booking reference."
+        description: "PNR with special characters rejected at format level."
+      - input:
+          pnr: "AB1"
+        expected:
+          format_valid: false
+          error_message: "Please enter a valid booking reference."
+        description: "PNR too short rejected at format level."
+      - input:
+          pnr: " ABC123 "
+        expected:
+          format_valid: true
+          pnr_trimmed: "ABC123"
+          lookup_initiated: true
+        description: "Leading/trailing whitespace trimmed before lookup."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - pnr-validation
+      - input-validation
+      - boundary
+
+  # ==========================================================================
+  # PRINTER ERROR SCENARIOS
+  # ==========================================================================
+
+  - name: "Printer jam during boarding pass printing"
+    description: >
+      The printer encounters a paper jam while printing the boarding pass.
+      The kiosk displays an error message directing the passenger to the
+      service counter and does not return to Start automatically.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1. Average: 2.00 -> medium. Upgraded to high because the passenger has completed the entire workflow and has no boarding pass; they need clear direction."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates the hardware failure scenario. State
+      transition models the transition to the error state from the
+      print screen.
+    preconditions:
+      - "Kiosk is on the Print Boarding Pass screen"
+      - "Print job has been initiated"
+      - "Printer hardware reports a jam condition"
+    examples:
+      - input:
+          action: "print_boarding_pass"
+          printer_status: "paper_jam"
+        expected:
+          error_displayed: true
+          error_message: "We're sorry, the printer is experiencing an issue. Please visit the service counter for assistance."
+          screen_state: "printer_error"
+          redirect_to_counter: true
+          boarding_pass_printed: false
+        description: "Printer jam shows error directing passenger to counter."
+    state_transition:
+      states:
+        - "print_boarding_pass"
+        - "printer_error"
+      transitions:
+        - from: "print_boarding_pass"
+          to: "printer_error"
+          trigger: "printer_jam_detected"
+          guard: "Printer hardware reports jam"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - printer
+      - hardware-error
+      - critical-path
+
+  - name: "Printer out of paper during boarding pass printing"
+    description: >
+      The printer runs out of paper while printing the boarding pass.
+      Similar to printer jam, displays an error and directs to counter.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 1. Average: 2.00 -> medium. Upgraded to high because impact on the passenger is identical to a jam."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing covers the hardware consumable exhaustion scenario.
+      State transition models the error state.
+    preconditions:
+      - "Kiosk is on the Print Boarding Pass screen"
+      - "Printer has no paper remaining"
+    examples:
+      - input:
+          action: "print_boarding_pass"
+          printer_status: "out_of_paper"
+        expected:
+          error_displayed: true
+          error_message: "We're sorry, the printer is experiencing an issue. Please visit the service counter for assistance."
+          redirect_to_counter: true
+          boarding_pass_printed: false
+        description: "Out of paper shows error directing passenger to counter."
+    state_transition:
+      states:
+        - "print_boarding_pass"
+        - "printer_error"
+      transitions:
+        - from: "print_boarding_pass"
+          to: "printer_error"
+          trigger: "printer_out_of_paper"
+          guard: "Printer reports no paper"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - printer
+      - hardware-error
+
+  - name: "Printer error screen behavior and service counter direction"
+    description: >
+      When a printer error occurs, the error screen must clearly display
+      the service counter direction, remain visible until staff reset or
+      timeout, and not allow the passenger to attempt re-printing.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.50 -> medium. Error screen UX must be clear for stressed passengers."
+    techniques:
+      - error_guessing
+      - equivalence_partitioning
+    technique_rationale: >
+      Error guessing considers UX clarity. Equivalence partitioning tests
+      different printer error types all lead to the same error screen.
+    preconditions:
+      - "Printer error has occurred (jam, out of paper, or other)"
+    examples:
+      - input:
+          printer_error_type: "paper_jam"
+          action: "attempt_reprint"
+        expected:
+          reprint_allowed: false
+          error_screen_remains: true
+          service_counter_info_visible: true
+        description: "Reprint attempt blocked; error screen persists."
+      - input:
+          printer_error_type: "out_of_paper"
+          inactivity_seconds: 120
+        expected:
+          next_screen: "start"
+          timeout_triggered: true
+        description: "After extended timeout, printer error screen returns to Start."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - printer
+      - hardware-error
+      - ux
+
+  # ==========================================================================
+  # STATE TRANSITION — COMPLETE STATE MACHINE
+  # ==========================================================================
+
+  - name: "Complete kiosk state machine - all valid transitions"
+    description: >
+      Comprehensive state transition model covering all valid state
+      transitions in the kiosk workflow, including happy path, cancel
+      from every screen, timeout from every screen, PNR retry loop,
+      and printer error transitions. This scenario provides 0-switch
+      coverage of all valid transitions.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 -> high. The state machine integrity is the foundation of the entire kiosk; any missing or incorrect transition breaks the workflow."
+    techniques:
+      - state_transition
+    technique_rationale: >
+      State transition is the primary technique for modeling the complete
+      kiosk lifecycle. This provides 0-switch coverage of all valid
+      transitions in the system.
+    preconditions:
+      - "Kiosk is operational"
+    examples:
+      - input:
+          path: "start -> select_airline -> enter_pnr -> retrieve_booking -> confirm_details -> select_seats -> print_boarding_pass -> exit"
+        expected:
+          valid_path: true
+          path_type: "happy_path_with_seats"
+        description: "Full happy path with seat selection."
+      - input:
+          path: "start -> select_airline -> enter_pnr -> retrieve_booking -> confirm_details -> print_boarding_pass -> exit"
+        expected:
+          valid_path: true
+          path_type: "happy_path_without_seats"
+        description: "Full happy path skipping seat selection."
+      - input:
+          path: "enter_pnr -> pnr_error -> enter_pnr -> pnr_error -> enter_pnr -> pnr_error -> start"
+        expected:
+          valid_path: true
+          path_type: "max_retry_exhaustion"
+        description: "Three failed PNR attempts leading to forced return."
+    state_transition:
+      states:
+        - "start"
+        - "select_airline"
+        - "enter_pnr"
+        - "retrieve_booking"
+        - "confirm_details"
+        - "select_seats"
+        - "print_boarding_pass"
+        - "exit"
+        - "pnr_error"
+        - "printer_error"
+      transitions:
+        # Happy path transitions
+        - from: "start"
+          to: "select_airline"
+          trigger: "passenger_begins"
+          guard: "Kiosk is idle"
+        - from: "select_airline"
+          to: "enter_pnr"
+          trigger: "airline_selected"
+          guard: "Valid airline chosen"
+        - from: "enter_pnr"
+          to: "retrieve_booking"
+          trigger: "valid_pnr_submitted"
+          guard: "PNR format is valid"
+        - from: "retrieve_booking"
+          to: "confirm_details"
+          trigger: "booking_found"
+          guard: "Booking exists in airline system"
+        - from: "confirm_details"
+          to: "select_seats"
+          trigger: "choose_seat_selection"
+          guard: "Passenger opts to select seat"
+        - from: "confirm_details"
+          to: "print_boarding_pass"
+          trigger: "skip_seat_selection"
+          guard: "Passenger skips seat selection"
+        - from: "select_seats"
+          to: "print_boarding_pass"
+          trigger: "seat_confirmed"
+          guard: "Seat is available and assigned"
+        - from: "print_boarding_pass"
+          to: "exit"
+          trigger: "print_successful"
+          guard: "Boarding pass printed successfully"
+        - from: "exit"
+          to: "start"
+          trigger: "session_complete"
+          guard: "Passenger takes boarding pass"
+        # Cancel transitions (every screen -> start)
+        - from: "select_airline"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button pressed"
+        - from: "enter_pnr"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button pressed"
+        - from: "retrieve_booking"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button pressed"
+        - from: "confirm_details"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button pressed"
+        - from: "select_seats"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button pressed"
+        - from: "print_boarding_pass"
+          to: "start"
+          trigger: "cancel_pressed"
+          guard: "Cancel button pressed"
+        # Timeout transitions (every screen -> start)
+        - from: "select_airline"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds without interaction"
+        - from: "enter_pnr"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds without interaction"
+        - from: "retrieve_booking"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds without interaction"
+        - from: "confirm_details"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds without interaction"
+        - from: "select_seats"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds without interaction"
+        - from: "print_boarding_pass"
+          to: "start"
+          trigger: "inactivity_timeout"
+          guard: "60 seconds without interaction"
+        # PNR error transitions
+        - from: "enter_pnr"
+          to: "pnr_error"
+          trigger: "invalid_pnr_submitted"
+          guard: "PNR not found or invalid format"
+        - from: "pnr_error"
+          to: "enter_pnr"
+          trigger: "retry_pnr"
+          guard: "attempt_count < 3"
+        - from: "pnr_error"
+          to: "start"
+          trigger: "max_attempts_exceeded"
+          guard: "attempt_count >= 3"
+        # Printer error transitions
+        - from: "print_boarding_pass"
+          to: "printer_error"
+          trigger: "printer_failure"
+          guard: "Printer reports jam, out of paper, or other hardware error"
+        # Booking not found transition
+        - from: "retrieve_booking"
+          to: "pnr_error"
+          trigger: "booking_not_found"
+          guard: "PNR valid format but no matching booking"
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - comprehensive
+      - critical-path
+
+  - name: "Invalid state transitions are blocked"
+    description: >
+      Verify that invalid state transitions are not possible. For example,
+      jumping from Start directly to Print Boarding Pass, or from Select
+      Airline to Confirm Details without entering a PNR.
+    type: state_transition
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.50 -> high. Allowing invalid transitions could let passengers bypass verification steps."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition tests negative transitions (events in wrong states).
+      Error guessing anticipates attempts to manipulate the kiosk flow.
+    preconditions:
+      - "Kiosk is in a specific state"
+    examples:
+      - input:
+          current_state: "start"
+          attempted_transition: "print_boarding_pass"
+        expected:
+          transition_blocked: true
+          state_unchanged: "start"
+        description: "Cannot jump from Start to Print without completing workflow."
+      - input:
+          current_state: "select_airline"
+          attempted_transition: "confirm_details"
+        expected:
+          transition_blocked: true
+          state_unchanged: "select_airline"
+        description: "Cannot skip PNR entry step."
+      - input:
+          current_state: "exit"
+          attempted_transition: "select_seats"
+        expected:
+          transition_blocked: true
+          state_unchanged: "exit"
+        description: "Cannot go back to seat selection from exit."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - state-machine
+      - security
+      - negative-test
+
+  # ==========================================================================
+  # DECISION TABLE — PNR LOOKUP OUTCOMES
+  # ==========================================================================
+
+  - name: "PNR lookup outcome decision table"
+    description: >
+      Decision table covering all combinations of PNR format validity,
+      booking existence, attempt count, and the resulting system action.
+    type: combinatorial
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 2, Detectability: 2. Average: 2.50 -> high. Multiple conditions interact to determine the correct kiosk behavior."
+    techniques:
+      - decision_table
+      - equivalence_partitioning
+    technique_rationale: >
+      Decision table explicitly enumerates all condition combinations.
+      Equivalence partitioning ensures representative values for each
+      condition category.
+    preconditions:
+      - "Kiosk is on the Enter PNR screen"
+    examples:
+      - input:
+          pnr_format: "valid"
+          booking_exists: true
+          attempt_number: 1
+        expected:
+          action: "proceed_to_confirm_details"
+        description: "Valid format, booking found, first attempt -> proceed."
+      - input:
+          pnr_format: "invalid"
+          booking_exists: false
+          attempt_number: 3
+        expected:
+          action: "return_to_start"
+        description: "Invalid format, third attempt -> return to start."
+    decision_table:
+      conditions:
+        - "PNR format valid"
+        - "Booking exists in airline system"
+        - "Attempt count < 3"
+      actions:
+        - "Proceed to Confirm Details"
+        - "Show error and allow retry"
+        - "Show error and return to Start"
+        - "Show format validation error"
+      rules:
+        - description: "Valid PNR, booking found"
+          condition_values:
+            "PNR format valid": true
+            "Booking exists in airline system": true
+            "Attempt count < 3": true
+          expected_actions:
+            "Proceed to Confirm Details": true
+            "Show error and allow retry": false
+            "Show error and return to Start": false
+            "Show format validation error": false
+        - description: "Valid format, booking not found, retries remaining"
+          condition_values:
+            "PNR format valid": true
+            "Booking exists in airline system": false
+            "Attempt count < 3": true
+          expected_actions:
+            "Proceed to Confirm Details": false
+            "Show error and allow retry": true
+            "Show error and return to Start": false
+            "Show format validation error": false
+        - description: "Valid format, booking not found, no retries left"
+          condition_values:
+            "PNR format valid": true
+            "Booking exists in airline system": false
+            "Attempt count < 3": false
+          expected_actions:
+            "Proceed to Confirm Details": false
+            "Show error and allow retry": false
+            "Show error and return to Start": true
+            "Show format validation error": false
+        - description: "Invalid format, retries remaining"
+          condition_values:
+            "PNR format valid": false
+            "Booking exists in airline system": false
+            "Attempt count < 3": true
+          expected_actions:
+            "Proceed to Confirm Details": false
+            "Show error and allow retry": false
+            "Show error and return to Start": false
+            "Show format validation error": true
+        - description: "Invalid format, no retries left"
+          condition_values:
+            "PNR format valid": false
+            "Booking exists in airline system": false
+            "Attempt count < 3": false
+          expected_actions:
+            "Proceed to Confirm Details": false
+            "Show error and allow retry": false
+            "Show error and return to Start": true
+            "Show format validation error": false
+        - description: "Valid PNR, booking found, even after retries (last attempt)"
+          condition_values:
+            "PNR format valid": true
+            "Booking exists in airline system": true
+            "Attempt count < 3": false
+          expected_actions:
+            "Proceed to Confirm Details": true
+            "Show error and allow retry": false
+            "Show error and return to Start": false
+            "Show format validation error": false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - pnr-validation
+      - combinatorial
+
+  # ==========================================================================
+  # DECISION TABLE — PRINT OUTCOME
+  # ==========================================================================
+
+  - name: "Print boarding pass outcome decision table"
+    description: >
+      Decision table covering print outcomes based on printer status,
+      paper availability, and boarding pass data validity.
+    type: combinatorial
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 1. Average: 2.25 -> medium. Upgraded to high because printing is the final deliverable of the entire workflow."
+    techniques:
+      - decision_table
+      - error_guessing
+    technique_rationale: >
+      Decision table enumerates all printer condition combinations.
+      Error guessing covers hardware failure modes.
+    preconditions:
+      - "Kiosk is on the Print Boarding Pass screen"
+      - "Boarding pass data is ready"
+    examples:
+      - input:
+          printer_operational: true
+          paper_available: true
+          boarding_pass_data_valid: true
+        expected:
+          boarding_pass_printed: true
+          next_screen: "exit"
+        description: "All conditions met: boarding pass printed successfully."
+      - input:
+          printer_operational: false
+          paper_available: true
+          boarding_pass_data_valid: true
+        expected:
+          error_displayed: true
+          redirect_to_counter: true
+        description: "Printer not operational: error and redirect to counter."
+    decision_table:
+      conditions:
+        - "Printer operational"
+        - "Paper available"
+        - "Boarding pass data valid"
+      actions:
+        - "Print boarding pass"
+        - "Show printer error and direct to counter"
+        - "Show data error"
+      rules:
+        - description: "All conditions met - successful print"
+          condition_values:
+            "Printer operational": true
+            "Paper available": true
+            "Boarding pass data valid": true
+          expected_actions:
+            "Print boarding pass": true
+            "Show printer error and direct to counter": false
+            "Show data error": false
+        - description: "Printer not operational"
+          condition_values:
+            "Printer operational": false
+            "Paper available": true
+            "Boarding pass data valid": true
+          expected_actions:
+            "Print boarding pass": false
+            "Show printer error and direct to counter": true
+            "Show data error": false
+        - description: "No paper"
+          condition_values:
+            "Printer operational": true
+            "Paper available": false
+            "Boarding pass data valid": true
+          expected_actions:
+            "Print boarding pass": false
+            "Show printer error and direct to counter": true
+            "Show data error": false
+        - description: "Invalid boarding pass data"
+          condition_values:
+            "Printer operational": true
+            "Paper available": true
+            "Boarding pass data valid": false
+          expected_actions:
+            "Print boarding pass": false
+            "Show printer error and direct to counter": false
+            "Show data error": true
+        - description: "Printer broken and no paper"
+          condition_values:
+            "Printer operational": false
+            "Paper available": false
+            "Boarding pass data valid": true
+          expected_actions:
+            "Print boarding pass": false
+            "Show printer error and direct to counter": true
+            "Show data error": false
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - decision-table
+      - printer
+      - combinatorial
+
+  # ==========================================================================
+  # EDGE CASES AND ADDITIONAL SCENARIOS
+  # ==========================================================================
+
+  - name: "Airline selection with single airline available"
+    description: >
+      When only one airline operates at the airport or kiosk, the airline
+      selection screen should still be shown (or auto-selected) correctly.
+    type: edge_case
+    risk: low
+    risk_rationale: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.00 -> low. Rare configuration but should still work."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning tests the single-airline class. Error
+      guessing considers an empty airline list edge case.
+    preconditions:
+      - "Kiosk is configured with only one airline"
+    examples:
+      - input:
+          available_airlines: ["Delta Air Lines"]
+          action: "select_airline"
+        expected:
+          airline_auto_selected: true
+          next_screen: "enter_pnr"
+        description: "Single airline may be auto-selected."
+      - input:
+          available_airlines: []
+        expected:
+          error_displayed: true
+          error_message: "No airlines available. Please visit the check-in counter."
+        description: "No airlines configured shows error."
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - edge-case
+      - airline-selection
+
+  - name: "Booking retrieval network timeout"
+    description: >
+      The airline booking system does not respond within the expected
+      timeframe during PNR lookup. The kiosk should show a network
+      error and allow retry.
+    type: error_handling
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.25 -> medium. Upgraded to high because network issues are common in airport environments and must degrade gracefully."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates network latency and failure. State
+      transition models the error recovery path.
+    preconditions:
+      - "Kiosk has submitted a PNR lookup request"
+      - "Airline booking system is unreachable or slow"
+    examples:
+      - input:
+          pnr: "ABC123"
+          network_response_time_ms: 30000
+          network_timeout_ms: 15000
+        expected:
+          error_displayed: true
+          error_message: "Unable to retrieve booking. Please try again."
+          screen_remains: "enter_pnr"
+          attempt_not_counted: true
+        description: "Network timeout does not consume a retry attempt."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - network
+      - error-handling
+      - reliability
+
+  - name: "Seat selection with no available seats"
+    description: >
+      Passenger chooses to select a seat but the flight is fully booked
+      with no available seats. The kiosk should display an appropriate
+      message and proceed to print with the pre-assigned seat.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.50 -> medium. Full flights are common; the kiosk must handle this gracefully."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning tests the empty-seat-map class. Error
+      guessing considers the UX when no seats are available.
+    preconditions:
+      - "Kiosk is on the Select Seats screen"
+      - "All seats on the flight are occupied"
+    examples:
+      - input:
+          available_seats: 0
+          action: "view_seat_map"
+        expected:
+          message: "No seats available for selection. Your pre-assigned seat will be used."
+          next_screen: "print_boarding_pass"
+          seat_assigned: "pre-assigned"
+        description: "No available seats skips selection and uses pre-assigned."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - seat-selection
+      - edge-case
+
+  - name: "Multiple passengers on same booking"
+    description: >
+      A PNR may contain multiple passengers (e.g., a family booking).
+      The kiosk should display all passengers and allow check-in for
+      each or all at once.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 -> medium. Group bookings are common and each passenger needs a boarding pass."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning tests single-passenger vs multi-passenger
+      bookings. Error guessing considers partial check-in failures.
+    preconditions:
+      - "PNR lookup returned a booking with multiple passengers"
+    examples:
+      - input:
+          pnr: "FAM456"
+          passenger_count: 3
+          check_in_selection: "all"
+        expected:
+          boarding_passes_printed: 3
+          all_passengers_checked_in: true
+        description: "Family of 3 checks in together, 3 boarding passes printed."
+      - input:
+          pnr: "FAM456"
+          passenger_count: 3
+          check_in_selection: ["passenger_1", "passenger_3"]
+        expected:
+          boarding_passes_printed: 2
+          passengers_checked_in: ["passenger_1", "passenger_3"]
+        description: "Selective check-in for 2 of 3 passengers."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - multi-passenger
+      - edge-case
+
+  - name: "Session data cleanup on return to Start"
+    description: >
+      Whenever the kiosk returns to the Start screen (via cancel, timeout,
+      max retries, or normal exit), all session data including PNR, passenger
+      details, seat selections, and attempt counters must be completely purged
+      to prevent data leakage to the next passenger.
+    type: security
+    risk: high
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.00 -> high. PII leakage between sessions is a serious privacy violation in a public kiosk."
+    techniques:
+      - state_transition
+      - error_guessing
+    technique_rationale: >
+      State transition verifies cleanup on every path back to Start.
+      Error guessing considers partial cleanup failures and data remnants.
+    preconditions:
+      - "Kiosk has been in use with passenger data loaded"
+    examples:
+      - input:
+          return_trigger: "cancel"
+          previous_data:
+            pnr: "ABC123"
+            passenger_name: "John Doe"
+            seat: "14A"
+        expected:
+          pnr_in_memory: null
+          passenger_data_in_memory: null
+          seat_in_memory: null
+          attempt_counter: 0
+          screen_shows_no_data: true
+        description: "Cancel clears all session data completely."
+      - input:
+          return_trigger: "timeout"
+          previous_data:
+            pnr: "XYZ789"
+            passenger_name: "Jane Smith"
+        expected:
+          pnr_in_memory: null
+          passenger_data_in_memory: null
+          screen_shows_no_data: true
+        description: "Timeout clears all session data completely."
+      - input:
+          return_trigger: "max_attempts"
+          previous_data:
+            attempt_count: 3
+            partial_pnr: "INV"
+        expected:
+          attempt_counter: 0
+          partial_pnr_in_memory: null
+          screen_shows_no_data: true
+        description: "Max attempts clears all data including attempt counter."
+    test_ref: ""
+    status: uncovered
+    priority: 1
+    tags:
+      - security
+      - privacy
+      - data-cleanup
+      - critical-path
+
+  - name: "Concurrent timeout and cancel - race condition"
+    description: >
+      Passenger presses Cancel at the exact moment the 60-second inactivity
+      timeout fires. The system must handle this race condition gracefully
+      without duplicate transitions or errors.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 3. Average: 2.00 -> medium. Unlikely but could cause a crash or double-cleanup issue."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing anticipates the race condition between two events
+      targeting the same transition. State transition verifies only one
+      transition fires.
+    preconditions:
+      - "Kiosk is on any workflow screen"
+      - "Inactivity timer is at ~60 seconds"
+    examples:
+      - input:
+          current_screen: "confirm_details"
+          inactivity_seconds: 60
+          simultaneous_action: "cancel_pressed"
+        expected:
+          next_screen: "start"
+          transitions_fired: 1
+          no_error_thrown: true
+          session_data_cleared: true
+        description: "Simultaneous cancel and timeout results in single clean return to Start."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - race-condition
+      - edge-case
+      - concurrency
+
+  - name: "Rapid repeated cancel presses"
+    description: >
+      Passenger rapidly presses the Cancel button multiple times. The
+      system should handle debouncing and not cause multiple transitions
+      or errors.
+    type: edge_case
+    risk: low
+    risk_rationale: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.00 -> low. Minor UX concern; should not crash."
+    techniques:
+      - error_guessing
+    technique_rationale: >
+      Error guessing anticipates rapid input causing multiple event
+      dispatches.
+    preconditions:
+      - "Kiosk is on any workflow screen"
+    examples:
+      - input:
+          current_screen: "select_airline"
+          action: "cancel_pressed_5_times_rapidly"
+        expected:
+          next_screen: "start"
+          transitions_fired: 1
+          no_error_thrown: true
+        description: "Rapid cancel presses result in single clean return to Start."
+    test_ref: ""
+    status: uncovered
+    priority: 4
+    tags:
+      - debounce
+      - edge-case
+      - ux
+
+  - name: "Timeout countdown warning display"
+    description: >
+      Before the 60-second inactivity timeout fires, a warning should
+      appear (e.g., at 45 seconds) asking if the passenger is still there,
+      with an option to extend the session.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 -> medium. Without warning, passengers lose their progress unexpectedly."
+    techniques:
+      - boundary_value
+      - state_transition
+    technique_rationale: >
+      Boundary value tests the warning threshold timing. State transition
+      models the warning display as an intermediate state.
+    preconditions:
+      - "Kiosk is on any workflow screen"
+      - "No user interaction for approaching 60 seconds"
+    examples:
+      - input:
+          current_screen: "confirm_details"
+          inactivity_seconds: 45
+        expected:
+          warning_displayed: true
+          warning_message: "Are you still there? Session will end in 15 seconds."
+          extend_button_visible: true
+        description: "Warning appears at 45 seconds of inactivity."
+      - input:
+          current_screen: "confirm_details"
+          inactivity_seconds: 45
+          action: "extend_session"
+        expected:
+          timer_reset: true
+          warning_dismissed: true
+          screen_remains: "confirm_details"
+        description: "Pressing extend resets the timer and dismisses warning."
+      - input:
+          current_screen: "confirm_details"
+          inactivity_seconds: 44
+        expected:
+          warning_displayed: false
+        description: "No warning at 44 seconds."
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - timeout
+      - ux
+      - boundary
+
+  - name: "Exit screen auto-returns to Start after delay"
+    description: >
+      After the boarding pass is printed and the Exit screen is shown,
+      the kiosk should automatically return to Start after a short delay
+      (e.g., 10 seconds) to be ready for the next passenger.
+    type: state_transition
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 3, Consequence: 1, Detectability: 1. Average: 1.75 -> medium. Kiosk must be ready for the next user without manual intervention."
+    techniques:
+      - state_transition
+      - boundary_value
+    technique_rationale: >
+      State transition models the auto-return. Boundary value tests
+      the exit-to-start delay threshold.
+    preconditions:
+      - "Kiosk is on the Exit screen after successful boarding pass print"
+    examples:
+      - input:
+          current_screen: "exit"
+          seconds_on_exit_screen: 10
+        expected:
+          next_screen: "start"
+          auto_return: true
+          session_data_cleared: true
+        description: "After 10 seconds on exit screen, auto-returns to Start."
+    state_transition:
+      states:
+        - "exit"
+        - "start"
+      transitions:
+        - from: "exit"
+          to: "start"
+          trigger: "exit_timer_expired"
+          guard: "Exit screen displayed for configured duration"
+    test_ref: ""
+    status: uncovered
+    priority: 2
+    tags:
+      - exit
+      - auto-return
+      - state-machine
+
+  - name: "Kiosk recovery after power interruption"
+    description: >
+      If the kiosk loses power and reboots during a session, it should
+      boot into the Start state with no residual session data.
+    type: error_handling
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 3, Detectability: 2. Average: 2.00 -> medium. Power issues happen; residual data would be a privacy risk."
+    techniques:
+      - error_guessing
+      - state_transition
+    technique_rationale: >
+      Error guessing covers hardware failure scenarios. State transition
+      verifies boot-to-Start initialization.
+    preconditions:
+      - "Kiosk was mid-session with passenger data loaded"
+      - "Power interruption occurred"
+    examples:
+      - input:
+          event: "power_loss_during_confirm_details"
+          previous_session_data: "John Doe booking ABC123"
+        expected:
+          boot_state: "start"
+          residual_data: null
+          self_test_passed: true
+        description: "Kiosk boots clean after power loss with no residual data."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - reliability
+      - hardware
+      - recovery
+      - security
+
+  - name: "Accessibility - screen reader and touch target compliance"
+    description: >
+      All screens must be accessible: touch targets must meet minimum
+      size requirements, text must be readable, and screen reader
+      announcements must describe current state and available actions.
+    type: edge_case
+    risk: medium
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 -> medium. Accessibility compliance is a regulatory requirement in many jurisdictions."
+    techniques:
+      - equivalence_partitioning
+      - error_guessing
+    technique_rationale: >
+      Equivalence partitioning tests different accessibility contexts
+      (screen reader active vs. not, large text mode vs. standard).
+      Error guessing covers missed accessibility requirements.
+    preconditions:
+      - "Kiosk accessibility features are enabled"
+    examples:
+      - input:
+          screen: "select_airline"
+          accessibility_mode: "screen_reader"
+        expected:
+          screen_announced: "Select your airline. 5 airlines available."
+          all_buttons_labeled: true
+          min_touch_target_mm: 10
+        description: "Screen reader announces airline selection screen correctly."
+      - input:
+          screen: "enter_pnr"
+          accessibility_mode: "large_text"
+        expected:
+          font_size_minimum_pt: 18
+          contrast_ratio_minimum: 4.5
+        description: "Large text mode meets minimum font size and contrast."
+    test_ref: ""
+    status: uncovered
+    priority: 3
+    tags:
+      - accessibility
+      - compliance
+      - ux
+
+# ===========================================================================
+# Example Mapping
+# ===========================================================================
+example_mapping:
+  story: >
+    As an airport passenger, I want to use a self-service check-in kiosk to
+    select my airline, enter my booking reference, confirm my details,
+    optionally select a seat, and print my boarding pass, so that I can
+    check in quickly without waiting at the manned counter.
+  rules:
+    - rule_name: "Workflow follows a defined sequence of screens"
+      examples:
+        - "Start -> Select Airline -> Enter PNR -> Retrieve Booking -> Confirm Details -> Select Seats -> Print -> Exit (full path)"
+        - "Start -> Select Airline -> Enter PNR -> Retrieve Booking -> Confirm Details -> Print -> Exit (skip seats)"
+        - "Cannot jump from Start to Print without intermediate steps"
+        - "Cannot go backwards from Confirm Details to Select Airline"
+
+    - rule_name: "Cancel button on every screen returns to Start"
+      examples:
+        - "Cancel on Select Airline -> Start (no data to clear)"
+        - "Cancel on Enter PNR -> Start (partial PNR cleared)"
+        - "Cancel on Retrieve Booking -> Start (API call aborted)"
+        - "Cancel on Confirm Details -> Start (PII cleared from display)"
+        - "Cancel on Select Seats -> Start (tentative seat released)"
+        - "Cancel on Print Boarding Pass -> Start (print may be in progress)"
+
+    - rule_name: "60-second inactivity timeout returns to Start"
+      examples:
+        - "No interaction for 60s on any workflow screen -> return to Start"
+        - "Interaction at 59s resets timer -> no timeout"
+        - "Warning displayed at 45s with option to extend"
+        - "Timer resets on any touch, keypress, or interaction"
+        - "Timeout clears all session data including PII"
+
+    - rule_name: "Invalid PNR allows up to 3 attempts then returns to Start"
+      examples:
+        - "First invalid PNR -> error message, 2 attempts remaining"
+        - "Second invalid PNR -> error message, 1 attempt remaining"
+        - "Third invalid PNR -> forced return to Start"
+        - "Valid PNR on second attempt -> proceed normally"
+        - "Empty PNR submission -> format validation error"
+        - "PNR with special characters -> format validation error"
+        - "Network timeout during lookup -> does not count as an attempt"
+
+    - rule_name: "Printer errors direct passenger to service counter"
+      examples:
+        - "Paper jam -> error screen with counter direction"
+        - "Out of paper -> error screen with counter direction"
+        - "Printer offline -> error screen with counter direction"
+        - "Re-print attempt on error screen -> blocked"
+
+    - rule_name: "Session data must be fully cleared on every return to Start"
+      examples:
+        - "Cancel clears PNR, passenger data, seat selection, attempt counter"
+        - "Timeout clears all data including displayed PII"
+        - "Max PNR attempts clears all data and resets counter"
+        - "Normal exit clears all data after boarding pass printed"
+        - "Power interruption: boot to Start with no residual data"
+
+    - rule_name: "Seat selection is optional"
+      examples:
+        - "Passenger opts to select seat -> seat map displayed"
+        - "Passenger skips seat selection -> proceeds to print with pre-assigned seat"
+        - "No seats available -> message shown, proceeds with pre-assigned seat"
+
+# ===========================================================================
+# Metadata
+# ===========================================================================
+metadata:
+  created_at: "2026-03-14T09:00:00Z"
+  updated_at: "2026-03-14T09:00:00Z"
+  created_by: "valid-guard/v0.1"
+  language: "python"
+  test_framework: "pytest"

@@ -1,0 +1,56 @@
+# Valid Guard Configuration
+# See SKILL.md for full documentation of each option.
+
+# Project language (auto-detected if not set)
+# Supported: python, typescript, javascript, go, rust, java
+language: python
+
+# Test framework (must match language)
+# python: pytest | unittest
+# typescript/javascript: jest | vitest | mocha
+# go: testing
+# rust: cargo-test
+# java: junit5 | testng
+test_framework: pytest
+
+# Risk weights used for weighted scenario coverage calculation
+risk_weights:
+  high: 3
+  medium: 2
+  low: 1
+
+# Scenario coverage thresholds (percentage, based on weighted coverage)
+coverage_thresholds:
+  pass: 80    # Green: weighted coverage >= this value
+  warning: 60 # Yellow: weighted coverage >= this value and < pass
+  # Below warning threshold = Fail (red)
+
+# Output directories (relative to project root)
+output:
+  plans_dir: valid-guard/plans
+  reports_dir: valid-guard/reports
+
+# Test output settings
+test_output:
+  # Directory where generated tests are placed (relative to project root)
+  # If null, auto-detect from project structure
+  test_dir: null
+  # Include coverage measurement when running tests
+  collect_coverage: true
+  # Coverage source path (relative to project root, null = auto-detect)
+  coverage_source: null
+
+# Analysis settings
+analysis:
+  # Maximum depth for brownfield code analysis (1-3)
+  max_depth: 3
+  # Maximum number of files to analyze in a single /vg analyze run
+  max_files: 50
+  # Ignore patterns (in addition to .gitignore)
+  ignore_patterns:
+    - "node_modules/**"
+    - "__pycache__/**"
+    - ".venv/**"
+    - "venv/**"
+    - "dist/**"
+    - "build/**"

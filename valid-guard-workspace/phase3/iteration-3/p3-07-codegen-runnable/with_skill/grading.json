@@ -1,0 +1,94 @@
+{
+  "eval_key": "p3-07-codegen-runnable",
+  "eval_name": "Generate runnable pytest code",
+  "category": "codegen",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Valid Python imports",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: import pytest"
+    },
+    {
+      "text": "Has pytest fixture for processor",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: @pytest.fixture"
+    },
+    {
+      "text": "Has 15+ test functions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: def test_"
+    },
+    {
+      "text": "Tests create_order happy path",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: def test_create_single_item_order"
+    },
+    {
+      "text": "Tests boundary: MAX_ITEMS",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: MAX_ITEMS"
+    },
+    {
+      "text": "Tests boundary: FREE_SHIPPING_THRESHOLD",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: shipping threshold"
+    },
+    {
+      "text": "Tests state transitions",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: transition"
+    },
+    {
+      "text": "Tests request_refund",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: request_refund"
+    },
+    {
+      "text": "Tests apply_discount boundaries",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Decimal(\"10.00"
+    },
+    {
+      "text": "Tests inventory side effects",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('inventory', '==')"
+    },
+    {
+      "text": "Uses pytest.raises for error cases",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: pytest.raises"
+    },
+    {
+      "text": "Uses Decimal for numeric assertions",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Decimal("
+    },
+    {
+      "text": "Uses parametrize",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: @pytest.mark.parametrize"
+    }
+  ],
+  "summary": {
+    "passed": 13,
+    "total": 13,
+    "pass_rate": 1.0,
+    "weighted_score": 1.0,
+    "content_score": 1.0,
+    "structural_score": 0
+  }
+}

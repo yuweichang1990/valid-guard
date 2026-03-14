@@ -1,0 +1,118 @@
+{
+  "eval_key": "p3-26-concurrency-payment-gw",
+  "eval_name": "Concurrent payment gateway load",
+  "category": "concurrency",
+  "is_guidance": false,
+  "checks": [
+    {
+      "text": "Concurrent user simulation (hundreds)",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: ('concurrent', 'transaction')"
+    },
+    {
+      "text": "Data consistency under load",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: Data consisten"
+    },
+    {
+      "text": "Response time degradation",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: SLA"
+    },
+    {
+      "text": "Transaction isolation",
+      "passed": true,
+      "weight": 2,
+      "evidence": "Found: transaction"
+    },
+    {
+      "text": "Connection pool / resource exhaustion",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: connection_pool"
+    },
+    {
+      "text": "Deadlock detection",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: Deadlock"
+    },
+    {
+      "text": "Graceful degradation / circuit breaker",
+      "passed": true,
+      "weight": 1,
+      "evidence": "Found: graceful"
+    },
+    {
+      "text": "[Structure] YAML schema: feature, risk_level, entry_point, scenarios",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 1/3 required patterns"
+    },
+    {
+      "text": "[Structure] risk_rationale with 4 dimensions",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 1/3 required patterns"
+    },
+    {
+      "text": "[Structure] technique_rationale field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] status field (uncovered/covered)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] priority field (1-5)",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] test_ref field",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Valid Guard type enum",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] Multiple techniques used (>=2)",
+      "passed": false,
+      "weight": 2,
+      "evidence": "Found 0/2 required patterns"
+    },
+    {
+      "text": "[Structure] example_mapping section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Not found (checked 1 patterns)"
+    },
+    {
+      "text": "[Structure] metadata section",
+      "passed": false,
+      "weight": 1,
+      "evidence": "Found 0/2 required patterns"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "total": 17,
+    "pass_rate": 0.412,
+    "weighted_score": 0.478,
+    "content_score": 1.0,
+    "structural_score": 0.0
+  }
+}
