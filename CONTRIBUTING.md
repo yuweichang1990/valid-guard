@@ -12,26 +12,26 @@ Thank you for your interest in contributing to Valid Guard. This document covers
 
 2. Install the skill locally in Claude Code:
    ```bash
-   claude mcp add valid-guard -- cat valid-guard-workspace/skill.md
+   claude mcp add valid-guard -- cat .claude/skills/valid-guard/SKILL.md
    ```
 
 3. Verify the installation by running `/vg status` in Claude Code.
 
 ## Running the Eval Suite
 
-The benchmark suite lives in `valid-guard-workspace/phase3/`. To run it:
+The benchmark suite lives in `evals/`. To run it:
 
 ```bash
-cd valid-guard-workspace/phase3/
-python grade_phase3.py iteration-3
+cd evals/
+python grade.py baseline
 ```
 
 All 30 eval cases must pass before submitting a PR.
 
 ## Adding New Eval Cases
 
-1. Add your test scenario to `phase3_evals.json` with the appropriate category and expected outputs.
-2. Add corresponding check logic to the `EVAL_CHECKS` dictionary in `grade_phase3.py`.
+1. Add your test scenario to `evals.json` with the appropriate category and expected outputs.
+2. Add corresponding check logic to the `EVAL_CHECKS` dictionary in `grade.py`.
 3. Run the full suite to confirm your new case passes and no existing cases regress.
 
 ## Code Conventions

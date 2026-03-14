@@ -13,7 +13,7 @@ Describe what this PR does and why.
 
 ## Testing Done
 
-Describe the tests you ran and their results. Include the output of `python grade_phase3.py iteration-3` if applicable.
+Describe the tests you ran and their results. Include the output of `python grade.py baseline` if applicable.
 
 ## Checklist
 
@@ -21,4 +21,4 @@ Describe the tests you ran and their results. Include the output of `python grad
 - [ ] I have updated documentation where necessary
 - [ ] I have added eval cases for new functionality (if applicable)
 - [ ] My changes follow project conventions (kebab-case YAML, snake_case tests, high/medium/low risk levels)
-- [ ] All existing evals pass (`python grade_phase3.py iteration-3`)
+- [ ] All existing evals pass (`python grade.py baseline`)

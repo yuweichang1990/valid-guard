@@ -1,10 +1,10 @@
 """
-Phase 3 grading script for Valid Guard evals.
+Grading script for Valid Guard evals.
 Uses rubric-based scoring on 5 quality dimensions (1-5 scale)
 plus binary pass/fail checks for specific criteria.
 
-Usage: python grade_phase3.py <iteration-dir>
-       python grade_phase3.py phase3/iteration-1
+Usage: python grade.py <iteration-dir>
+       python grade.py baseline
 """
 import json
 import sys
@@ -601,7 +601,7 @@ def grade_eval(eval_key, text):
 
 
 def grade_iteration(iteration_dir):
-    """Grade all evals in a Phase 3 iteration directory."""
+    """Grade all evals in an iteration directory."""
     all_results = {}
     categories = {}
 
@@ -646,7 +646,7 @@ def grade_iteration(iteration_dir):
 
 
 def create_benchmark(iteration_dir, all_results, categories):
-    """Create Phase 3 benchmark comparing with_skill vs without_skill."""
+    """Create benchmark comparing with_skill vs without_skill."""
     with_scores = []
     without_scores = []
     with_content = []
@@ -771,7 +771,7 @@ def create_benchmark(iteration_dir, all_results, categories):
 
     # Print summary
     print(f"\n{'='*80}")
-    print(f"  Phase 3 Benchmark — {iteration_dir}")
+    print(f"  Benchmark — {iteration_dir}")
     print(f"{'='*80}")
     print(f"  {'':30s} {'Combined':>10s}  {'Content':>10s}  {'Structural':>10s}")
     print(f"  {'with_skill':30s} {ws['mean']:>9.1%}   {ws_c['mean']:>9.1%}   {ws_s['mean']:>9.1%}")
@@ -797,11 +797,11 @@ def create_benchmark(iteration_dir, all_results, categories):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python grade_phase3.py <iteration-dir>")
+        print("Usage: python grade.py <iteration-dir>")
         sys.exit(1)
 
     iteration_dir = sys.argv[1]
-    print(f"Phase 3 Grading: {iteration_dir}")
+    print(f"Grading: {iteration_dir}")
     print(f"{'─'*60}")
     results, categories = grade_iteration(iteration_dir)
     if results:

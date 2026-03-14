@@ -291,8 +291,7 @@ project-root/
 │   ├── schema/                 # YAML schema definitions
 │   ├── examples/               # Example test plans
 │   └── config.yaml             # Valid Guard configuration
-├── valid-guard-workspace/
-│   └── phase3/                 # Eval suite (30 cases, grading, reports)
+├── evals/                      # Eval suite (30 cases, grading, reports)
 ├── demo/                       # End-to-end demo with sample YAML plan
 ├── tests/                      # Generated test code (project's test dir)
 ├── DESIGN.md                   # Design decisions document
@@ -301,7 +300,7 @@ project-root/
 └── README.md                   # This file
 ```
 
-## Benchmark Results (Phase 3)
+## Benchmark Results
 
 Valid Guard was evaluated on **30 eval cases** across 11 categories, comparing outputs **with skill** (SKILL.md loaded) vs **without skill** (bare LLM).
 
@@ -358,8 +357,8 @@ Valid Guard was evaluated on **30 eval cases** across 11 categories, comparing o
 - Grading: rubric-based pattern matching with weighted scoring (content checks + structural checks)
 - Content/structural score separation: content = test design quality, structural = Valid Guard YAML schema compliance
 - Each eval run as independent agent with or without SKILL.md context
-- Full results: [`valid-guard-workspace/phase3/PHASE3_RESULTS.md`](valid-guard-workspace/phase3/PHASE3_RESULTS.md)
-- Interactive report: [`valid-guard-workspace/phase3/phase3_report.html`](valid-guard-workspace/phase3/phase3_report.html)
+- Full results: [`evals/RESULTS.md`](evals/RESULTS.md)
+- Interactive report: [`evals/report.html`](evals/report.html)
 
 ### Limitations and Caveats
 

@@ -17,20 +17,20 @@ jobs:
           python-version: "3.12"
 
       - name: Verify grading script parses
-        working-directory: valid-guard-workspace/phase3
+        working-directory: evals
         run: |
-          python -c "import grade_phase3; print(f'EVAL_CHECKS: {len(grade_phase3.EVAL_CHECKS)} entries')"
+          python -c "import grade; print(f'EVAL_CHECKS: {len(grade.EVAL_CHECKS)} entries')"
 
-      - name: Run grading on iteration-3
-        working-directory: valid-guard-workspace/phase3
+      - name: Run grading on baseline
+        working-directory: evals
         run: |
-          python grade_phase3.py iteration-3
+          python grade.py baseline
 
       - name: Validate all 30 eval output files exist
-        working-directory: valid-guard-workspace/phase3
+        working-directory: evals
         run: |
           missing=0
-          for dir in iteration-3/p3-*/; do
+          for dir in baseline/p3-*/; do
             eval_name=$(basename "$dir")
             for config in with_skill without_skill; do
               if [ ! -f "$dir$config/output.yaml" ]; then
@@ -39,7 +39,7 @@ jobs:
               fi
             done
           done
-          total=$(ls -d iteration-3/p3-*/ 2>/dev/null | wc -l)
+          total=$(ls -d baseline/p3-*/ 2>/dev/null | wc -l)
           echo "Found $total eval directories, $missing missing output files"
           if [ "$missing" -gt 0 ]; then
             exit 1

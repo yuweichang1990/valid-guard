@@ -1,14 +1,14 @@
 """
-Eval automation for Valid Guard Phase 3.
+Eval automation for Valid Guard.
 
 Prints prompts for manual Claude Code execution, grades outputs,
 and generates summary reports.
 
 Usage:
-  python run_evals.py --eval p3-21 --config with_skill
-  python run_evals.py --all
-  python run_evals.py --grade-only --iteration iteration-3
-  python run_evals.py --report --iteration iteration-3
+  python run.py --eval p3-21 --config with_skill
+  python run.py --all
+  python run.py --grade-only --iteration baseline
+  python run.py --report --iteration baseline
 """
 import argparse
 import json
@@ -16,10 +16,10 @@ import os
 import sys
 from pathlib import Path
 
-PHASE3_DIR = Path(__file__).parent
-EVALS_JSON = PHASE3_DIR / "phase3_evals.json"
-DEFAULT_ITERATION = "iteration-3"
-SKILL_MD_REL = "../../SKILL.md"
+EVALS_DIR = Path(__file__).parent
+EVALS_JSON = EVALS_DIR / "evals.json"
+DEFAULT_ITERATION = "baseline"
+SKILL_MD_REL = "../.claude/skills/valid-guard/SKILL.md"
 
 
 def load_evals():
@@ -42,7 +42,7 @@ def print_prompt(ev, config):
     print(f"  {ev['id']} | {ev['name']} | config={config}")
     print(f"{'='*70}")
     if config == "with_skill":
-        skill_path = os.path.abspath(PHASE3_DIR / SKILL_MD_REL)
+        skill_path = os.path.abspath(EVALS_DIR / SKILL_MD_REL)
         print(f"  [Include SKILL.md from: {skill_path}]")
     print()
     print(prompt)
@@ -53,10 +53,10 @@ def print_prompt(ev, config):
 
 def grade_single(eval_key, iteration_dir):
     """Grade a single eval's outputs and return results."""
-    import grade_phase3
+    import grade
 
     results = {}
-    eval_path = PHASE3_DIR / iteration_dir / eval_key
+    eval_path = EVALS_DIR / iteration_dir / eval_key
     if not eval_path.exists():
         print(f"  SKIP {eval_key} — directory not found")
         return results
@@ -67,7 +67,7 @@ def grade_single(eval_key, iteration_dir):
             print(f"  SKIP {eval_key}/{config} — no output.yaml")
             continue
         text = output_path.read_text(encoding="utf-8")
-        grading = grade_phase3.grade_eval(eval_key, text)
+        grading = grade.grade_eval(eval_key, text)
         results[f"{eval_key}/{config}"] = grading
 
         # Save grading.json alongside output
@@ -124,18 +124,18 @@ def print_summary_table(all_results):
 
 
 def run_report(iteration_dir):
-    """Run generate_report.py on the benchmark.json."""
-    benchmark_path = PHASE3_DIR / iteration_dir / "benchmark.json"
+    """Run report_gen.py on the benchmark.json."""
+    benchmark_path = EVALS_DIR / iteration_dir / "benchmark.json"
     if not benchmark_path.exists():
         print(f"Error: {benchmark_path} not found. Run grading first.")
         sys.exit(1)
     import subprocess
-    report_script = PHASE3_DIR / "generate_report.py"
+    report_script = EVALS_DIR / "report_gen.py"
     subprocess.run([sys.executable, str(report_script), str(benchmark_path)], check=True)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Valid Guard Phase 3 eval automation")
+    parser = argparse.ArgumentParser(description="Valid Guard eval automation")
     parser.add_argument("--eval", help="Eval ID (e.g. p3-21 or p3-21-st-shopping-cart)")
     parser.add_argument("--config", choices=["with_skill", "without_skill"],
                         default="with_skill", help="Config to use (default: with_skill)")
@@ -155,7 +155,7 @@ def main():
 
     if args.grade_only:
         print(f"Grading outputs in {args.iteration}/...")
-        import grade_phase3
+        import grade
         all_results = {}
         for ev in evals:
             results = grade_single(ev["dir_name"], args.iteration)
@@ -163,11 +163,11 @@ def main():
         print_summary_table(all_results)
 
         # Also produce benchmark.json via the main grading script
-        results, categories = grade_phase3.grade_iteration(
-            str(PHASE3_DIR / args.iteration))
+        results, categories = grade.grade_iteration(
+            str(EVALS_DIR / args.iteration))
         if results:
-            grade_phase3.create_benchmark(str(PHASE3_DIR / args.iteration),
-                                          results, categories)
+            grade.create_benchmark(str(EVALS_DIR / args.iteration),
+                                   results, categories)
         return
 
     if args.all:
@@ -175,7 +175,7 @@ def main():
             for config in ["with_skill", "without_skill"]:
                 print_prompt(ev, config)
         print(f"\nTotal: {len(evals)} evals x 2 configs = {len(evals)*2} runs")
-        print(f"After running, grade with: python run_evals.py --grade-only")
+        print(f"After running, grade with: python run.py --grade-only")
         return
 
     if args.eval:
@@ -186,7 +186,7 @@ def main():
             sys.exit(1)
         print_prompt(ev, args.config)
         print(f"After running, grade with:")
-        print(f"  python run_evals.py --grade-only --iteration {args.iteration}")
+        print(f"  python run.py --grade-only --iteration {args.iteration}")
         return
 
     parser.print_help()

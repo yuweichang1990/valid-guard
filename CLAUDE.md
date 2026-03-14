@@ -16,7 +16,7 @@ valid-guard/templates/         — HTML report templates (version-controlled)
 valid-guard/schema/            — YAML schema definitions
 valid-guard/examples/          — Example test plans and reference guides
 valid-guard/config.yaml        — Runtime configuration
-valid-guard-workspace/phase3/  — Eval suite (30 cases, grading scripts, reports)
+evals/  — Eval suite (30 cases, grading scripts, reports)
 demo/                          — End-to-end demo with sample YAML plan
 DESIGN.md                      — Architecture and design rationale
 ```
@@ -33,7 +33,7 @@ DESIGN.md                      — Architecture and design rationale
 
 ## Working on the Eval Suite
 
-The benchmark suite is in `valid-guard-workspace/phase3/`:
+The benchmark suite is in `evals/`:
 
 ```bash
 # Grade all 30 evals
@@ -48,15 +48,15 @@ make verify
 
 Or directly:
 ```bash
-cd valid-guard-workspace/phase3
-python grade_phase3.py iteration-3          # Grade + produce benchmark.json
-python generate_report.py iteration-3/benchmark.json  # HTML report
-python run_evals.py --grade-only            # Alternative: grade via run_evals.py
+cd evals
+python grade.py baseline          # Grade + produce benchmark.json
+python report_gen.py baseline/benchmark.json  # HTML report
+python run.py --grade-only            # Alternative: grade via run.py
 ```
 
 ### Adding new eval cases
-1. Add entry to `phase3_evals.json` with id, category, prompt, rubric
-2. Add check patterns to `EVAL_CHECKS` in `grade_phase3.py`
+1. Add entry to `evals.json` with id, category, prompt, rubric
+2. Add check patterns to `EVAL_CHECKS` in `grade.py`
 3. Run the full suite to confirm no regressions
 
 ## Important Rules

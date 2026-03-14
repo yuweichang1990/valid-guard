@@ -1,9 +1,9 @@
 """
-Phase 3 HTML Benchmark Report Generator for Valid Guard.
+HTML Benchmark Report Generator for Valid Guard.
 Generates a self-contained HTML dashboard from benchmark.json files.
 
-Usage: python generate_report.py <benchmark_json_path> [benchmark_json_path2 ...]
-       python generate_report.py iteration-1/benchmark.json iteration-3/benchmark.json
+Usage: python report_gen.py <benchmark_json_path> [benchmark_json_path2 ...]
+       python report_gen.py baseline/benchmark.json
 """
 import json
 import sys
@@ -213,7 +213,7 @@ def generate_html(benchmark, output_path):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Valid Guard — Phase 3 Benchmark Report</title>
+<title>Valid Guard — Benchmark Report</title>
 <style>
   :root {{
     --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
@@ -284,7 +284,7 @@ def generate_html(benchmark, output_path):
 </head>
 <body>
 <div class="container">
-  <h1>Valid Guard — Phase 3 Benchmark</h1>
+  <h1>Valid Guard — Benchmark</h1>
   <p class="subtitle">Generated {timestamp} | {eval_count} evals | Rubric-based weighted scoring</p>
 
   <!-- Summary Cards -->
@@ -362,7 +362,7 @@ def generate_html(benchmark, output_path):
   </div>
 
   <div class="footer">
-    Valid Guard Phase 3 Benchmark Report | Skill: valid-guard | Method: rubric-based weighted scoring
+    Valid Guard Benchmark Report | Skill: valid-guard | Method: rubric-based weighted scoring
   </div>
 </div>
 
@@ -430,7 +430,7 @@ def generate_html(benchmark, output_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python generate_report.py <benchmark.json> [benchmark2.json ...]")
+        print("Usage: python report_gen.py <benchmark.json> [benchmark2.json ...]")
         sys.exit(1)
 
     benchmarks = []
@@ -444,5 +444,5 @@ if __name__ == "__main__":
     else:
         merged = merge_benchmarks(benchmarks)
 
-    output_path = os.path.join(os.path.dirname(sys.argv[1]), "..", "phase3_report.html")
+    output_path = os.path.join(os.path.dirname(sys.argv[1]), "..", "report.html")
     generate_html(merged, output_path)

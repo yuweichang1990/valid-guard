@@ -1,4 +1,4 @@
-# Phase 3 Eval Results — Valid Guard
+# Eval Results — Valid Guard
 
 ## Summary (30 evals, 11 categories)
 
@@ -114,7 +114,7 @@ The new categories confirm that:
 - Grading: rubric-based pattern matching with weighted scoring (content checks + structural checks)
 - Each eval run as independent agent with (with_skill) or without (without_skill) SKILL.md context
 - Content/structural score separation: content = test design quality patterns, structural = Valid Guard YAML schema compliance
-- HTML report: `phase3_report.html`
+- HTML report: `report.html`
 
 ## Limitations
 
