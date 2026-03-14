@@ -209,6 +209,12 @@ example_mapping:
     - rule_name: "<Business rule>"
       examples:
         - "<Concrete example illustrating the rule>"
+  questions:
+    - "<Open question or ambiguity discovered during Example Mapping>"
+
+# Open questions that need human clarification
+questions:
+  - "<Ambiguity or unclear requirement>"
 
 # Bookkeeping
 metadata:
@@ -493,4 +499,4 @@ When the user asks you to **review** or **evaluate** their existing tests (e.g.,
 7. **Respect context limits.** For large codebases in `/vg analyze`, prioritize by: public API surface > internal high-complexity functions > simple utility functions. State what was analyzed and what was deferred.
 8. **Idempotent operations.** Running the same command twice should produce consistent results. Plans are overwritten, not duplicated.
 9. **Human is the authority.** The plan is a recommendation. The human approves, modifies, or rejects via the review process. Never present the plan as final until the human has reviewed it.
-10. **All schema fields are mandatory.** When generating a YAML test plan, include EVERY field from the schema — including `test_ref` (use `""` for greenfield plans), `status`, `priority`, `tags`, `example_mapping`, and `metadata`. Omitting fields degrades traceability and tool interoperability.
+10. **Include all applicable fields.** When generating a YAML test plan, populate every field from the schema that applies to the scenario — including `test_ref` (use `""` for greenfield plans), `status`, `priority`, `tags`, `example_mapping`, and `metadata`. The schema marks only `name` and `risk` as strictly required for validation, but omitting optional fields degrades traceability and tool interoperability.

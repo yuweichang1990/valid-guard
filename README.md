@@ -114,7 +114,7 @@ Or from a PRD file:
 /vg plan --prd docs/auth-feature.md
 ```
 
-This produces a YAML test plan in `valid-guard/plans/` and opens an interactive HTML report.
+This produces a YAML test plan in `valid-guard/plans/`. Run `/vg review` to generate an interactive HTML report for the plan.
 
 ### Brownfield: Analyze existing code
 
@@ -238,7 +238,7 @@ scenarios:
   - name: "Login fails after 5 consecutive bad passwords"
     type: edge_case
     risk: high
-    techniques: [boundary_value_analysis, state_transition]
+    techniques: [boundary_value, state_transition]
     examples:
       - input: { email: "user@test.com", attempts: 5 }
         expected: { status: 423, locked: true }
@@ -253,12 +253,12 @@ scenarios:
 | `feature` | Feature name |
 | `risk_level` | Overall feature risk (`high`, `medium`, `low`) |
 | `scenarios[].name` | Human-readable scenario description |
-| `scenarios[].type` | `happy_path`, `edge_case`, `error_case`, `boundary`, `security` |
+| `scenarios[].type` | `happy_path`, `edge_case`, `error_handling`, `boundary`, `security`, `state_transition`, `combinatorial`, `performance` |
 | `scenarios[].risk` | Scenario-level risk |
 | `scenarios[].techniques` | Testing techniques applied |
 | `scenarios[].examples` | Concrete input/expected pairs |
 | `scenarios[].test_ref` | Link to generated test function (`""` if uncovered, e.g. `tests/auth/test_login.py::test_successful_login`) |
-| `scenarios[].status` | `covered`, `uncovered`, `approved`, `rejected` |
+| `scenarios[].status` | `uncovered`, `covered`, `failing`, `skipped` |
 
 ## Scenario Coverage Metric
 
@@ -451,4 +451,4 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for developmen
 
 ## License
 
-[MIT](LICENSE) --- Copyright 2026
+[MIT](LICENSE) --- Copyright 2026 Slippers Chang

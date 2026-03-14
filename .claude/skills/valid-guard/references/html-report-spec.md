@@ -57,7 +57,7 @@ For each state machine, render a visual diagram using HTML/CSS (boxes for states
 
 ### 8. Import Flow
 
-After the human exports decisions JSON, they can provide it to Valid Guard. Print instructions at the bottom of the report: "After reviewing, export your decisions and run: `/vg plan --apply-review <json-path>`" (future feature placeholder).
+After the human exports decisions JSON, they can provide it to Valid Guard. Print instructions at the bottom of the report: "After reviewing, export your decisions and run: `/vg review --apply <json-path>`".
 
 ---
 

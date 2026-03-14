@@ -27,8 +27,8 @@ Note: `valid-guard/plans/`, `valid-guard/reports/`, and `tests/` are created at 
 - **Python test code**: Idiomatic pytest. Descriptive function names matching scenario names. Group by feature in subdirectories.
 - **File naming**: Plans use kebab-case (`user-auth.yaml`). Test files use snake_case (`test_user_auth.py`). YAML keys use snake_case (`risk_level`, `test_ref`).
 - **Risk levels**: `high`, `medium`, `low` only.
-- **Scenario types**: `happy_path`, `edge_case`, `error_case`, `boundary`, `security`.
-- **Technique tags**: Snake_case: `equivalence_partitioning`, `boundary_value_analysis`, `decision_table`, `state_transition`, `pairwise`.
+- **Scenario types**: `happy_path`, `edge_case`, `error_handling`, `boundary`, `security`, `state_transition`, `combinatorial`, `performance`.
+- **Technique tags**: `equivalence_partitioning`, `boundary_value`, `decision_table`, `state_transition`, `pairwise`, `cause_effect`, `error_guessing`.
 
 ## Working on the Eval Suite
 

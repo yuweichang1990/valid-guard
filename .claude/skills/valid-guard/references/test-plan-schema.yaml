@@ -1,5 +1,5 @@
 $schema: "https://json-schema.org/draft/2020-12/schema"
-$id: "https://valid-guard.dev/schemas/test-plan/v1"
+$id: "test-plan-schema-v1"  # Local identifier; no live URL
 title: "Valid Guard Test Plan"
 description: >
   Schema for Valid Guard test plan YAML files. Defines scenario-level test
@@ -63,6 +63,12 @@ properties:
   example_mapping:
     $ref: "#/$defs/example_mapping"
 
+  questions:
+    type: array
+    description: "Open questions or ambiguities that need human clarification."
+    items:
+      type: string
+
   metadata:
     $ref: "#/$defs/metadata"
 
@@ -107,6 +113,7 @@ $defs:
     enum:
       - uncovered
       - covered
+      - partial
       - failing
       - skipped
 
@@ -322,6 +329,11 @@ $defs:
               minItems: 1
           additionalProperties: false
         minItems: 1
+      questions:
+        type: array
+        description: "Open questions discovered during Example Mapping."
+        items:
+          type: string
     additionalProperties: false
 
   # ---- Metadata -----------------------------------------------------------

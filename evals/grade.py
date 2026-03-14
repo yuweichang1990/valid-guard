@@ -29,7 +29,7 @@ EVAL_CHECKS = {
         "category": "correctness",
         "checks": [
             {"text": "Contains decision_table section", "patterns": [r"(?i)decision.{0,5}table"], "weight": 1},
-            {"text": "Lists conditions c1-c9 or equivalent", "patterns": [r"(?i)(c[1-9]|x\s*>=?\s*1|x\s*<=?\s*300|y\s*>=?\s*1|y\s*<=?\s*300|z\s*>=?\s*1|z\s*<=?\s*300|x\s*>\s*y|x\s*>\s*z|y\s*>\s*z)"], "min_matches_from_output": 6, "weight": 2},
+            {"text": "Lists conditions c1-c9 or equivalent", "patterns": [r"(?i)(c[1-9]|x\s*>=?\s*1|x\s*<=?\s*300|y\s*>=?\s*1|y\s*<=?\s*300|z\s*>=?\s*1|z\s*<=?\s*300|x\s*>\s*y|x\s*>\s*z|y\s*>\s*z)"], "count_min": 6, "weight": 2},
             {"text": "Actions include x_largest/y_largest/z_largest", "patterns": [r"(?i)x.{0,5}largest", r"(?i)y.{0,5}largest", r"(?i)z.{0,5}largest"], "min_matches": 3, "weight": 2},
             {"text": "Includes invalid_input action", "patterns": [r"(?i)(invalid|out.of.range|validation.fail)"], "weight": 1},
             {"text": "Has at least 10 rules", "patterns": [r"(?i)(rule|scenario|case)"], "count_min": 10, "weight": 2},

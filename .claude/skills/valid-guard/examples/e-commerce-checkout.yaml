@@ -32,7 +32,7 @@ scenarios:
       pays with a credit card, and receives an order confirmation.
     type: happy_path
     risk: high
-    risk_rationale: "Core revenue path — any failure directly blocks sales."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.50 → high. Core revenue path — any failure directly blocks sales."
     techniques:
       - equivalence_partitioning
     technique_rationale: "Single valid-class representative confirms the golden path."
@@ -60,7 +60,7 @@ scenarios:
     description: "Cart with three different SKUs, quantities > 1 for some items."
     type: happy_path
     risk: high
-    risk_rationale: "Multi-item carts are the majority of real orders."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.50 → high. Multi-item carts are the majority of real orders."
     techniques:
       - equivalence_partitioning
     preconditions:
@@ -89,7 +89,7 @@ scenarios:
     description: "Unauthenticated user checks out by providing email at payment step."
     type: happy_path
     risk: medium
-    risk_rationale: "Important conversion path, but lower volume than registered users."
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 → medium. Important conversion path, but lower volume than registered users."
     techniques:
       - equivalence_partitioning
     preconditions:
@@ -117,7 +117,7 @@ scenarios:
       last unit. The system must fail gracefully and release the hold.
     type: edge_case
     risk: high
-    risk_rationale: "Race condition can cause overselling — financial and fulfilment impact."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 → high. Race condition can cause overselling — financial and fulfilment impact."
     techniques:
       - error_guessing
       - state_transition
@@ -147,7 +147,7 @@ scenarios:
     description: "Cart contains the platform maximum of 200 distinct line items."
     type: edge_case
     risk: medium
-    risk_rationale: "Rare but possible for B2B buyers; could cause timeouts."
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.50 → medium. Rare but possible for B2B buyers; could cause timeouts."
     techniques:
       - boundary_value
     preconditions:
@@ -169,7 +169,7 @@ scenarios:
     description: "User somehow triggers checkout with an empty cart."
     type: edge_case
     risk: low
-    risk_rationale: "UI normally prevents this; defense-in-depth only."
+    risk_rationale: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.00 → low. UI normally prevents this; defense-in-depth only."
     techniques:
       - equivalence_partitioning
     examples:
@@ -190,7 +190,7 @@ scenarios:
     description: "Payment processors require a minimum charge amount."
     type: boundary
     risk: medium
-    risk_rationale: "Below-minimum charges silently fail in some gateways."
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 → medium. Below-minimum charges silently fail in some gateways."
     techniques:
       - boundary_value
     technique_rationale: "Tests the exact threshold of the payment processor constraint."
@@ -218,7 +218,7 @@ scenarios:
     description: "Platform enforces a per-order ceiling for fraud prevention."
     type: boundary
     risk: medium
-    risk_rationale: "Exceeding limit could slip through and trigger manual review overhead."
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 → medium. Exceeding limit could slip through and trigger manual review overhead."
     techniques:
       - boundary_value
     examples:
@@ -244,7 +244,7 @@ scenarios:
     description: "Each line item quantity is capped at 99 units."
     type: boundary
     risk: low
-    risk_rationale: "Validation exists in UI; API-level check is secondary."
+    risk_rationale: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.00 → low. Validation exists in UI; API-level check is secondary."
     techniques:
       - boundary_value
     examples:
@@ -277,7 +277,7 @@ scenarios:
     description: "External payment gateway does not respond within 30 seconds."
     type: error_handling
     risk: high
-    risk_rationale: "Customers may be charged without order confirmation — dual-write risk."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 → high. Customers may be charged without order confirmation — dual-write risk."
     techniques:
       - error_guessing
     preconditions:
@@ -301,7 +301,7 @@ scenarios:
     description: "Card issuer declines the transaction (insufficient funds, etc.)."
     type: error_handling
     risk: high
-    risk_rationale: "Poor decline handling leads to customer abandonment."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.50 → high. Poor decline handling leads to customer abandonment."
     techniques:
       - equivalence_partitioning
       - error_guessing
@@ -334,7 +334,7 @@ scenarios:
     description: "Address validation service rejects the address."
     type: error_handling
     risk: medium
-    risk_rationale: "Bad addresses cause failed deliveries and returns."
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 → medium. Bad addresses cause failed deliveries and returns."
     techniques:
       - equivalence_partitioning
     examples:
@@ -358,7 +358,7 @@ scenarios:
       including cancellation and refund branches.
     type: state_transition
     risk: high
-    risk_rationale: "Invalid state transitions can cause duplicate charges or lost orders."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 → high. Invalid state transitions can cause duplicate charges or lost orders."
     techniques:
       - state_transition
     technique_rationale: "Order lifecycle is a classic finite state machine."
@@ -449,7 +449,7 @@ scenarios:
       meaningful combinations.
     type: combinatorial
     risk: high
-    risk_rationale: "Incorrect discounts directly affect revenue and customer trust."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 2. Average: 2.75 → high. Incorrect discounts directly affect revenue and customer trust."
     techniques:
       - decision_table
       - pairwise
@@ -557,7 +557,7 @@ scenarios:
       value. Server must re-validate prices from catalog.
     type: security
     risk: high
-    risk_rationale: "Direct financial loss if server trusts client-supplied prices."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 → high. Direct financial loss if server trusts client-supplied prices."
     techniques:
       - error_guessing
     preconditions:
@@ -579,7 +579,7 @@ scenarios:
     description: "Same idempotency key sent twice within seconds."
     type: security
     risk: high
-    risk_rationale: "Duplicate charges erode customer trust and require manual refunds."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 2. Average: 2.50 → high. Duplicate charges erode customer trust and require manual refunds."
     techniques:
       - error_guessing
     examples:
@@ -602,7 +602,7 @@ scenarios:
     description: "P99 response time stays under 2 seconds at 500 RPS."
     type: performance
     risk: medium
-    risk_rationale: "Slow checkout during peak hours directly impacts conversion rate."
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 1. Average: 1.75 → medium. Slow checkout during peak hours directly impacts conversion rate."
     techniques:
       - boundary_value
     technique_rationale: "Boundary value at the load threshold helps find the breaking point."
@@ -625,7 +625,7 @@ scenarios:
     description: "Order placed in EUR, system converts to USD for processing."
     type: happy_path
     risk: medium
-    risk_rationale: "Exchange rate errors cause under/overcharging."
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 → medium. Exchange rate errors cause under/overcharging."
     techniques:
       - equivalence_partitioning
       - boundary_value
@@ -649,7 +649,7 @@ scenarios:
     description: "Coupon code that was valid last week is used after expiry."
     type: error_handling
     risk: low
-    risk_rationale: "Clear error message prevents support tickets but not a functional blocker."
+    risk_rationale: "Impact: 1, Frequency: 1, Consequence: 1, Detectability: 1. Average: 1.00 → low. Clear error message prevents support tickets but not a functional blocker."
     techniques:
       - equivalence_partitioning
     examples:
@@ -673,7 +673,7 @@ scenarios:
     description: "Verify shipping cost jumps at weight tier boundaries."
     type: boundary
     risk: medium
-    risk_rationale: "Incorrect tier assignment causes under/overcharging for shipping."
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 → medium. Incorrect tier assignment causes under/overcharging for shipping."
     techniques:
       - boundary_value
       - equivalence_partitioning
@@ -740,6 +740,10 @@ example_mapping:
         - "1.0 kg -> standard tier ($9.99)"
         - "5.0 kg -> heavy tier ($14.99)"
         - "Free shipping when cart > $100 and loyalty is gold"
+  questions:
+    - "Can multiple coupon codes be stacked, or is it limited to one per order?"
+    - "Should buy-now-pay-later have the same minimum order amount as credit cards?"
+    - "What happens to inventory holds if payment processing exceeds 5 minutes?"
 
 # ---------------------------------------------------------------------------
 # Metadata

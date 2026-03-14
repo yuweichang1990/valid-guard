@@ -23,7 +23,7 @@ scenarios:
     description: "Registered user logs in with correct email and password."
     type: happy_path
     risk: high
-    risk_rationale: "Core authentication gate — failure locks all users out."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.50 → high. Core authentication gate — failure locks all users out."
     techniques:
       - equivalence_partitioning
     preconditions:
@@ -50,7 +50,7 @@ scenarios:
     description: "User logs out and both access and refresh tokens are revoked."
     type: happy_path
     risk: high
-    risk_rationale: "Failure to revoke tokens leaves sessions open after logout."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.00 → high. Failure to revoke tokens leaves sessions open after logout."
     techniques:
       - equivalence_partitioning
     preconditions:
@@ -76,7 +76,7 @@ scenarios:
       6-digit TOTP code.
     type: happy_path
     risk: high
-    risk_rationale: "MFA bypass would negate the security benefit entirely."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 → high. MFA bypass would negate the security benefit entirely."
     techniques:
       - equivalence_partitioning
     preconditions:
@@ -104,7 +104,7 @@ scenarios:
     description: "Valid email, wrong password."
     type: error_handling
     risk: high
-    risk_rationale: "Error response must not leak whether the email exists."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 3. Average: 3.00 → high. Error response must not leak whether the email exists."
     techniques:
       - equivalence_partitioning
       - error_guessing
@@ -127,7 +127,7 @@ scenarios:
     description: "Email that has no associated account."
     type: error_handling
     risk: high
-    risk_rationale: "Different error message or timing could enable email enumeration."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 → high. Different error message or timing could enable email enumeration."
     techniques:
       - equivalence_partitioning
       - error_guessing
@@ -152,7 +152,7 @@ scenarios:
     description: "Correct password but wrong TOTP code."
     type: error_handling
     risk: high
-    risk_rationale: "Accepting invalid MFA codes defeats two-factor protection."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 → high. Accepting invalid MFA codes defeats two-factor protection."
     techniques:
       - equivalence_partitioning
     examples:
@@ -176,7 +176,7 @@ scenarios:
     description: "SMS provider fails to deliver the MFA code."
     type: error_handling
     risk: medium
-    risk_rationale: "User is locked out of their account until SMS works again."
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 1. Average: 1.50 → medium. User is locked out of their account until SMS works again."
     techniques:
       - error_guessing
     preconditions:
@@ -203,7 +203,7 @@ scenarios:
     description: "Password policy requires minimum 8 characters."
     type: boundary
     risk: medium
-    risk_rationale: "Too-short passwords accepted would weaken account security."
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 → medium. Too-short passwords accepted would weaken account security."
     techniques:
       - boundary_value
     technique_rationale: "Exact boundary testing at the policy threshold."
@@ -230,7 +230,7 @@ scenarios:
     description: "Passwords over 128 characters are rejected to prevent DoS via bcrypt."
     type: boundary
     risk: medium
-    risk_rationale: "Very long passwords can cause bcrypt to consume excessive CPU."
+    risk_rationale: "Impact: 2, Frequency: 1, Consequence: 2, Detectability: 2. Average: 1.75 → medium. Very long passwords can cause bcrypt to consume excessive CPU."
     techniques:
       - boundary_value
     examples:
@@ -258,7 +258,7 @@ scenarios:
       letter, one digit, and one special character.
     type: edge_case
     risk: medium
-    risk_rationale: "Weak passwords lead to credential stuffing success."
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 → medium. Weak passwords lead to credential stuffing success."
     techniques:
       - equivalence_partitioning
       - cause_effect
@@ -303,7 +303,7 @@ scenarios:
       15 minutes. Successful login resets the counter.
     type: state_transition
     risk: high
-    risk_rationale: "Missing lockout allows brute-force attacks; over-eager lockout causes DoS."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 → high. Missing lockout allows brute-force attacks; over-eager lockout causes DoS."
     techniques:
       - state_transition
       - boundary_value
@@ -378,7 +378,7 @@ scenarios:
       obtain a new access token without re-authentication.
     type: happy_path
     risk: high
-    risk_rationale: "Broken refresh flow forces users to re-login constantly."
+    risk_rationale: "Impact: 3, Frequency: 3, Consequence: 3, Detectability: 1. Average: 2.50 → high. Broken refresh flow forces users to re-login constantly."
     techniques:
       - state_transition
       - boundary_value
@@ -409,7 +409,7 @@ scenarios:
       for that session family are revoked (potential theft detected).
     type: security
     risk: high
-    risk_rationale: "Token theft without rotation detection gives attacker persistent access."
+    risk_rationale: "Impact: 3, Frequency: 1, Consequence: 3, Detectability: 3. Average: 2.50 → high. Token theft without rotation detection gives attacker persistent access."
     techniques:
       - error_guessing
       - state_transition
@@ -434,7 +434,7 @@ scenarios:
       invalidates the oldest one.
     type: edge_case
     risk: medium
-    risk_rationale: "Unlimited sessions increase attack surface from stolen credentials."
+    risk_rationale: "Impact: 2, Frequency: 2, Consequence: 2, Detectability: 2. Average: 2.00 → medium. Unlimited sessions increase attack surface from stolen credentials."
     techniques:
       - boundary_value
     examples:
@@ -462,7 +462,7 @@ scenarios:
     description: "All active sessions except the current one are revoked when user changes password."
     type: security
     risk: high
-    risk_rationale: "Stolen sessions persist if not revoked on credential change."
+    risk_rationale: "Impact: 3, Frequency: 2, Consequence: 3, Detectability: 3. Average: 2.75 → high. Stolen sessions persist if not revoked on credential change."
     techniques:
       - equivalence_partitioning
     preconditions:
@@ -517,6 +517,18 @@ example_mapping:
         - "Refresh token reused -> all family tokens revoked"
         - "Password changed -> all other sessions revoked"
         - "6th concurrent session -> oldest session evicted"
+  questions:
+    - "Should disabled/banned accounts return the same generic error as invalid credentials, or a specific 'account disabled' message?"
+    - "What is the maximum allowed TOTP time skew? (currently assumes +/-30 seconds)"
+    - "Should permanent lockout require admin unlock via support ticket or self-service?"
+
+# ---------------------------------------------------------------------------
+# Open Questions
+# ---------------------------------------------------------------------------
+questions:
+  - "Should disabled/banned accounts return the same generic error as invalid credentials?"
+  - "What is the maximum TOTP time skew tolerance? (assumes +/-30s but needs confirmation)"
+  - "Should permanent lockout require admin unlock via support ticket, self-service, or both?"
 
 # ---------------------------------------------------------------------------
 # Metadata
