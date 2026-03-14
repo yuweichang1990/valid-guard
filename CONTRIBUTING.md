@@ -6,27 +6,24 @@ Thank you for your interest in contributing to Valid Guard. This document covers
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-org/valid-guard.git
+   git clone https://github.com/yuweichang1990/valid-guard.git
    cd valid-guard
    ```
 
-2. Install the skill locally in Claude Code:
-   ```bash
-   claude mcp add valid-guard -- cat .claude/skills/valid-guard/SKILL.md
-   ```
+2. Open Claude Code in the cloned directory. The skill is auto-discovered from `.claude/skills/valid-guard/SKILL.md` --- no additional installation is needed.
 
-3. Verify the installation by running `/vg status` in Claude Code.
+3. Verify by typing `/vg status` in the Claude Code chat interface.
 
 ## Running the Eval Suite
 
-The benchmark suite lives in `evals/`. To run it:
+The benchmark suite lives in `evals/`. To grade pre-recorded eval outputs:
 
 ```bash
 cd evals/
 python grade.py baseline
 ```
 
-All 30 eval cases must pass before submitting a PR.
+This re-grades the 30 eval outputs in `evals/baseline/` (30 evals x 2 configs = 60 output files). All cases must pass before submitting a PR. No third-party Python dependencies are required --- the grading scripts use only the standard library.
 
 ## Adding New Eval Cases
 
@@ -36,10 +33,10 @@ All 30 eval cases must pass before submitting a PR.
 
 ## Code Conventions
 
-- **YAML plans**: Use `kebab-case` for keys and filenames (e.g., `test-plan.yaml`, `risk-level`).
+- **YAML plans**: Use `snake_case` for keys (e.g., `risk_level`, `test_ref`, `technique_rationale`). Use `kebab-case` for filenames (e.g., `user-auth.yaml`).
 - **Test files**: Use `snake_case` for Python test functions and filenames (e.g., `test_login_flow.py`).
 - **Risk levels**: Always use `high`, `medium`, or `low` (lowercase).
-- **Test techniques**: Reference by abbreviation: EP, BVA, DT, ST, PW, CE, EG.
+- **Test techniques**: Reference by abbreviation: EP, BVA, DT, ST, PW, CE (Cause-Effect), EG (Error Guessing).
 - **Commit messages**: Use imperative mood (e.g., "Add eval case for boundary analysis").
 
 ## Pull Request Process

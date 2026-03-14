@@ -17,6 +17,6 @@
 - 3 example test plans (e-commerce, file-upload, auth)
 - 6 reference guides (techniques, anti-patterns, flaky tests, mocking, process discipline, HTML report spec)
 - Benchmark: 30 evals across 11 categories (pattern-matching rubric, single run, self-evaluated)
-  - Content score (keyword/concept presence): 100% with skill vs 89.9% without (+10.1%)
-  - Schema compliance (YAML field presence): 99.2% with skill vs 15.0% without (+84.2%)
+  - Content improvement: +10.1% average (100% with skill vs 89.9% without)
+  - Structured output: 99.2% schema compliance (internal quality metric)
   - See evals/RESULTS.md for methodology, limitations, and honest framing of these numbers

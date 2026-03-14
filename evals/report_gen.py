@@ -1,6 +1,10 @@
 """
 HTML Benchmark Report Generator for Valid Guard.
-Generates a self-contained HTML dashboard from benchmark.json files.
+Generates an HTML dashboard from benchmark.json files.
+
+Note: This eval-internal report loads Chart.js from CDN (requires internet).
+The user-facing report template (.claude/skills/valid-guard/assets/report-template.html)
+inlines all CSS/JS per the project's offline-first rule.
 
 Usage: python report_gen.py <benchmark_json_path> [benchmark_json_path2 ...]
        python report_gen.py baseline/benchmark.json

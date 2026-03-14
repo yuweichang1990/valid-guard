@@ -136,6 +136,7 @@ scenarios:
           error: "ITEM_OUT_OF_STOCK"
           inventory_hold_released: true
         description: "Concurrent purchase triggers stock conflict."
+    test_ref: ""
     status: uncovered
     priority: 1
     tags:

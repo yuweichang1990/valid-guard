@@ -169,7 +169,7 @@ $defs:
       test_ref:
         type: string
         description: "Path to test file and test name, e.g. tests/auth/test_login.py::test_successful_login"
-        pattern: "^.+::.+$"
+        pattern: "^$|^.+::.+$"
 
       status:
         $ref: "#/$defs/status_enum"

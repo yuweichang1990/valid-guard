@@ -1,28 +1,55 @@
 # Valid Guard
 
-**AI-age test design intelligence for Claude Code**
+**Your LLM already knows testing theory. This skill makes it produce that knowledge in a format you can review, approve, and trace --- before any code is written.**
 
 ---
 
 ## The Problem
 
-AI writes code fast --- but tests are lazy.
+AI writes code fast --- but humans lose control.
 
-When an AI coding agent generates a feature, it typically throws in a handful of tests and calls it done. There is no systematic test design, no risk-weighted coverage analysis, and no structured plan a human can review before test code is generated. The result: humans lose visibility into what is actually being tested, edge cases slip through, and "100% line coverage" masks gaping scenario gaps.
+When an AI coding agent generates a feature, it typically throws in a handful of tests and calls it done. There is no structured plan a human can review, no risk-weighted coverage analysis, and no traceability from requirement to test. The result: humans have no visibility into what is actually being tested, edge cases slip through, and "100% line coverage" masks gaping scenario gaps.
 
-Current TDD-focused skills enforce a red-green-refactor *process*, but they do not address the *design* of the tests themselves. Writing tests first does not help if the tests are shallow.
+Current TDD-focused skills enforce a red-green-refactor *process*, but they do not address the *design* of the tests themselves. Writing tests first does not help if the tests are shallow --- and if no human reviewed the test design before code generation.
 
 ## The Solution
 
-Valid Guard brings **software testing theory** into AI-assisted development. It applies established techniques --- equivalence partitioning, boundary value analysis, decision tables, state transition testing, and pairwise combinatorics --- to systematically derive test scenarios before any test code is written.
+Valid Guard is a **Human-In-The-Loop (HITL) test design skill** for Claude Code. It creates a structured review checkpoint between "AI plans the tests" and "AI writes the code" --- keeping humans in control of what gets tested and why.
 
-The workflow is:
+The skill applies established testing techniques --- equivalence partitioning, boundary value analysis, decision tables, state transition testing, and pairwise combinatorics --- to produce a **human-readable YAML test plan** that you review and approve before any test code is generated.
 
-1. **Define** --- describe the feature or point at existing code
-2. **Plan** --- Valid Guard produces a structured YAML test plan with risk-annotated scenarios
-3. **Review** --- inspect and adjust via an interactive HTML report
-4. **Generate** --- produce test code that maps 1:1 to the plan
-5. **Verify** --- run tests and get a combined scenario + line coverage report
+```
+  AI generates feature code
+         │
+         ▼
+  ┌─────────────────────────┐
+  │  /vg plan or /vg analyze │  ← AI applies testing theory
+  └──────────┬──────────────┘
+             ▼
+  ┌─────────────────────────┐
+  │  YAML Test Plan          │  ← Structured, reviewable artifact
+  │  • Risk-annotated        │
+  │  • Technique-justified   │
+  │  • Scenario-traceable    │
+  └──────────┬──────────────┘
+             ▼
+  ┌─────────────────────────┐
+  │  /vg review              │  ← HUMAN reviews, approves, adjusts
+  │  (Interactive HTML)      │     ← This is the HITL checkpoint
+  └──────────┬──────────────┘
+             ▼
+  ┌─────────────────────────┐
+  │  /vg generate            │  ← AI writes test code from approved plan
+  └──────────┬──────────────┘
+             ▼
+  ┌─────────────────────────┐
+  │  /vg run + /vg report    │  ← Execute and measure coverage
+  └─────────────────────────┘
+```
+
+**Without Valid Guard**: AI decides what to test → writes code → human sees tests only at code review (too late to influence design).
+
+**With Valid Guard**: AI proposes what to test → **human reviews and approves the plan** → AI writes code that maps 1:1 to the approved plan.
 
 ## Key Differentiators
 
@@ -52,25 +79,25 @@ The workflow is:
 
 ### Installation
 
-Valid Guard is a Claude Code skill. To install it in your project:
+Valid Guard is a [Claude Code skill](https://docs.anthropic.com/en/docs/claude-code/skills) --- a prompt-based instruction file that teaches Claude Code new capabilities. It is not a standalone CLI tool or library; it works inside Claude Code's chat interface.
 
 ```bash
 # 1. Clone this repository
-git clone <this-repo-url> valid-guard-repo
+git clone https://github.com/yuweichang1990/valid-guard.git
 
 # 2. Copy the skill into your project's Claude Code skills directory
 mkdir -p your-project/.claude/skills
-cp -r valid-guard-repo/.claude/skills/valid-guard your-project/.claude/skills/valid-guard
+cp -r valid-guard/.claude/skills/valid-guard your-project/.claude/skills/valid-guard
 
 # 3. Verify installation
 ls your-project/.claude/skills/valid-guard/SKILL.md
 ```
 
-If the file exists, Valid Guard is installed. Restart Claude Code and the `/vg` commands will be available.
+If the file exists, Valid Guard is installed. Restart Claude Code and type `/vg plan "your feature description"` in the Claude Code chat interface.
 
 ### Prerequisites
 
-- **Claude Code v2.1.3 or later** (skills support required; older versions will silently ignore the skill)
+- **Claude Code** with skills support (the skill is auto-discovered from `.claude/skills/`)
 - Python 3.10+ and pytest (for MVP test execution)
 
 ## Usage
@@ -215,7 +242,7 @@ scenarios:
     examples:
       - input: { email: "user@test.com", attempts: 5 }
         expected: { status: 423, locked: true }
-    test_ref: null
+    test_ref: ""
     status: uncovered
 ```
 
@@ -230,7 +257,7 @@ scenarios:
 | `scenarios[].risk` | Scenario-level risk |
 | `scenarios[].techniques` | Testing techniques applied |
 | `scenarios[].examples` | Concrete input/expected pairs |
-| `scenarios[].test_ref` | Link to generated test function (null if uncovered) |
+| `scenarios[].test_ref` | Link to generated test function (`""` if uncovered, e.g. `tests/auth/test_login.py::test_successful_login`) |
 | `scenarios[].status` | `covered`, `uncovered`, `approved`, `rejected` |
 
 ## Scenario Coverage Metric
@@ -279,46 +306,46 @@ Every scenario is assessed across four dimensions:
 
 ## File Structure
 
+### This repository (what you clone)
+
 ```
-project-root/
-├── .claude/
-│   └── skills/
-│       └── valid-guard/        # Skill definition (SKILL.md)
-├── .github/                    # Issue templates, PR template, CI workflow
+valid-guard/                       # This repo
+├── .claude/skills/valid-guard/    # The skill itself
+│   ├── SKILL.md                   #   Core skill definition (LLM instructions)
+│   ├── assets/                    #   Report template, default config
+│   ├── references/                #   Techniques guide, schema, anti-patterns
+│   └── examples/                  #   3 example YAML test plans
+├── evals/                         # Eval suite (30 cases, grading, reports)
+├── demo/                          # End-to-end demo with sample YAML plan
+├── .github/                       # Issue templates, PR template, CI workflow
+├── DESIGN.md                      # Design decisions document
+├── CONTRIBUTING.md                # Contributor guide
+├── CHANGELOG.md                   # Release history
+└── README.md                      # This file
+```
+
+### Your project (created at runtime by `/vg` commands)
+
+```
+your-project/
+├── .claude/skills/valid-guard/    # Copied from this repo during installation
 ├── valid-guard/
-│   ├── plans/                  # Test plans (YAML) — version controlled
-│   ├── reports/                # Interactive HTML reports — gitignored
-│   ├── templates/              # Report templates — version controlled
-│   ├── schema/                 # YAML schema definitions
-│   ├── examples/               # Example test plans
-│   └── config.yaml             # Valid Guard configuration
-├── evals/                      # Eval suite (30 cases, grading, reports)
-├── demo/                       # End-to-end demo with sample YAML plan
-├── tests/                      # Generated test code (project's test dir)
-├── DESIGN.md                   # Design decisions document
-├── CONTRIBUTING.md             # Contributor guide
-├── CHANGELOG.md                # Release history
-└── README.md                   # This file
+│   ├── plans/                     # YAML test plans (version-controlled)
+│   ├── reports/                   # Interactive HTML reports (gitignored)
+│   └── config.yaml                # Valid Guard configuration
+└── tests/                         # Generated test code
 ```
 
 ## Benchmark Results
 
-Valid Guard was evaluated on **30 eval cases** across 11 categories. The benchmark measures whether loading SKILL.md causes the LLM to produce outputs that match Valid Guard's expected format and content rubrics.
+Valid Guard was evaluated on **30 eval cases** across 11 categories, measuring two dimensions of value:
 
-**Baseline**: The "without skill" column is a bare LLM with no instructions --- no SKILL.md, no prompt, no schema reference. This is not a comparison against an alternative tool or methodology; it measures what SKILL.md adds over a zero-context starting point.
+1. **Content improvement** --- Does the skill help the LLM include more testing concepts (techniques, edge cases, risk analysis)?
+2. **Structured output** --- Does the skill reliably produce human-readable, reviewable YAML test plans?
 
-### Summary (30 evals, 11 categories)
+**Baseline**: The "without skill" column is a bare LLM with no instructions. This is not a comparison against an alternative tool or methodology; it measures what SKILL.md adds over a zero-context starting point.
 
-| Dimension | with_skill | without_skill | Delta | What it measures |
-|---|---|---|---|---|
-| **Content** (test design quality) | 100.0% | 89.9% | **+10.1%** | Domain knowledge, technique application, scenario completeness |
-| **Schema compliance** (format adherence) | 99.2% | 15.0% | **+84.2%** | Whether output includes Valid Guard YAML fields (risk_rationale, test_ref, metadata, etc.) |
-
-> The +84.2% schema compliance delta is expected: the skill defines a custom YAML schema, so a bare LLM with no knowledge of that schema will naturally score low. This measures format adherence, not test design quality.
->
-> The +10.1% content delta is the more meaningful number. The bare LLM already produces reasonable test design content (~90%); the skill adds structured technique application and risk annotation.
-
-#### Content Score by Category
+### 1. Content Improvement: +10.1% average (30 evals)
 
 | Category | with_skill | without_skill | Content Delta |
 |---|---|---|---|
@@ -333,14 +360,26 @@ Valid Guard was evaluated on **30 eval cases** across 11 categories. The benchma
 | Domain Specific | 100.0% | 92.7% | **+7.3%** |
 | Correctness | 100.0% | 98.2% | **+1.8%** |
 | Completeness | 100.0% | 100.0% | **+0.0%** |
+| **Average** | **100.0%** | **89.9%** | **+10.1%** |
 
-> Note: 100.0% content scores across all categories suggest the rubrics may be too lenient. The rubrics use regex pattern matching, which can over-credit superficial keyword presence. Take per-category scores as directional, not precise.
+> The bare LLM already scores ~90% on test design content. The +10.1% improvement is concentrated in specialized categories where structured technique application matters most: security (+45.5%), brownfield (+25.4%), adversarial (+15.5%).
 
-#### Schema Compliance by Category (plan-type evals only)
+### 2. Structured, Human-Readable Output: 99.2% schema compliance
 
-| Category | with_skill | without_skill | Delta |
-|---|---|---|---|
-| All plan-type evals (22) | 99.2% | 15.0% | **+84.2%** |
+The skill's primary value is not just what it knows, but **how it presents it**. Every test plan includes:
+- **Risk rationale** across 4 dimensions (impact, frequency, consequence, detectability)
+- **Technique rationale** explaining why each testing technique was selected
+- **Example mapping** with concrete input/expected pairs
+- **Decision tables** for multi-condition scenarios
+- **Status tracking** and **priority** for workflow integration
+
+This structured format makes test plans **reviewable by humans before code is generated** --- a capability bare LLM output does not provide in any consistent format.
+
+| Metric | Score |
+|---|---|
+| Schema compliance rate (22 plan-type evals) | **99.2%** |
+
+> Schema compliance is an internal quality metric, not a comparative benchmark. It confirms the skill reliably produces its own structured format --- the bare LLM has no knowledge of this schema, so comparing against it would be circular.
 
 ### What This Benchmark Does NOT Measure
 

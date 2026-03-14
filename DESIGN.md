@@ -1,7 +1,7 @@
 # Valid Guard — Design Decisions
 
 ## Core Philosophy
-- **TDD + VDD (Validation Driven Development)** — not just testing, but helping humans maintain control over AI-driven development
+- **TDD + Validation-Driven Development** — not just testing, but helping humans maintain control over AI-driven development. Validation-Driven Development means: define goals → review structured plan → verify results, keeping humans in the loop as AI writes code
 - AI writes code too fast for humans to review line-by-line; the human's role is: define goals → review plan → verify results
 - Current AI coding agents write lazy tests — a few tests and done. Valid Guard enforces systematic test design using software testing theory
 - **Scenario coverage > code coverage** — care about covering important scenarios and critical paths, weighted by risk
@@ -79,17 +79,18 @@ scenarios:
 - **Interaction model (MVP)**: HTML with interactive elements (checkbox, dropdown), export to JSON, AI reads JSON to update (Plan B)
 - Example Mapping and Decision Table visualization included
 
-## File Structure
+## Runtime File Structure (created in user's project)
 ```
-project-root/
+user-project/
+├── .claude/skills/valid-guard/   # Skill definition (copied from this repo)
 ├── valid-guard/
-│   ├── plans/           # Test Plans (YAML)
-│   ├── reports/         # Interactive HTML reports
-│   └── config.yaml      # Valid Guard config
-├── tests/               # Generated test code (project's test dir)
+│   ├── plans/                    # YAML test plans (version-controlled)
+│   ├── reports/                  # HTML reports (gitignored)
+│   └── config.yaml               # Valid Guard config
+└── tests/                        # Generated test code
 ```
 
-## MVP Scope: ALL features are must-have
+## Core Features
 - /vg plan (Greenfield)
 - /vg analyze (Brownfield)
 - Test technique auto-selection
@@ -108,6 +109,7 @@ project-root/
 - Architecture: language-agnostic test plan layer + language detection at code gen (no plugin system needed, just detect pyproject.toml/package.json/go.mod)
 
 ## Eval Strategy
-- Crawl 200 articles about TDD/VDD/unit testing to extract eval cases
-- Each article processed by a separate agent
-- Build eval case library for skill quality verification
+- 30 eval cases sourced from a 187-case library (extracted from testing articles and best practices)
+- Each eval run as independent agent with and without SKILL.md context
+- Grading: rubric-based regex pattern matching with weighted scoring
+- See `evals/RESULTS.md` for methodology, results, and known limitations

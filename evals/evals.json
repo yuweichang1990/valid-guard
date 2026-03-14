@@ -1,7 +1,7 @@
 {
   "skill_name": "valid-guard",
   "phase": 3,
-  "grading_method": "llm-as-judge",
+  "grading_method": "rubric-based",
   "quality_dimensions": [
     {"name": "correctness", "description": "Technical accuracy of test scenarios and design decisions", "weight": 0.25},
     {"name": "completeness", "description": "Coverage of all important scenarios including edge cases", "weight": 0.25},

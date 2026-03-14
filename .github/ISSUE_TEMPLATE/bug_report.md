@@ -26,7 +26,7 @@ What actually happened. Include any error messages or unexpected output.
 
 ## Environment
 
-- **Claude Code version**: (e.g., 1.0.0)
+- **Claude Code version**: (e.g., 2.1.3)
 - **OS**: (e.g., Windows 11, macOS 14, Ubuntu 22.04)
 - **Python version**: (e.g., 3.11.5)
 - **Shell**: (e.g., bash, zsh, PowerShell)
